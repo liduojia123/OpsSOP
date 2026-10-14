@@ -90,11 +90,14 @@ def test_database_url_escapes_percent_and_unicode():
         postgres_password="p%ss/word密码",
         postgres_host="db",
         postgres_port=5432,
-        postgres_db="opssop_test",
+        postgres_db="opssop",
+        # 显式指定测试库名,不依赖环境变量(POSTGRES_TEST_DB 自定义时旧断言会误判)
+        postgres_test_db="custom_test_db",
     )
     url = make_url(s.test_database_url)
     assert url.password == "p%ss/word密码"
-    assert url.database == "opssop_test"
+    assert url.database == "custom_test_db"
+    assert make_url(s.database_url).database == "opssop"
 
 
 def test_database_url_plain_password_still_works():

@@ -32,4 +32,5 @@ def ai_status(_: User = Depends(get_current_user)) -> AiStatusOut:
         embedding_mode=s.embedding_mode,
         local_only=s.local_only,
         message=messages.get(s.ai_mode, "未知模式"),
+        model_config_version=s.ai_config_version,
     )

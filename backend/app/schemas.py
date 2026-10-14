@@ -358,9 +358,86 @@ class AuditEventOut(ORMModel):
 # ===== 系统状态 =====
 
 class AiStatusOut(BaseModel):
-    """AI 模式状态。第一阶段仅暴露配置状态,不调用模型。"""
+    """AI 模式状态。仅暴露配置状态与配置版本,不调用模型、不返回密钥。"""
 
     ai_mode: str
     embedding_mode: str
     local_only: bool
     message: str
+    # 模型配置版本:前端绑定分析请求/响应,配置变化后旧报告标记过期
+    model_config_version: str = ""
+
+
+# ===== AI 分析(第二阶段)=====
+
+class AnalysisInputPatch(BaseModel):
+    """左栏未保存的表单编辑:分析时覆盖已保存故障字段,不回写数据库。"""
+
+    title: str | None = Field(default=None, max_length=255)
+    description: str | None = Field(default=None, max_length=20000)
+    environment: str | None = Field(default=None, max_length=64)
+    service: str | None = Field(default=None, max_length=128)
+    component_version: str | None = Field(default=None, max_length=128)
+    recent_changes: str | None = Field(default=None, max_length=20000)
+    error_logs: str | None = Field(default=None, max_length=50000)
+    attempted_actions: str | None = Field(default=None, max_length=20000)
+    tags: list[str] | None = None
+    category_id: int | None = None
+
+
+class AnalyzeRequest(BaseModel):
+    """触发一次分析。input 为左栏当前表单(含未保存编辑);缺省字段沿用已保存故障。"""
+
+    trigger_type: str = Field(default="manual", pattern="^(auto|manual)$")
+    use_cache: bool = True
+    input: AnalysisInputPatch | None = None
+
+
+class AiAnalysisOut(ORMModel):
+    """一条分析记录(报告或失败状态)。usage 缺失时为 null(前端显示未知)。"""
+
+    id: int
+    fault_id: int
+    created_by: int
+    trigger_type: str
+    input_hash: str
+    model_config_version: str
+    knowledge_version: str
+    is_demo: bool
+    status: str
+    report: dict | None
+    incomplete_reasons: list
+    error_code: str
+    error_message: str
+    usage: dict | None
+    call_count: int
+    latency_ms: int
+    created_at: datetime
+
+
+class AnalyzeResponse(BaseModel):
+    """分析响应:结果 + 过期判定信息(输入哈希/配置版本随响应下发,前端据此标记过期)。"""
+
+    analysis: AiAnalysisOut
+    reused: bool = False  # 命中缓存复用已有记录
+    input_substance: bool = True  # False 表示空输入未触发模型
+
+
+class SearchHitOut(BaseModel):
+    """知识检索命中:来源类型/ID/版本/片段/定位链接。"""
+
+    ref_id: str
+    source_type: str
+    source_id: int
+    version: int | None
+    title: str
+    snippet: str
+    link: str
+    status: str
+    score: float
+
+
+class SearchResponse(BaseModel):
+    query: str
+    hits: list[SearchHitOut]
+    knowledge_version: str

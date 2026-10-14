@@ -159,6 +159,10 @@ def resolve_fault(
 ) -> FaultDetailOut:
     """人工确认解决:填写实际根因/处理步骤/恢复验证,并生成待审核案例。
     未确认的推测(AI 候选原因)不会进入这些字段。
+
+    历史异常数据修复路径(如 repair_fake_resolved 重开后重新确认):
+    若该故障已有关联案例,则原地更新既有案例并重新进入待审核,
+    保留案例 ID 与来源引用(SOP.source_case_id 等),不删除关联业务数据。
     """
     fault = _get_writable_fault(db, fault_id, user)
     if fault.status == FaultStatus.resolved:
@@ -172,27 +176,48 @@ def resolve_fault(
     fault.recovery_verification = body.recovery_verification
     fault.resolved_at = utcnow()
 
-    case = Case(
-        fault_id=fault.id,
-        title=fault.title,
-        symptom=fault.description,
-        environment=fault.environment,
-        service=fault.service,
-        component_version=fault.component_version,
-        category_id=fault.category_id,
-        tags=list(fault.tags or []),
-        confirmed_root_cause=body.actual_root_cause,
-        handling_steps=body.handling_steps,
-        recovery_verification=body.recovery_verification,
-        status=CaseStatus.pending_review,
-        created_by=user.id,
-    )
-    db.add(case)
+    existing_case = db.scalar(select(Case).where(Case.fault_id == fault.id))
+    if existing_case is not None:
+        # 原地更新既有案例:内容变更后需重新审核,案例 ID 不变
+        existing_case.title = fault.title
+        existing_case.symptom = fault.description
+        existing_case.environment = fault.environment
+        existing_case.service = fault.service
+        existing_case.component_version = fault.component_version
+        existing_case.category_id = fault.category_id
+        existing_case.tags = list(fault.tags or [])
+        existing_case.confirmed_root_cause = body.actual_root_cause
+        existing_case.handling_steps = body.handling_steps
+        existing_case.recovery_verification = body.recovery_verification
+        existing_case.status = CaseStatus.pending_review
+        existing_case.review_comment = ""
+        existing_case.reviewed_by = None
+        existing_case.reviewed_at = None
+        case = existing_case
+        audit_action = "fault.resolve_case_updated"
+    else:
+        case = Case(
+            fault_id=fault.id,
+            title=fault.title,
+            symptom=fault.description,
+            environment=fault.environment,
+            service=fault.service,
+            component_version=fault.component_version,
+            category_id=fault.category_id,
+            tags=list(fault.tags or []),
+            confirmed_root_cause=body.actual_root_cause,
+            handling_steps=body.handling_steps,
+            recovery_verification=body.recovery_verification,
+            status=CaseStatus.pending_review,
+            created_by=user.id,
+        )
+        db.add(case)
+        audit_action = "fault.resolve"
     db.flush()
     record_audit(
         db,
         user,
-        "fault.resolve",
+        audit_action,
         "fault",
         fault.id,
         {"case_id": case.id, "root_cause": body.actual_root_cause[:200]},

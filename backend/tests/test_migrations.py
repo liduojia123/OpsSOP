@@ -73,7 +73,15 @@ def test_upgrade_from_empty_db(disposable_db_url):
             )
         }
     engine.dispose()
-    assert {"users", "faults", "cases", "sops", "sop_feedback", "audit_events"} <= tables
+    assert {
+        "users",
+        "faults",
+        "cases",
+        "sops",
+        "sop_feedback",
+        "audit_events",
+        "ai_analyses",
+    } <= tables
 
 
 def test_upgrade_downgrade_reupgrade_roundtrip(disposable_db_url):

@@ -104,16 +104,26 @@ function formPayload() {
   return { ...form, tags: [...form.tags] }
 }
 
+// 快照:请求期间用户切换历史版本时,多步请求仍作用于发起时的记录 ID
+function currentSopId(): number | null {
+  return sop.value?.id ?? null
+}
+
 async function save() {
-  if (!sop.value) return false
+  const id = currentSopId()
+  if (id == null) return false
   saving.value = true
   try {
-    await client.patch(`/api/sops/${sop.value.id}`, formPayload())
+    // 只回写服务端元数据,不回填表单:请求期间继续输入的内容不被响应覆盖
+    const { data } = await client.patch(`/api/sops/${id}`, formPayload())
+    if (sop.value && sop.value.id === id) {
+      sop.value.updated_at = data.updated_at
+      sop.value.status = data.status
+    }
     ElMessage.success('已保存')
-    await load()
     return true
   } catch (e) {
-    ElMessage.error(errMsg(e))
+    ElMessage.error(errMsg(e)) // 失败保留编辑
     return false
   } finally {
     saving.value = false
@@ -122,13 +132,18 @@ async function save() {
 
 // 提交审核前先保存表单并等待成功,确保审核针对当前编辑内容;失败保留编辑
 async function submitForReview() {
-  if (!sop.value) return
+  const id = currentSopId()
+  if (id == null) return
   submitting.value = true
   try {
-    await client.patch(`/api/sops/${sop.value.id}`, formPayload())
-    await client.post(`/api/sops/${sop.value.id}/submit`, { comment: '' })
+    // 多步提交使用发起时的 ID 快照;等待期间切换历史版本不会改变请求目标
+    await client.patch(`/api/sops/${id}`, formPayload())
+    await client.post(`/api/sops/${id}/submit`, { comment: '' })
     ElMessage.success('已提交审核')
-    await load()
+    // 仅当仍停留在发起提交的记录上时才刷新,避免覆盖切换后的页面
+    if (Number(route.params.id) === id) {
+      await load()
+    }
   } catch (e) {
     ElMessage.error(errMsg(e))
   } finally {
@@ -136,13 +151,16 @@ async function submitForReview() {
   }
 }
 
-// 审核/废弃等动作作用于当前显示的记录(load 保证 sop 与路由 ID 一致)
+// 审核/废弃等动作作用于发起时的记录快照
 async function action(path: string, comment?: string) {
-  if (!sop.value) return
+  const id = currentSopId()
+  if (id == null) return
   try {
-    await client.post(`/api/sops/${sop.value.id}/${path}`, { comment: comment ?? '' })
+    await client.post(`/api/sops/${id}/${path}`, { comment: comment ?? '' })
     ElMessage.success('操作成功')
-    await load()
+    if (Number(route.params.id) === id) {
+      await load()
+    }
   } catch (e) {
     ElMessage.error(errMsg(e))
   }
@@ -170,9 +188,10 @@ async function deprecate() {
 }
 
 async function newVersion() {
-  if (!sop.value) return
+  const id = currentSopId()
+  if (id == null) return
   try {
-    const { data } = await client.post(`/api/sops/${sop.value.id}/new-version`)
+    const { data } = await client.post(`/api/sops/${id}/new-version`)
     ElMessage.success(`已创建新草稿版本 v${data.version}(旧版本继续有效)`)
     // 等待导航完成;watcher 按新 ID 加载,避免读到旧路由参数
     await router.push({ name: 'sop-detail', params: { id: data.id } })
@@ -182,14 +201,18 @@ async function newVersion() {
 }
 
 async function submitFeedback() {
-  if (!sop.value) return
+  const id = currentSopId()
+  if (id == null) return
   feedbackSubmitting.value = true
   try {
-    await client.post(`/api/sops/${sop.value.id}/feedback`, feedbackForm)
+    const { data } = await client.post(`/api/sops/${id}/feedback`, feedbackForm)
     ElMessage.success('感谢反馈')
     feedbackDialog.value = false
     feedbackForm.comment = ''
-    await load()
+    // 只追加反馈列表,不整页 reload,避免覆盖未保存的表单编辑
+    if (sop.value && sop.value.id === id) {
+      feedbacks.value.push(data)
+    }
   } catch (e) {
     ElMessage.error(errMsg(e))
   } finally {
@@ -238,8 +261,8 @@ onMounted(async () => {
         </el-tag>
       </div>
       <div class="flex gap-2">
-        <el-button v-if="canEdit" type="primary" :loading="saving" @click="save">保存</el-button>
-        <el-button v-if="canEdit" :loading="submitting" @click="submitForReview">提交审核</el-button>
+        <el-button v-if="canEdit" type="primary" :loading="saving" :disabled="submitting" @click="save">保存</el-button>
+        <el-button v-if="canEdit" :loading="submitting" :disabled="saving" @click="submitForReview">提交审核</el-button>
         <el-button v-if="canReview && sop.status === 'submitted'" type="success" @click="approve">
           发布
         </el-button>
@@ -299,7 +322,8 @@ onMounted(async () => {
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="lg:col-span-2 page-card">
-        <el-form label-width="100px" :disabled="!canEdit">
+        <!-- 保存/提交期间锁定编辑(审查 P2 #6):防止请求期间的新输入被提交后的旧快照覆盖 -->
+        <el-form label-width="100px" :disabled="!canEdit || saving || submitting">
           <el-form-item label="标题">
             <el-input v-model="form.title" />
           </el-form-item>

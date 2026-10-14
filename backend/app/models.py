@@ -251,3 +251,44 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     actor: Mapped[User | None] = relationship()
+
+
+class AiAnalysisStatus(str, enum.Enum):
+    success = "success"  # 分析成功且引用完整
+    incomplete = "incomplete"  # 成功但部分引用无效被移除/格式修复后不完整
+    failed = "failed"  # 模型调用失败或输出无法解析(不回退预设答案)
+
+
+class AiAnalysis(Base):
+    """AI 分析历史:与原始输入(faults/records)、人工确认(faults 确认字段/cases)分表。
+
+    每条记录绑定输入快照哈希、模型配置版本与知识版本;新输入或配置变化后旧报告过期。
+    不存储密钥;usage 仅在模型接口实际返回时记录。
+    """
+
+    __tablename__ = "ai_analyses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fault_id: Mapped[int] = mapped_column(ForeignKey("faults.id"), index=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    # trigger_type 而非 trigger:避免与 SQL 关键字冲突
+    trigger_type: Mapped[str] = mapped_column(String(16), default="manual")  # auto | manual
+    input_hash: Mapped[str] = mapped_column(String(64), index=True)
+    input_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)  # 分析时的输入快照
+    model_config_version: Mapped[str] = mapped_column(String(16), default="")
+    knowledge_version: Mapped[str] = mapped_column(String(16), default="")
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[AiAnalysisStatus] = mapped_column(
+        _enum_column(AiAnalysisStatus, "ai_analysis_status"), default=AiAnalysisStatus.failed
+    )
+    report: Mapped[dict | None] = mapped_column(JSONB)  # 校验后的报告(AnalysisReport)
+    incomplete_reasons: Mapped[list] = mapped_column(JSONB, default=list)
+    error_code: Mapped[str] = mapped_column(String(32), default="")
+    error_message: Mapped[str] = mapped_column(Text, default="")
+    usage: Mapped[dict | None] = mapped_column(JSONB)  # 模型返回的 usage;缺失为 null
+    call_count: Mapped[int] = mapped_column(Integer, default=0)  # 实际模型调用次数
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    fault: Mapped[Fault] = relationship()
+    creator: Mapped[User] = relationship()
