@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opssop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-opssop}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opssop} -d ${POSTGRES_DB:-opssop}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # 仅本地开发暴露端口;云端部署请移除或绑定 127.0.0.1
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+  backend:
+    build: ./backend
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opssop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-opssop}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-opssop_test}
+      SECRET_KEY: ${SECRET_KEY:?请在 .env 中设置 SECRET_KEY}
+      SESSION_EXPIRE_HOURS: ${SESSION_EXPIRE_HOURS:-8}
+      OPSSOP_ENV: ${OPSSOP_ENV:-development}
+      OPSSOP_ADMIN_USERNAME: ${OPSSOP_ADMIN_USERNAME:-admin}
+      OPSSOP_ADMIN_PASSWORD: ${OPSSOP_ADMIN_PASSWORD:?请在 .env 中设置 OPSSOP_ADMIN_PASSWORD}
+      OPSSOP_SEED_DEMO: ${OPSSOP_SEED_DEMO:-1}
+      OPSSOP_DEMO_OPERATOR_PASSWORD: ${OPSSOP_DEMO_OPERATOR_PASSWORD:-demo-operator-password}
+      OPSSOP_DEMO_REVIEWER_PASSWORD: ${OPSSOP_DEMO_REVIEWER_PASSWORD:-demo-reviewer-password}
+      AI_MODE: ${AI_MODE:-disabled}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      EMBEDDING_MODE: ${EMBEDDING_MODE:-disabled}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      LOCAL_ONLY: ${LOCAL_ONLY:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # 便于容器内跑 pytest(测试库在 PostgreSQL 中,不产生文件卷)
+      - ./backend/tests:/srv/opssop/tests:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  pgdata:

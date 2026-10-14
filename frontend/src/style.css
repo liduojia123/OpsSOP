@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  background: #f5f7fa;
+}
+
+.page-card {
+  @apply bg-white rounded-lg shadow-sm p-5;
+}
+
+.form-label {
+  @apply text-sm text-gray-600 mb-1 block;
+}
