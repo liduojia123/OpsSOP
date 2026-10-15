@@ -1434,3 +1434,249 @@ def test_model_context_excludes_sop_deprecated_mid_search(client, op_headers, db
     full_text = "\n".join(m.content for m in adapter.request.messages)
     assert f"[sop:{sop.id}]" not in full_text, "窗口内废弃的旧知识片段进入了模型上下文"
     assert "知识库无匹配" in full_text, "应明示知识库无匹配,不编造来源"
+
+
+# ===== 第二阶段真实联调复审回归(2026-10-15)=====
+# 验收发现 P2-1:合法 JSON 的 SOP 版本格式错误(version:"v2")直接失败、未进入有限修复。
+
+
+class _ScriptedAdapter:
+    """按脚本顺序返回响应;记录每次请求(断言 JSON 模式与修复提示)。"""
+
+    def __init__(self, results):
+        self._results = list(results)
+        self.requests: list[LLMRequest] = []
+
+    def chat(self, request: LLMRequest) -> LLMResult:
+        self.requests.append(request)
+        return self._results.pop(0)
+
+
+def _report_with_ref_version(sop_id: int, version) -> dict:
+    """带 SOP 引用的最小报告;version 按构造参数(可为 "v1" 字符串制造结构错误)。"""
+    return {
+        "summary": "摘要",
+        "observed_facts": [],
+        "suggested_category": None,
+        "suggested_tags": [],
+        "hypotheses": [],
+        "missing_information": [],
+        "next_checks": [],
+        "references": [
+            {
+                "ref_id": f"sop:{sop_id}",
+                "source_type": "sop",
+                "source_id": sop_id,
+                "version": version,
+                "relevance": "关联",
+            }
+        ],
+        "insufficient_evidence": True,
+    }
+
+
+def _result(text, usage):
+    return LLMResult(text=text, usage=usage, model="stub", latency_ms=1)
+
+
+_FULL_USAGE_A = {"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15}
+_FULL_USAGE_B = {"prompt_tokens": 10, "completion_tokens": 18, "total_tokens": 28}
+
+
+def test_schema_error_enters_repair_and_recovers(client, op_headers, rev_headers, monkeypatch):
+    """P2-1 主场景:首个响应合法 JSON/version="v1"(字符串)→ 修复一次 → version=1 成功。
+
+    共两次调用;格式修复仍使用 JSON 模式;实际 usage 正确求和;来源版本严格校验(与片段一致才保留)。
+    """
+    fault1 = _create_fault(client, op_headers, title="Redis 连接超时", error_logs="ERR timeout")
+    sop = _publish_sop(client, op_headers, rev_headers, fault1["id"])
+    assert sop["version"] == 1  # 初始发布版本
+
+    adapter = _ScriptedAdapter(
+        [
+            _result(json.dumps(_report_with_ref_version(sop["id"], "v1")), _FULL_USAGE_A),
+            _result(json.dumps(_report_with_ref_version(sop["id"], 1)), _FULL_USAGE_B),
+        ]
+    )
+    monkeypatch.setattr(
+        "app.routers.ai.get_settings",
+        lambda: Settings(ai_mode="cloud", ai_base_url="http://127.0.0.1:9", ai_model="m"),
+    )
+    monkeypatch.setattr("app.ai.service.build_adapter", lambda s: adapter)
+
+    fault2 = _create_fault(client, op_headers, title="Redis 连接超时", error_logs="ERR timeout")
+    resp = client.post(
+        f"/api/faults/{fault2['id']}/analyze", json={"use_cache": False}, headers=op_headers
+    )
+    assert resp.status_code == 201, resp.text
+    analysis = resp.json()["analysis"]
+    assert analysis["status"] == "success", analysis
+    assert analysis["call_count"] == 2  # 首次 + 一次修复,共两次实际调用
+    assert analysis["usage"] == {"prompt_tokens": 15, "completion_tokens": 28, "total_tokens": 43}
+    assert len(adapter.requests) == 2
+    assert adapter.requests[0].json_mode is True
+    assert adapter.requests[1].json_mode is True  # 修复请求继续声明 JSON 模式
+    # 来源版本严格校验:修复后 version=1 与当前有效版本一致才保留
+    refs = analysis["report"]["references"]
+    assert [r["ref_id"] for r in refs] == [f"sop:{sop['id']}"]
+    assert refs[0]["version"] == 1 and isinstance(refs[0]["version"], int)
+
+
+def test_repair_feedback_has_field_path_and_expected_type(client, op_headers, monkeypatch):
+    """P2-1:结构错误的修复反馈包含字段路径与期望类型(引导把 "v1" 改成整数)。"""
+    adapter = _ScriptedAdapter(
+        [
+            _result(json.dumps({"summary": "摘要", "references": [
+                {"ref_id": "sop:2", "source_type": "sop", "source_id": 2, "version": "v2", "relevance": ""}
+            ]}), _FULL_USAGE_A),
+            _result(json.dumps(_MINIMAL_REPORT), _FULL_USAGE_B),
+        ]
+    )
+    monkeypatch.setattr(
+        "app.routers.ai.get_settings",
+        lambda: Settings(ai_mode="cloud", ai_base_url="http://127.0.0.1:9", ai_model="m"),
+    )
+    monkeypatch.setattr("app.ai.service.build_adapter", lambda s: adapter)
+    fault = _create_fault(client, op_headers)
+    resp = client.post(
+        f"/api/faults/{fault['id']}/analyze", json={"use_cache": False}, headers=op_headers
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["analysis"]["call_count"] == 2
+    feedback = adapter.requests[1].messages[-1].content
+    assert "references.0.version" in feedback  # 字段路径
+    assert "整数" in feedback  # 期望类型
+    assert "JSON" in feedback  # 修复请求声明 JSON 输出(配合 json_mode)
+
+
+def test_two_schema_errors_fail_explicitly(client, op_headers, monkeypatch):
+    """P2-1:连续两次结构错误明确失败(schema_mismatch),不编造报告。"""
+    bad = _result(json.dumps({"summary": "摘要", "references": [
+        {"ref_id": "sop:2", "source_type": "sop", "source_id": 2, "version": "v2", "relevance": ""}
+    ]}), _FULL_USAGE_A)
+    adapter = _ScriptedAdapter([bad, bad])
+    monkeypatch.setattr(
+        "app.routers.ai.get_settings",
+        lambda: Settings(ai_mode="cloud", ai_base_url="http://127.0.0.1:9", ai_model="m"),
+    )
+    monkeypatch.setattr("app.ai.service.build_adapter", lambda s: adapter)
+    fault = _create_fault(client, op_headers)
+    resp = client.post(
+        f"/api/faults/{fault['id']}/analyze", json={"use_cache": False}, headers=op_headers
+    )
+    assert resp.status_code == 201
+    analysis = resp.json()["analysis"]
+    assert analysis["status"] == "failed"
+    assert analysis["error_code"] == "schema_mismatch"
+    assert analysis["report"] is None
+    assert analysis["call_count"] == 2  # 首次 + 一次修复后放弃
+    assert len(adapter.requests) == 2  # 预算耗尽不再请求
+    assert analysis["usage"] == {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+
+
+def test_syntax_then_schema_error_shares_one_budget(client, op_headers, monkeypatch):
+    """P2-1:语法错后结构错共享一次修复预算:修复用尽后结构错误不再修复,明确失败。"""
+    adapter = _ScriptedAdapter(
+        [
+            _result("这不是 JSON", _FULL_USAGE_A),
+            _result(json.dumps({"summary": "摘要", "references": [
+                {"ref_id": "sop:2", "source_type": "sop", "source_id": 2, "version": "v2", "relevance": ""}
+            ]}), _FULL_USAGE_B),
+        ]
+    )
+    monkeypatch.setattr(
+        "app.routers.ai.get_settings",
+        lambda: Settings(ai_mode="cloud", ai_base_url="http://127.0.0.1:9", ai_model="m"),
+    )
+    monkeypatch.setattr("app.ai.service.build_adapter", lambda s: adapter)
+    fault = _create_fault(client, op_headers)
+    resp = client.post(
+        f"/api/faults/{fault['id']}/analyze", json={"use_cache": False}, headers=op_headers
+    )
+    assert resp.status_code == 201
+    analysis = resp.json()["analysis"]
+    assert analysis["status"] == "failed"
+    assert analysis["error_code"] == "schema_mismatch"  # 最后一次问题为结构错误
+    assert analysis["call_count"] == 2  # 语法修复已用掉唯一预算,不再有第三次调用
+    assert len(adapter.requests) == 2
+    assert analysis["usage"] == {"prompt_tokens": 15, "completion_tokens": 28, "total_tokens": 43}
+
+
+def test_schema_repair_usage_missing_stays_unknown(client, op_headers, monkeypatch):
+    """P2-1:结构修复路径上任一次 usage 缺失 → 整次用量未知(null)。"""
+    adapter = _ScriptedAdapter(
+        [
+            _result(json.dumps({"summary": ""}), _FULL_USAGE_A),  # 结构错误(空摘要)
+            _result(json.dumps(_MINIMAL_REPORT), None),  # 修复成功但无 usage
+        ]
+    )
+    monkeypatch.setattr(
+        "app.routers.ai.get_settings",
+        lambda: Settings(ai_mode="cloud", ai_base_url="http://127.0.0.1:9", ai_model="m"),
+    )
+    monkeypatch.setattr("app.ai.service.build_adapter", lambda s: adapter)
+    fault = _create_fault(client, op_headers)
+    resp = client.post(
+        f"/api/faults/{fault['id']}/analyze", json={"use_cache": False}, headers=op_headers
+    )
+    assert resp.status_code == 201
+    analysis = resp.json()["analysis"]
+    assert analysis["status"] == "success"
+    assert analysis["call_count"] == 2
+    assert analysis["usage"] is None  # 缺失不当 0,不沿用首调用值
+
+
+def test_prompt_metadata_uses_integer_version():
+    """P2-1:知识元数据显式整数版本(source_type=sop, source_id=2, version=2),
+    不再用 "v2" 展示后缀;系统提示含 SOP "version": 2 示例并明确不能写 "v2"。"""
+    from app.ai.prompts import SYSTEM_PROMPT
+    from app.ai.schema import EvidenceItem, KnowledgeSnippet
+    from app.ai.service import AnalysisInput, _build_user_prompt
+
+    inp = AnalysisInput(title="t", description="d", service="svc")
+    evidence = [EvidenceItem(evidence_id="desc", source="description", text="x")]
+    snippets = [
+        KnowledgeSnippet(
+            ref_id="sop:2", source_type="sop", source_id=2, version=2,
+            title="T", snippet="S", link="/sops/2", status="published",
+        ),
+        KnowledgeSnippet(
+            ref_id="case:1", source_type="case", source_id=1, version=None,
+            title="C", snippet="S", link="/cases/1", status="approved",
+        ),
+    ]
+    prompt = _build_user_prompt(inp, evidence, snippets, [])
+    assert "source_type=sop, source_id=2, version=2" in prompt
+    assert "source_type=case, source_id=1, version=null" in prompt
+    assert " v2" not in prompt, "不得再用展示后缀诱导模型写字符串版本"
+    assert '"version": 2' in SYSTEM_PROMPT  # SOP 整数版本示例
+    assert '"version": null' in SYSTEM_PROMPT  # 案例 null 示例
+    assert '"v2"' in SYSTEM_PROMPT  # 明确不能写 "v2"
+
+
+def test_reference_version_strict_no_coercion():
+    """P2-1:version 不接受 \"v2\" 字符串(不宽松转换为可信引用);
+    与后端片段版本不一致的引用移除(严格校验保持)。"""
+    from pydantic import ValidationError as PydanticValidationError
+
+    from app.ai.schema import AnalysisReport, KnowledgeReference, KnowledgeSnippet
+
+    with pytest.raises(PydanticValidationError):
+        KnowledgeReference(ref_id="sop:2", source_type="sop", source_id=2, version="v2")
+
+    snippets = [
+        KnowledgeSnippet(
+            ref_id="sop:2", source_type="sop", source_id=2, version=2,
+            title="T", snippet="S", link="/sops/2", status="published",
+        )
+    ]
+    report = AnalysisReport(
+        summary="s",
+        insufficient_evidence=True,
+        references=[
+            KnowledgeReference(ref_id="sop:2", source_type="sop", source_id=2, version=1)
+        ],
+    )
+    cleaned, reasons = ai_service.verify_report(report, [], snippets, [])
+    assert cleaned.references == []  # 版本不符:移除而非采纳
+    assert any("版本" in r for r in reasons)

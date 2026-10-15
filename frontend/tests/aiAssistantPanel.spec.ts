@@ -5,7 +5,9 @@
  * - P1 #5 首次初始化:immediate watcher 不得访问未初始化 ref;进入即恢复分析历史;
  * - P2 #7 在途分析期间的补证:旧请求结束后重新排队分析最新输入,不丢弃最后一次变更;
  * - P2 #8 关闭自动分析:清除已排定的防抖计时器,发送前复检开关;
- * - 历史时序:切换故障后旧历史响应不覆盖新故障历史。
+ * - 历史时序:切换故障后旧历史响应不覆盖新故障历史;
+ * - P2-2(2026-10-15)业务 failed 展示:HTTP 201 的 failed/report=null 与历史 failed
+ *   统一显示失败原因/用量/重试;元信息独立于 report;旧成功报告保留时标注旧结果。
  *
  * API 全部 mock;不依赖真实模型、后端与网络。
  */
@@ -397,5 +399,110 @@ describe('AiAssistantPanel(第二阶段审查修复回归)', () => {
     expect(wrapper.text()).toContain('输入 15')
     expect(wrapper.text()).toContain('未知')
     expect(wrapper.text()).not.toContain('合计 15') // 缺失字段不得沿用单次值当合计
+  })
+
+  // ===== 第二阶段真实联调复审回归(2026-10-15 复审 P2-2)=====
+
+  it('P2-2:HTTP 201 的 failed(report=null)持久显示原因/用量/重试,不空白', async () => {
+    client.post.mockResolvedValue({
+      data: analyzeResponse({
+        id: 7,
+        is_demo: false,
+        status: 'failed',
+        report: null,
+        error_code: 'schema_mismatch',
+        error_message: '模型输出不符合 Schema: references.0.version',
+        usage: { prompt_tokens: 981, completion_tokens: 3070, total_tokens: 4051 },
+        call_count: 1,
+        latency_ms: 2300,
+      }),
+    })
+    const props = makeProps()
+    const wrapper = mount(AiAssistantPanel, { props, global: globalCfg })
+    await drainMicrotasks()
+    await (wrapper.vm as any).analyze('manual')
+    await drainMicrotasks()
+
+    const text = wrapper.text()
+    // 持久失败原因(HTTP 201 不是成功判据;业务 failed 要有展示分支)
+    expect(text).toContain('分析失败')
+    expect(text).toContain('模型输出不符合 Schema')
+    // 真实用量与调用次数可见(独立于 report)
+    expect(text).toContain('用量:输入 981')
+    expect(text).toContain('调用次数:1')
+    // 人工重试入口
+    const retryBtn = wrapper.findAll('button').find((b) => b.text().includes('重试'))
+    expect(retryBtn).toBeTruthy()
+    // 输入保留;不以空白代替失败状态
+    expect(props.form.description).toContain('checkout')
+    expect(text).not.toContain('尚无分析结果')
+  })
+
+  it('P2-2:点击历史 failed 显示失败原因与用量(不只提示历史报告)', async () => {
+    client.get.mockResolvedValueOnce({
+      data: [
+        analysisRow({
+          id: 8,
+          status: 'failed',
+          report: null,
+          error_code: 'timeout',
+          error_message: '模型调用超时(>60s)',
+          usage: null,
+          call_count: 2,
+        }),
+      ],
+    })
+    const wrapper = mount(AiAssistantPanel, {
+      props: makeProps(),
+      global: globalCfg,
+    })
+    await drainMicrotasks()
+    const vm = wrapper.vm as any
+    vm.viewHistoryItem(vm.history[0])
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('模型调用超时') // 历史 failed 的 error_message 持久显示
+    expect(text).toContain('用量未知') // usage 缺失显示未知
+    expect(text).toContain('调用次数:2')
+    const retryBtn = wrapper.findAll('button').find((b) => b.text().includes('重试'))
+    expect(retryBtn).toBeTruthy() // 历史 failed 同样有人工重试入口
+  })
+
+  it('P2-2:请求失败保留上一份成功报告并标注旧结果', async () => {
+    client.post
+      .mockResolvedValueOnce({
+        data: analyzeResponse({
+          id: 3,
+          report: {
+            summary: '上一份成功摘要',
+            observed_facts: [],
+            suggested_category: null,
+            suggested_tags: [],
+            hypotheses: [],
+            missing_information: [],
+            next_checks: [],
+            references: [],
+            insufficient_evidence: false,
+          },
+        }),
+      })
+      .mockRejectedValueOnce(new Error('network down'))
+
+    const props = makeProps()
+    const wrapper = mount(AiAssistantPanel, { props, global: globalCfg })
+    await drainMicrotasks()
+    const vm = wrapper.vm as any
+
+    await vm.analyze('manual')
+    await drainMicrotasks()
+    expect(wrapper.text()).toContain('上一份成功摘要')
+
+    await vm.analyze('manual')
+    await drainMicrotasks()
+    const text = wrapper.text()
+    expect(text).toContain('上一份成功摘要') // 旧成功报告保留
+    expect(text).toContain('旧结果') // 必须明确标注为旧结果,不冒充本次结果
+    expect(text).toContain('分析失败') // 失败原因可见
   })
 })

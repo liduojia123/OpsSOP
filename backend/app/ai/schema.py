@@ -58,7 +58,10 @@ class KnowledgeReference(BaseModel):
     ref_id: str = Field(min_length=1, description="后端下发的来源片段 ID,如 case:12#s1")
     source_type: str = Field(description="case | sop")
     source_id: int
-    version: int | None = Field(default=None, description="SOP 版本;案例为 null")
+    version: int | None = Field(
+        default=None,
+        description='SOP 当前版本整数(如 2);案例为 null;不得写 "v2" 等字符串(不宽松转换)',
+    )
     relevance: str = Field(default="", description="与当前问题的关联说明")
 
 

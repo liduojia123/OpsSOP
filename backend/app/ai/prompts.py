@@ -13,6 +13,9 @@ SYSTEM_PROMPT = """你是运维故障排查助手,为运维人员整理信息并
 6. 检查命令(next_checks)只给只读检查命令,仅用于展示,不会被执行。
 7. suggested_category 只能从给定分类列表中选择,不确定时用 null。
 8. 没有足够证据时:insufficient_evidence 置 true,给出待补信息与下一步检查,不要硬猜根因。
+9. references 的 version 必须是整数或 null:SOP 填当前版本整数(如 2),案例填 null;
+   不能写 "v2"、"2.0" 等字符串。source_id 必须是整数;ref_id、source_type、source_id、version
+   必须与下方知识片段清单完全一致,不得改写。
 
 输出 JSON 结构(字段名必须完全一致):
 {
@@ -28,7 +31,10 @@ SYSTEM_PROMPT = """你是运维故障排查助手,为运维人员整理信息并
   }],
   "missing_information": ["待补信息"],
   "next_checks": [{"description": "检查目的", "command": "只读命令", "related_hypothesis": "关联候选原因标题"}],
-  "references": [{"ref_id": "case:1", "source_type": "case", "source_id": 1, "version": null, "relevance": "关联说明"}],
+  "references": [
+    {"ref_id": "case:1", "source_type": "case", "source_id": 1, "version": null, "relevance": "关联说明"},
+    {"ref_id": "sop:2", "source_type": "sop", "source_id": 2, "version": 2, "relevance": "关联说明"}
+  ],
   "insufficient_evidence": false
 }
 """
@@ -43,7 +49,7 @@ USER_TEMPLATE = """【故障信息】
 【输入证据】(引用 evidence_id)
 {evidence_block}
 
-【知识片段】(引用 ref_id;来自已审核案例与已发布 SOP)
+【知识片段】(引用 ref_id;元数据中 version 为整数或 null,如 SOP 的 version=2 不是 "v2";来自已审核案例与已发布 SOP)
 {knowledge_block}
 
 【分类候选】(suggested_category 只能从中选择或 null)

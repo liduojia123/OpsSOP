@@ -237,6 +237,8 @@ async function analyze(trigger: 'auto' | 'manual') {
       // 模型失败:保留输入与既有报告,可手动重试;不回退预设答案
       error.value = { message: errMsg(e), status }
     }
+    // 请求失败但保留上一份成功报告时:明确标注旧结果,不把旧报告冒充本次结果(复审 P2-2)
+    markStale('本次分析未成功,以下为上一份结果(旧结果)')
   } finally {
     if (disposed) return // 卸载后不得再排队任务(取消请求会进入 finally,复审 P2 #3)
     if (seq === requestSeq) {
@@ -433,6 +435,17 @@ async function copyCommand(cmd: string) {
 
 const report = computed<AnalysisReport | null>(() => analysis.value?.report ?? null)
 
+// ===== 业务失败展示(2026-10-15 复审 P2-2)=====
+// HTTP 201 只代表创建了分析记录,不代表分析成功;业务 failed 与历史 failed
+// 从分析记录统一派生(error_code/error_message),持久显示原因与人工重试入口,
+// 不再要求「有 report」或「无 analysis」——failed/report=null 不得显示空白。
+const analysisFailed = computed(() => analysis.value?.status === 'failed')
+const failureReason = computed(() => {
+  const a = analysis.value
+  if (!a) return ''
+  return a.error_message?.trim() || '分析失败(未记录原因)'
+})
+
 function usageText(a: AiAnalysis): string {
   const u = a.usage
   if (!u || Object.keys(u).length === 0) return '用量未知'
@@ -537,6 +550,21 @@ function triggerLabel(t: string): string {
           class="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1.5"
         >
           <b>演示数据 / 模拟分析</b>:以下结果由演示适配器模拟生成,不代表真实模型能力。
+        </div>
+
+        <!-- 分析失败(业务 failed:新结果与历史统一,持久显示原因与人工重试入口,复审 P2-2) -->
+        <div
+          v-if="analysisFailed"
+          class="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5"
+        >
+          <div class="font-medium mb-1">分析失败:{{ failureReason }}</div>
+          <div v-if="analysis?.error_code" class="mb-1 text-red-400">
+            失败类型:{{ analysis.error_code }}
+          </div>
+          <div class="flex items-center gap-2">
+            <el-button size="small" type="danger" plain @click="retry">重试</el-button>
+            <span class="text-red-400">输入与记录不受影响,可继续编辑后重试</span>
+          </div>
         </div>
 
         <template v-if="analysis && report">
@@ -665,29 +693,33 @@ function triggerLabel(t: string): string {
             </ul>
           </div>
 
-          <!-- 分析元信息 -->
-          <section class="text-xs text-gray-400 space-y-0.5 border-t border-slate-100 pt-2">
-            <div>分析时间:{{ fmtTime(analysis.created_at) }}</div>
-            <div>
-              状态:{{ statusLabel(analysis) }} · 触发:{{ triggerLabel(analysis.trigger_type) }} ·
-              调用次数:{{ analysis.call_count }} · 延迟:{{ analysis.latency_ms }}ms
-              <el-tag v-if="reused" size="small" type="info" effect="plain" class="ml-1">复用缓存结果</el-tag>
-            </div>
-            <div>{{ usageText(analysis) }}</div>
-            <div>
-              输入版本:{{ analysis.input_hash.slice(0, 8) }} · 配置版本:{{ analysis.model_config_version || '未知' }} ·
-              知识版本:{{ analysis.knowledge_version || '未知' }}
-            </div>
-          </section>
         </template>
 
-        <!-- 失败且无历史报告 -->
-        <div v-else-if="error && !analysis" class="text-sm text-gray-400 leading-6">
+        <!-- 分析元信息:独立于报告展示(失败/report=null 时同样可见;无 usage 显示未知,复审 P2-2) -->
+        <section
+          v-if="analysis"
+          class="text-xs text-gray-400 space-y-0.5 border-t border-slate-100 pt-2"
+        >
+          <div>分析时间:{{ fmtTime(analysis.created_at) }}</div>
+          <div>
+            状态:{{ statusLabel(analysis) }} · 触发:{{ triggerLabel(analysis.trigger_type) }} ·
+            调用次数:{{ analysis.call_count }} · 延迟:{{ analysis.latency_ms }}ms
+            <el-tag v-if="reused" size="small" type="info" effect="plain" class="ml-1">复用缓存结果</el-tag>
+          </div>
+          <div>{{ usageText(analysis) }}</div>
+          <div>
+            输入版本:{{ analysis.input_hash.slice(0, 8) }} · 配置版本:{{ analysis.model_config_version || '未知' }} ·
+            知识版本:{{ analysis.knowledge_version || '未知' }}
+          </div>
+        </section>
+
+        <!-- 请求层失败且无分析记录 -->
+        <div v-else-if="error" class="text-sm text-gray-400 leading-6">
           本次分析失败,上方可重试。左侧输入不会丢失。
         </div>
 
         <!-- 空状态 -->
-        <div v-else-if="!analysis" class="text-sm text-gray-400 leading-6">
+        <div v-else class="text-sm text-gray-400 leading-6">
           <p class="mb-2">尚无分析结果。在左侧补充问题描述、报错日志后:</p>
           <ul class="list-disc pl-5 space-y-1">
             <li>输入停顿约 2 秒自动分析(可在上方关闭)</li>

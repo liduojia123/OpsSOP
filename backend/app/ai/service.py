@@ -45,7 +45,7 @@ from app.models import (
 )
 from app.search.keyword import SearchHit, search_knowledge
 
-# 格式修复重试上限(有限重试)
+# 格式修复重试上限:JSON 语法错误与 Schema 结构错误共享这一次预算(有限重试)
 MAX_FORMAT_REPAIRS = 1
 # 每个证据/知识片段进入提示词前的单条上限,避免单条日志撑爆上下文
 MAX_EVIDENCE_CHARS = 3000
@@ -236,9 +236,14 @@ def _build_user_prompt(
         for e in evidence
     ) or "(无)"
     if snippets:
+        # 知识元数据显式整数版本(source_type=sop, source_id=2, version=2),
+        # 不用 "v2" 之类的展示后缀——模型模仿提示文本写 version:"v2" 会直接违反
+        # Schema(整数或 null),是 2026-10-15 复审 P2-1 的直接诱因
         knowledge_block = "\n".join(
-            f"[{s.ref_id}] {_clip(s.title, 200)} (来源:{s.source_type}:{s.source_id}"
-            f"{f' v{s.version}' if s.version else ''})\n    {_clip(s.snippet, MAX_SNIPPET_CHARS)}"
+            f"[{s.ref_id}] {_clip(s.title, 200)} "
+            f"(source_type={s.source_type}, source_id={s.source_id}, "
+            f"version={s.version if s.version is not None else 'null'})\n"
+            f"    {_clip(s.snippet, MAX_SNIPPET_CHARS)}"
             for s in snippets
         )
     else:
@@ -288,6 +293,33 @@ def _extract_json(text: str) -> dict | None:
                         break
         start = text.find("{", start + 1)
     return None
+
+
+# Schema 校验错误类型的「期望」提示(反馈给模型的修复指引;不回显输入值)
+_SCHEMA_ERROR_HINTS = {
+    "int_parsing": '期望整数(如 2),不能是 "v2" 等字符串',
+    "int_type": "期望整数",
+    "string_type": "期望字符串",
+    "bool_type": "期望布尔值 true/false",
+    "list_type": "期望数组",
+    "dict_type": "期望对象",
+    "missing": "缺少必填字段",
+    "extra_forbidden": "不允许多余字段",
+    "string_too_short": "字符串不能为空",
+    "none_not_allowed": "不允许 null",
+}
+
+
+def _format_schema_errors(exc: ValidationError) -> str:
+    """把 Schema 校验错误整理为「字段路径: 期望类型」反馈(脱敏,供一次修复重试)。"""
+    lines = []
+    for err in exc.errors()[:8]:
+        loc = ".".join(str(p) for p in err.get("loc", ())) or "(root)"
+        hint = _SCHEMA_ERROR_HINTS.get(err.get("type", "")) or sanitize_text(
+            str(err.get("msg", ""))
+        )[:120]
+        lines.append(f"{loc}: {hint}")
+    return sanitize_text("; ".join(lines))
 
 
 def verify_report(
@@ -758,57 +790,65 @@ def _analyze_uncached(
         call_count += 1
         result: LLMResult = adapter.chat(request)
         call_usages.append(result.usage)  # 仅接口实际返回时记录;缺失为 None(显示未知)
-        data = _extract_json(result.text)
+
+        # 格式修复:JSON 语法错误与 Schema 结构错误共享 MAX_FORMAT_REPAIRS 次预算
+        # (2026-10-15 复审 P2-1:合法 JSON 的结构错误此前直接失败、未进入修复)。
+        # 修复反馈字段路径与期望类型;修复请求继续声明 JSON 模式;
+        # 每次实际调用的 usage/call_count 都累计;预算耗尽仍无效则明确失败。
+        report: AnalysisReport | None = None
         repair_attempts = 0
-        while data is None and repair_attempts < MAX_FORMAT_REPAIRS:
+        fail_code = ""
+        fail_message = ""
+        while True:
+            data = _extract_json(result.text)
+            if data is None:
+                fail_code = "bad_response"
+                fail_message = "模型输出不是合法 JSON(已有限重试);未生成分析"
+                feedback = "输出不是合法 JSON 对象。请只输出符合约定结构的 JSON,不要其他文本。"
+            else:
+                try:
+                    report = AnalysisReport.model_validate(data)
+                    break
+                except ValidationError as exc:
+                    fail_code = "schema_mismatch"
+                    # Pydantic 错误信息可能含用户输入片段,脱敏后展示
+                    fail_message = (
+                        f"模型输出不符合 Schema(已有限重试): {sanitize_text(str(exc))[:500]}"
+                    )
+                    feedback = (
+                        "输出是合法 JSON,但字段结构不符合约定。请按下列字段路径与期望类型修正"
+                        "(references 的 version 必须是整数或 null:案例为 null,"
+                        'SOP 为整数版本号如 2,不能写 "v2" 等字符串):\n'
+                        f"{_format_schema_errors(exc)}\n"
+                        "请重新输出修正后的完整 JSON 对象,不要输出 JSON 以外的任何文本。"
+                    )
+            if repair_attempts >= MAX_FORMAT_REPAIRS:
+                latency_ms = int((time.monotonic() - start) * 1000)
+                return AnalysisOutcome(
+                    status=AiAnalysisStatus.failed,
+                    report=None,
+                    incomplete_reasons=[],
+                    error_code=fail_code,
+                    error_message=fail_message,
+                    usage=_aggregate_usage(call_usages),
+                    call_count=call_count,
+                    latency_ms=latency_ms,
+                    is_demo=False,
+                )
             repair_attempts += 1
             call_count += 1
             messages.append(ChatMessage(role="assistant", content=result.text[:4000]))
-            messages.append(
-                ChatMessage(
-                    role="user",
-                    content="输出不是合法 JSON 对象。请只输出符合约定结构的 JSON,不要其他文本。",
-                )
-            )
+            messages.append(ChatMessage(role="user", content=feedback))
             result = adapter.chat(
                 request.__class__(
                     messages=messages,
                     max_output_tokens=request.max_output_tokens,
-                    json_mode=request.json_mode,
+                    json_mode=request.json_mode,  # 修复请求继续声明 JSON 模式
                 )
             )
             call_usages.append(result.usage)  # 不覆盖:每次调用的用量都计入合计
-            data = _extract_json(result.text)
 
         latency_ms = int((time.monotonic() - start) * 1000)
-
-        if data is None:
-            return AnalysisOutcome(
-                status=AiAnalysisStatus.failed,
-                report=None,
-                incomplete_reasons=[],
-                error_code="bad_response",
-                error_message="模型输出不是合法 JSON(已有限重试);未生成分析",
-                usage=_aggregate_usage(call_usages),
-                call_count=call_count,
-                latency_ms=latency_ms,
-                is_demo=False,
-            )
-        try:
-            report = AnalysisReport.model_validate(data)
-        except ValidationError as exc:
-            return AnalysisOutcome(
-                status=AiAnalysisStatus.failed,
-                report=None,
-                incomplete_reasons=[],
-                error_code="schema_mismatch",
-                # Pydantic 错误信息可能含用户输入片段,脱敏后展示
-                error_message=f"模型输出不符合 Schema: {sanitize_text(str(exc))[:500]}",
-                usage=_aggregate_usage(call_usages),
-                call_count=call_count,
-                latency_ms=latency_ms,
-                is_demo=False,
-            )
 
         report, reasons = verify_report(report, evidence, snippets, categories)
         return AnalysisOutcome(
