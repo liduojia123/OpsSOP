@@ -16,7 +16,8 @@
   - 追加记录不清空未保存的表单编辑(质量检查 P1 #5)
   - 确认解决/提交审核前自动保存表单(质量检查 P1 #5)
   - SOP 历史版本切换 URL 与内容一致(质量检查 P1 #6)
-  - reviewer 不显示写操作按钮(前端缺口:权限一致)
+  - reviewer 不显示写操作按钮(含未解决故障上的断言,防止恒真覆盖缺口)
+  - 状态切换不清空未保存的描述/日志编辑(第一阶段遗漏修复回归)
 """
 import os
 import re
@@ -226,10 +227,56 @@ def main():
         n_append = page.get_by_role("button", name="追加", exact=True).count()
         n_resolve = page.get_by_role("button", name="确认解决", exact=True).count()
         check(
-            "reviewer 不显示保存/追加/确认解决按钮",
+            "reviewer 不显示保存/追加/确认解决按钮(已解决故障)",
             n_save + n_append + n_resolve == 0,
             f"save={n_save} append={n_append} resolve={n_resolve}",
         )
+
+        # 覆盖缺口回归:按钮断言必须在「未解决」故障上也成立——
+        # 已解决故障对所有角色都隐藏写按钮,单查已解决无法证明角色权限一致。
+        print("== 9b. reviewer 在未解决故障上仍无写按钮(覆盖缺口回归)==")
+        do_login(page, OP_USER, OP_PASS)
+        page.goto(BASE + "/faults")
+        page.get_by_role("button", name="+ 新建故障").click()
+        dlg = page.locator(".el-dialog")
+        open_title = f"{marker} 未解决故障-权限断言"
+        field(dlg, "标题").fill(open_title)
+        field(dlg, "详细描述").fill("仅用于 reviewer 按钮断言")
+        page.get_by_role("button", name="创建并处理").click()
+        page.wait_for_url(re.compile(r".*/faults/\d+"), timeout=10000)
+        open_fault_url = page.url
+        # 运维本人在未解决故障上应看到写按钮(对照组,防止断言恒真)
+        n_save = page.get_by_role("button", name="保存", exact=True).count()
+        check("对照: 运维在未解决故障上可见保存按钮", n_save > 0, f"save={n_save}")
+
+        do_login(page, RV_USER, RV_PASS)
+        page.goto(open_fault_url)
+        page.wait_for_timeout(1000)
+        n_save = page.get_by_role("button", name="保存", exact=True).count()
+        n_append = page.get_by_role("button", name="追加", exact=True).count()
+        n_resolve = page.get_by_role("button", name="确认解决", exact=True).count()
+        n_toggle = page.get_by_role("button", name="开始处理", exact=True).count()
+        check(
+            "reviewer 不显示保存/追加/确认解决按钮(未解决故障)",
+            n_save + n_append + n_resolve + n_toggle == 0,
+            f"save={n_save} append={n_append} resolve={n_resolve} toggle={n_toggle}",
+        )
+
+        # ========== 10. 状态切换不清空未保存编辑(第一阶段遗漏 #1) ==========
+        print("== 10. 状态切换保留未保存编辑 ==")
+        do_login(page, OP_USER, OP_PASS)
+        page.goto(open_fault_url)
+        page.wait_for_timeout(800)
+        toggle_marker = f"{marker} 状态切换前未保存的描述"
+        field(page, "详细描述").fill(toggle_marker)  # 故意不点保存
+        page.get_by_role("button", name="转为草稿").click()
+        page.wait_for_timeout(1200)
+        val = field(page, "详细描述").input_value()
+        check("转为草稿后未保存的描述编辑仍在", toggle_marker in val, f"got={val[:80]}")
+        page.get_by_role("button", name="开始处理").click()
+        page.wait_for_timeout(1200)
+        val = field(page, "详细描述").input_value()
+        check("转回处理中后未保存的描述编辑仍在", toggle_marker in val, f"got={val[:80]}")
 
         browser.close()
 

@@ -16,6 +16,10 @@ from sqlalchemy.orm import sessionmaker
 # 保证容器内测试可导入 app
 os.environ.setdefault("POSTGRES_HOST", "db")
 os.environ.setdefault("OPSSOP_ENV", "development")
+# 测试与部署环境隔离:不继承真实 .env 的 AI 限流配置(联调时可能为 2/分钟),
+# 需要验证限流的用例用显式 Settings(ai_rate_limit_per_minute=...) 覆盖
+os.environ["AI_RATE_LIMIT_PER_MINUTE"] = "1000"
+os.environ["AI_MAX_CONCURRENT_PER_USER"] = "100"
 
 from app.config import get_settings  # noqa: E402
 from app.database import Base, get_db  # noqa: E402

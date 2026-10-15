@@ -153,6 +153,101 @@ export interface AiStatus {
   embedding_mode: string
   local_only: boolean
   message: string
+  /** 模型配置版本:绑定分析请求/响应,配置变化后旧报告标记过期 */
+  model_config_version: string
+}
+
+// ===== AI 分析(第二阶段)=====
+
+export type AiAnalysisStatus = 'success' | 'incomplete' | 'failed'
+
+export interface ObservedFact {
+  evidence_ids: string[]
+  fact: string
+}
+
+export interface Hypothesis {
+  title: string
+  rationale: string
+  evidence_ids: string[]
+  reference_ids: string[]
+  missing_information: string[]
+  verification: string
+  /** 优先排查 | 次优先 | 证据不足(不使用概率) */
+  priority: string
+}
+
+export interface NextCheck {
+  description: string
+  /** 只读检查命令:仅展示与复制,不执行 */
+  command: string
+  related_hypothesis: string
+}
+
+export interface KnowledgeReference {
+  ref_id: string
+  source_type: string
+  source_id: number
+  version: number | null
+  relevance: string
+}
+
+export interface AnalysisReport {
+  summary: string
+  observed_facts: ObservedFact[]
+  suggested_category: string | null
+  suggested_tags: string[]
+  hypotheses: Hypothesis[]
+  missing_information: string[]
+  next_checks: NextCheck[]
+  references: KnowledgeReference[]
+  insufficient_evidence: boolean
+}
+
+export interface AiAnalysis {
+  id: number
+  fault_id: number
+  created_by: number
+  trigger_type: string
+  input_hash: string
+  model_config_version: string
+  knowledge_version: string
+  is_demo: boolean
+  status: AiAnalysisStatus
+  report: AnalysisReport | null
+  incomplete_reasons: string[]
+  error_code: string
+  error_message: string
+  /** 模型接口返回的 usage;缺失为 null(显示未知),不虚构 token/费用 */
+  usage: Record<string, number> | null
+  call_count: number
+  latency_ms: number
+  created_at: string
+}
+
+export interface AnalyzeResponse {
+  analysis: AiAnalysis
+  /** 命中缓存复用已有记录 */
+  reused: boolean
+  input_substance: boolean
+}
+
+export interface SearchHit {
+  ref_id: string
+  source_type: string
+  source_id: number
+  version: number | null
+  title: string
+  snippet: string
+  link: string
+  status: string
+  score: number
+}
+
+export interface SearchResponse {
+  query: string
+  hits: SearchHit[]
+  knowledge_version: string
 }
 
 export interface AuditEvent {

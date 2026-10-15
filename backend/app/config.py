@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_model: str = ""
     ai_timeout_seconds: int = 60
+    # 能力配置:不同服务对结构化输出/usage 支持不一致,默认保守,由管理员显式开启
+    ai_supports_json_mode: bool = False  # response_format={"type":"json_object"}
+    ai_supports_usage: bool = False  # 目标服务会返回 usage 字段(仅作提示;返回了就记录)
+    # 上下文与输出限制(单次分析)
+    ai_max_context_chars: int = 24000  # 发送给模型的输入上限(脱敏后)
+    ai_max_output_tokens: int = 2048
+    # 单用户限流(单实例内存计数;多实例部署需外部限流,文档已注明)
+    ai_rate_limit_per_minute: int = 6
+    ai_max_concurrent_per_user: int = 2
 
     # embedding 独立配置
     embedding_mode: str = "disabled"  # disabled | cloud | local
@@ -68,6 +77,31 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.opssop_env.lower() == "production"
 
+    @property
+    def ai_config_version(self) -> str:
+        """模型配置版本:绑定分析请求与响应,配置变化后旧结果标记过期。
+
+        不含密钥内容;密钥轮换但端点/模型不变时版本不变(输出契约不变)。
+        """
+        import hashlib
+
+        raw = "|".join(
+            [
+                self.ai_mode,
+                self.ai_base_url,
+                self.ai_model,
+                str(self.ai_supports_json_mode),
+                str(self.ai_max_output_tokens),
+                str(self.ai_max_context_chars),
+            ]
+        )
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+    @property
+    def knowledge_version_seed(self) -> str:
+        """知识版本种子:与检索缓存键组合使用(实际版本由知识表状态计算)。"""
+        return self.ai_config_version
+
     def validate_ai_config(self) -> None:
         """启动时校验 AI 配置冲突;LOCAL_ONLY 下禁止 cloud 模式。"""
         if self.local_only and self.ai_mode == "cloud":
@@ -82,6 +116,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"EMBEDDING_MODE 必须是 {sorted(valid_emb)} 之一,当前: {self.embedding_mode}"
             )
+        if self.ai_mode in ("cloud", "local") and not self.ai_base_url:
+            raise ValueError(f"AI_MODE={self.ai_mode} 需要配置 AI_BASE_URL")
+        if self.ai_mode == "local":
+            from app.ai.llm import _is_trusted_local_target
+
+            if not _is_trusted_local_target(self.ai_base_url):
+                raise ValueError(
+                    "AI_MODE=local 的 AI_BASE_URL 不是受信任的本机/内网地址;请管理员修正配置"
+                )
 
 
 @lru_cache

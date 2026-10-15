@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import audit, auth, cases, categories, faults, sops, system, users, workbench
+from app.routers import ai, audit, auth, cases, categories, faults, sops, system, users, workbench
 from app.seed import ensure_seed
 
 logger = logging.getLogger("opssop")
@@ -51,3 +51,4 @@ app.include_router(sops.router)
 app.include_router(workbench.router)
 app.include_router(audit.router)
 app.include_router(system.router)
+app.include_router(ai.router)

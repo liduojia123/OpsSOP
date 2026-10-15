@@ -14,3 +14,13 @@ OpsSOP 的 MIT 许可证覆盖本项目原创代码。第三方依赖、开发�
 主要组件包括 Vue、TypeScript、Vite、Element Plus、Tailwind CSS、Axios、FastAPI、SQLAlchemy、Alembic、PostgreSQL、Node.js、Python 和 nginx。各组件的许可证请查看其官方发行包与仓库；前端锁文件也记录依赖声明的许可证信息。
 
 部分构建工具还使用独立许可的数据集，例如 `caniuse-lite`。这些依赖的许可要求应按其发行版本核对。
+
+第二阶段新增测试工具的锁文件声明（非穷尽清单，2026-10-14）：
+
+| 软件包 | 锁定版本 | `license` 字段 |
+|---|---|---|
+| Vitest (`vitest`) | 2.1.9 | MIT |
+| happy-dom | 15.11.7 | MIT |
+| Vue Test Utils (`@vue/test-utils`) | 2.5.1 | MIT |
+
+以上依据 `frontend/package-lock.json` 的对应条目核对，不替代完整依赖审计；再分发构建产物或依赖时仍应保留各发行包要求的声明。

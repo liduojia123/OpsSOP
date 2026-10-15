@@ -24,9 +24,15 @@ from app.security import hash_password  # noqa: E402
 from app.seed import find_insecure_accounts  # noqa: E402
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OpsSOP 生产准备:清理遗留默认口令与演示账号")
-    parser.add_argument("--disable", metavar="用户名", help="停用指定账号(可多次指定)")
+    parser.add_argument(
+        "--disable",
+        metavar="用户名",
+        action="append",
+        default=[],
+        help="停用指定账号(可多次指定)",
+    )
     parser.add_argument(
         "--rotate",
         nargs=2,
@@ -35,6 +41,11 @@ def main() -> int:
         default=[],
         help="轮换指定账号口令(可多次指定)",
     )
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     db = SessionLocal()
@@ -47,7 +58,7 @@ def main() -> int:
         else:
             print("未发现遗留默认口令或演示账号。")
 
-        for username in args.disable or []:
+        for username in args.disable:
             user = db.scalar(select(User).where(User.username == username))
             if user is None:
                 print(f"错误:账号 {username} 不存在", file=sys.stderr)
@@ -59,7 +70,7 @@ def main() -> int:
             db.commit()
             print(f"已停用账号: {username}")
 
-        for username, new_password in args.rotate or []:
+        for username, new_password in args.rotate:
             user = db.scalar(select(User).where(User.username == username))
             if user is None:
                 print(f"错误:账号 {username} 不存在", file=sys.stderr)
