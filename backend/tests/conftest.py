@@ -64,6 +64,17 @@ _ensure_test_database()
 engine = create_engine(settings.test_database_url, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
+# pgvector 扩展:embedding 索引表的向量列需要(镜像须为 pgvector/pgvector 系列)。
+# 失败时给出明确原因,不以普通数组替代。
+try:
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
+except Exception as exc:  # pragma: no cover - 环境问题
+    raise RuntimeError(
+        "测试库无法启用 pgvector 扩展:请确认数据库镜像为 pgvector/pgvector:pg16 "
+        "且用户有 CREATE EXTENSION 权限"
+    ) from exc
+
 
 @pytest.fixture(scope="session", autouse=True)
 def prepare_database():

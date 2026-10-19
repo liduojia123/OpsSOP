@@ -45,11 +45,18 @@ class Settings(BaseSettings):
     ai_rate_limit_per_minute: int = 6
     ai_max_concurrent_per_user: int = 2
 
-    # embedding 独立配置
+    # embedding 独立配置(与聊天模型独立;第三阶段第二批)
     embedding_mode: str = "disabled"  # disabled | cloud | local
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     embedding_model: str = ""
+    embedding_timeout_seconds: int = 30
+    embedding_batch_size: int = 16  # 单次 embed 请求的最大文本条数
+    embedding_max_input_chars: int = 6000  # 单条文本进入 embedding 前的长度上限(脱敏后)
+    # 查询向量独立限流/并发(与聊天 AI_RATE_LIMIT 分离;复审 P2-3:
+    # 检索与分析不得互相挤占配额,向量限流时降级关键词,不影响分析额度)
+    embedding_rate_limit_per_minute: int = 30
+    embedding_max_concurrent_per_user: int = 4
 
     # 启用后禁止聊天与 embedding 使用 cloud 配置(应用级约束,不等于网络隔离)
     local_only: bool = False
@@ -125,6 +132,20 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "AI_MODE=local 的 AI_BASE_URL 不是受信任的本机/内网地址;请管理员修正配置"
                 )
+        # embedding 独立校验(与聊天同一约束:LOCAL_ONLY 已在上方覆盖 cloud 冲突)
+        if self.embedding_mode in ("cloud", "local") and not self.embedding_base_url:
+            raise ValueError(
+                f"EMBEDDING_MODE={self.embedding_mode} 需要配置 EMBEDDING_BASE_URL"
+            )
+        if self.embedding_mode == "local" and self.embedding_base_url:
+            from app.ai.llm import _is_trusted_local_target
+
+            if not _is_trusted_local_target(self.embedding_base_url):
+                raise ValueError(
+                    "EMBEDDING_MODE=local 的 EMBEDDING_BASE_URL 不是受信任的本机/内网地址;请管理员修正配置"
+                )
+        if self.embedding_mode != "disabled" and not self.embedding_model:
+            raise ValueError("EMBEDDING_MODE 启用时需要配置 EMBEDDING_MODEL")
 
 
 @lru_cache

@@ -2,10 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, record_audit, require_operator, require_reviewer
-from app.models import Case, CaseStatus, Role, Sop, SopStatus, User, utcnow
-from app.schemas import CaseOut, CaseUpdate, ReviewRequest, SopOut
+from app.models import Case, CaseStatus, Role, Sop, SopAiGenerationRun, SopStatus, User, utcnow
+from app.schemas import (
+    CaseOut,
+    CaseUpdate,
+    ReviewRequest,
+    SopGenerateAiRequest,
+    SopGenerateAiResponse,
+    SopGenerationRunOut,
+    SopOut,
+)
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
@@ -215,3 +224,89 @@ def generate_sop_draft(
     record_audit(db, user, "sop.generate_from_case", "sop", sop.id, {"case_id": case.id})
     db.commit()
     return SopOut.model_validate(sop)
+
+
+@router.post(
+    "/{case_id}/generate-sop-ai",
+    response_model=SopGenerateAiResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_sop_draft_ai(
+    case_id: int,
+    body: SopGenerateAiRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+) -> SopGenerateAiResponse:
+    """人工主动从已通过案例 AI 生成 SOP 草稿(第三阶段第一批)。
+
+    与模板生成(/generate-sop)分开;不自动提交审核或发布;不改写来源案例。
+    审核员不能调用(沿用生成权限:require_operator);运维仅限自己提交的已通过案例。
+    HTTP 201 仅代表创建了生成运行记录,是否成功以 run.status 为准。
+    """
+    from app.ai.llm import LLMError
+    from app.ai.service import RateLimited
+    from app.ai.sop_draft import (
+        AiUnavailable,
+        SourceRejected,
+        TokenConflict,
+        generate_sop_draft,
+    )
+
+    case = db.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    if case.status != CaseStatus.approved:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有已通过案例可生成 SOP 草稿")
+    if user.role == Role.operator and case.created_by != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只能从自己提交的案例生成草稿")
+
+    try:
+        result = generate_sop_draft(db, user, case_id, body.request_token, get_settings())
+    except AiUnavailable as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    except SourceRejected as exc:
+        # 来源状态在处理期间变化/权限失效:不调用模型、不落生成记录
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    except TokenConflict as exc:
+        # 同一请求正在生成中或 token 不匹配:防重复创建草稿/重复计费
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    except RateLimited as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc))
+    except LLMError as exc:
+        # 适配层配置错误(调用前失败):不落记录、不回退演示/模板结果
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message)
+
+    return SopGenerateAiResponse(
+        run=SopGenerationRunOut.model_validate(result.run),
+        sop=SopOut.model_validate(result.sop) if result.sop else None,
+        reused=result.reused,
+    )
+
+
+@router.get("/{case_id}/sop-generations", response_model=list[SopGenerationRunOut])
+def list_sop_generations(
+    case_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[SopGenerationRunOut]:
+    """查看某案例的 AI 生成运行记录(倒序)。与故障分析历史分开,不混用。"""
+    case = db.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    if not _can_view_case(user, case):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该案例")
+    rows = db.scalars(
+        select(SopAiGenerationRun)
+        .where(SopAiGenerationRun.case_id == case_id)
+        .order_by(SopAiGenerationRun.id.desc())
+        .limit(limit)
+    ).all()
+    out: list[SopGenerationRunOut] = []
+    for r in rows:
+        item = SopGenerationRunOut.model_validate(r)
+        # 幂等 token 只对本人(与管理员)可见,避免他人历史中泄露可重放的请求键
+        if user.role != Role.admin and r.created_by != user.id:
+            item = item.model_copy(update={"request_token": ""})
+        out.append(item)
+    return out

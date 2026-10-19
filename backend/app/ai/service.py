@@ -15,18 +15,11 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.llm import (
-    ChatMessage,
-    DemoAdapter,
-    LLMError,
-    LLMRequest,
-    LLMResult,
-    build_adapter,
-)
+from app.ai.json_out import aggregate_usage, complete_json
+from app.ai.llm import ChatMessage, DemoAdapter, build_adapter
 from app.ai.prompts import SYSTEM_PROMPT, USER_TEMPLATE
 from app.ai.sanitize import sanitize_text
 from app.ai.schema import AnalysisReport, EvidenceItem, KnowledgeReference, KnowledgeSnippet
@@ -43,10 +36,11 @@ from app.models import (
     SopStatus,
     User,
 )
-from app.search.keyword import SearchHit, search_knowledge
+from app.search.hybrid import search_knowledge_hybrid
+from app.search.keyword import SearchHit
 
-# 格式修复重试上限:JSON 语法错误与 Schema 结构错误共享这一次预算(有限重试)
-MAX_FORMAT_REPAIRS = 1
+# 测试与兼容别名:usage 聚合现由 app.ai.json_out 提供(与 SOP 生成共用)
+_aggregate_usage = aggregate_usage
 # 每个证据/知识片段进入提示词前的单条上限,避免单条日志撑爆上下文
 MAX_EVIDENCE_CHARS = 3000
 MAX_SNIPPET_CHARS = 800
@@ -215,6 +209,65 @@ def _snippets_from_hits(hits: list[SearchHit]) -> list[KnowledgeSnippet]:
     ]
 
 
+def _revalidate_snippets(
+    db: Session, user: User, snippets: list[KnowledgeSnippet], query: str = ""
+) -> tuple[list[KnowledgeSnippet], list[str]]:
+    """模型请求发出前的片段复核(复审 P2-1 / P2-6):
+
+    检索完成与聊天请求之间的窗口内来源可能被废弃/换版;不能仅靠模型返回后的
+    引用清洗——失效知识一旦发出就无法撤回。此处按当前状态/版本重新校验;
+    不再有效的内容直接排除,不进入提示词。
+
+    仍有效来源的片段**保留查询相关性**(P2-6):旧命中片段仍可在当前来源验证
+    (原文未变)则保留其命中位置;来源变化后按原查询在当前字段重新定位
+    (与正式检索共用提取逻辑),不把排查依据统一替换成通用现象前缀。
+    """
+    from app.search.keyword import finalize_hits, source_snippet_for_query
+
+    probes = [
+        SearchHit(
+            ref_id=s.ref_id,
+            source_type=s.source_type,
+            source_id=s.source_id,
+            version=s.version,
+            title=s.title,
+            snippet=s.snippet,
+            link=s.link,
+            status=s.status,
+            score=0.0,
+        )
+        for s in snippets
+    ]
+    kept_hits = finalize_hits(probes, db, user)
+    kept_ids = {h.ref_id for h in kept_hits}
+    refreshed: list[KnowledgeSnippet] = []
+    dropped: list[str] = []
+    for s in snippets:
+        if s.ref_id not in kept_ids:
+            dropped.append(s.ref_id)
+            continue
+        disp = source_snippet_for_query(
+            db, s.source_type, s.source_id, query, old_snippet=s.snippet
+        )
+        if disp is None:
+            dropped.append(s.ref_id)
+            continue
+        title, snippet = disp
+        refreshed.append(
+            KnowledgeSnippet(
+                ref_id=s.ref_id,
+                source_type=s.source_type,
+                source_id=s.source_id,
+                version=s.version,
+                title=title[:200],
+                snippet=snippet[:MAX_SNIPPET_CHARS],
+                link=s.link,
+                status=s.status,
+            )
+        )
+    return refreshed, dropped
+
+
 def _clip(text: str, limit: int) -> str:
     """整字段先脱敏、后截断(复审 P1 #2):
 
@@ -263,63 +316,6 @@ def _build_user_prompt(
     # 统一脱敏:所有进入模型的用户/知识字符串(含标题、分类名、知识片段标题等元数据)
     # 在最终提示词上一次处理,避免按字段零散调用时遗漏(审查 P1 #3)
     return sanitize_text(prompt)
-
-
-def _extract_json(text: str) -> dict | None:
-    """从模型输出提取 JSON 对象(容忍代码块围栏/前后杂文)。"""
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
-        text = re.sub(r"\n?```$", "", text).strip()
-    try:
-        data = json.loads(text)
-        return data if isinstance(data, dict) else None
-    except ValueError:
-        pass
-    # 提取首个平衡花括号块
-    start = text.find("{")
-    while start >= 0:
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        data = json.loads(text[start : i + 1])
-                        return data if isinstance(data, dict) else None
-                    except ValueError:
-                        break
-        start = text.find("{", start + 1)
-    return None
-
-
-# Schema 校验错误类型的「期望」提示(反馈给模型的修复指引;不回显输入值)
-_SCHEMA_ERROR_HINTS = {
-    "int_parsing": '期望整数(如 2),不能是 "v2" 等字符串',
-    "int_type": "期望整数",
-    "string_type": "期望字符串",
-    "bool_type": "期望布尔值 true/false",
-    "list_type": "期望数组",
-    "dict_type": "期望对象",
-    "missing": "缺少必填字段",
-    "extra_forbidden": "不允许多余字段",
-    "string_too_short": "字符串不能为空",
-    "none_not_allowed": "不允许 null",
-}
-
-
-def _format_schema_errors(exc: ValidationError) -> str:
-    """把 Schema 校验错误整理为「字段路径: 期望类型」反馈(脱敏,供一次修复重试)。"""
-    lines = []
-    for err in exc.errors()[:8]:
-        loc = ".".join(str(p) for p in err.get("loc", ())) or "(root)"
-        hint = _SCHEMA_ERROR_HINTS.get(err.get("type", "")) or sanitize_text(
-            str(err.get("msg", ""))
-        )[:120]
-        lines.append(f"{loc}: {hint}")
-    return sanitize_text("; ".join(lines))
 
 
 def verify_report(
@@ -489,28 +485,6 @@ def revalidate_report_dict(db: Session, report_dict: dict) -> tuple[dict, list[s
     return report.model_dump(), reasons
 
 
-# ---- 多次调用的 usage 汇总:按字段判定完整性,缺失不当 0,不把单次值当整次合计 ----
-
-
-def _aggregate_usage(call_usages: list[dict | None]) -> dict | None:
-    """逐次记录的 usage 按字段汇总(复审 P2 #6):
-
-    只有每次调用都返回数值的字段才汇总为确定值;某字段任一次缺失时不把缺失当 0,
-    直接不输出该字段(前端显示「未知」);任一次整份缺失/为空 → None(整体未知)。
-    """
-    if not call_usages or any(not u for u in call_usages):
-        return None
-    common: set[str] | None = None
-    for u in call_usages:
-        numeric = {
-            k for k, v in u.items() if isinstance(v, (int, float)) and not isinstance(v, bool)
-        }
-        common = numeric if common is None else common & numeric
-    if not common:
-        return None
-    return {k: int(sum(int(u[k]) for u in call_usages)) for k in sorted(common)}
-
-
 # ---- 单用户限流(单实例内存计数;多实例部署需外部限流,README 已注明) ----
 
 _rate_lock = threading.Lock()
@@ -543,6 +517,31 @@ def _acquire_slot(user_id: int, settings: Settings) -> None:
 def _release_slot(user_id: int) -> None:
     with _rate_lock:
         _inflight[user_id] = max(0, _inflight.get(user_id, 0) - 1)
+
+
+# 查询向量(embedding)独立配额:与聊天分析限流桶分离(复审 P2-3)。
+# 单次助手 = 一次检索(可选向量)+ 一次分析,二者不得互相挤占;
+# 缓存命中不占聊天额度;向量查询仅占 embedding 额度,限流时降级关键词。
+_embed_rate_buckets: dict[int, list[float]] = {}
+_embed_inflight: dict[int, int] = {}
+
+
+def _acquire_embed_slot(user_id: int, settings: Settings) -> None:
+    now = time.monotonic()
+    with _rate_lock:
+        window = _embed_rate_buckets.setdefault(user_id, [])
+        window[:] = [t for t in window if now - t < 60.0]
+        if len(window) >= settings.embedding_rate_limit_per_minute:
+            raise RateLimited("embedding 查询过于频繁")
+        if _embed_inflight.get(user_id, 0) >= settings.embedding_max_concurrent_per_user:
+            raise RateLimited("embedding 并发查询过多")
+        window.append(now)
+        _embed_inflight[user_id] = _embed_inflight.get(user_id, 0) + 1
+
+
+def _release_embed_slot(user_id: int) -> None:
+    with _rate_lock:
+        _embed_inflight[user_id] = max(0, _embed_inflight.get(user_id, 0) - 1)
 
 
 # ---- 结果缓存:键含故障 + 用户 + 输入哈希 + 知识版本 + 模型配置版本;复用前重新校验 ----
@@ -649,7 +648,9 @@ def run_analysis(
     input_hash = compute_input_hash(inp, records)
     config_ver = settings.ai_config_version
 
-    hits, knowledge_ver = search_knowledge(db, user, _query_from_input(inp))
+    # 正式搜索与右侧助手共用同一检索与来源校验逻辑(第三批混合检索;向量不可用自动降级)
+    retrieval = search_knowledge_hybrid(db, user, _query_from_input(inp), settings)
+    hits, knowledge_ver = retrieval.hits, retrieval.knowledge_version
     snippets = _snippets_from_hits(hits)
     cat_rows = db.query(Category).order_by(Category.sort_order, Category.id).all()
     categories = [c.name for c in cat_rows]
@@ -695,6 +696,11 @@ def run_analysis(
 
     _acquire_slot(user.id, settings)  # 频率与并发限制;缓存命中不占额度
     try:
+        # 模型请求发出前的片段复核:失效来源剔除(复审 P2-1),仍有效来源保留
+        # 查询相关片段/按查询在当前字段重定位(复审 P2-6);不把失效知识发给模型
+        snippets, _dropped_refs = _revalidate_snippets(
+            db, user, snippets, _query_from_input(inp)
+        )
         outcome = _analyze_uncached(db, inp, evidence, snippets, categories, settings, adapter)
     finally:
         _release_slot(user.id)
@@ -779,104 +785,41 @@ def _analyze_uncached(
         ChatMessage(role="system", content=SYSTEM_PROMPT),
         ChatMessage(role="user", content=user_prompt),
     ]
-    request = LLMRequest(
-        messages=messages, max_output_tokens=settings.ai_max_output_tokens, json_mode=True
+    # 共用 JSON 生成/有限修复(语法错与结构错共享一次预算,修复继续声明 JSON 模式,
+    # usage/call_count 逐次累计,调用失败不外抛——见 app.ai.json_out)
+    completion = complete_json(
+        adapter,
+        messages,
+        max_output_tokens=settings.ai_max_output_tokens,
+        validate=AnalysisReport.model_validate,
+        json_mode=True,
+        subject="分析",
     )
-
-    call_count = 0
-    start = time.monotonic()
-    call_usages: list[dict | None] = []  # 逐次记录;整次合计由 _aggregate_usage 汇总(审查 P2 #11)
-    try:
-        call_count += 1
-        result: LLMResult = adapter.chat(request)
-        call_usages.append(result.usage)  # 仅接口实际返回时记录;缺失为 None(显示未知)
-
-        # 格式修复:JSON 语法错误与 Schema 结构错误共享 MAX_FORMAT_REPAIRS 次预算
-        # (2026-10-15 复审 P2-1:合法 JSON 的结构错误此前直接失败、未进入修复)。
-        # 修复反馈字段路径与期望类型;修复请求继续声明 JSON 模式;
-        # 每次实际调用的 usage/call_count 都累计;预算耗尽仍无效则明确失败。
-        report: AnalysisReport | None = None
-        repair_attempts = 0
-        fail_code = ""
-        fail_message = ""
-        while True:
-            data = _extract_json(result.text)
-            if data is None:
-                fail_code = "bad_response"
-                fail_message = "模型输出不是合法 JSON(已有限重试);未生成分析"
-                feedback = "输出不是合法 JSON 对象。请只输出符合约定结构的 JSON,不要其他文本。"
-            else:
-                try:
-                    report = AnalysisReport.model_validate(data)
-                    break
-                except ValidationError as exc:
-                    fail_code = "schema_mismatch"
-                    # Pydantic 错误信息可能含用户输入片段,脱敏后展示
-                    fail_message = (
-                        f"模型输出不符合 Schema(已有限重试): {sanitize_text(str(exc))[:500]}"
-                    )
-                    feedback = (
-                        "输出是合法 JSON,但字段结构不符合约定。请按下列字段路径与期望类型修正"
-                        "(references 的 version 必须是整数或 null:案例为 null,"
-                        'SOP 为整数版本号如 2,不能写 "v2" 等字符串):\n'
-                        f"{_format_schema_errors(exc)}\n"
-                        "请重新输出修正后的完整 JSON 对象,不要输出 JSON 以外的任何文本。"
-                    )
-            if repair_attempts >= MAX_FORMAT_REPAIRS:
-                latency_ms = int((time.monotonic() - start) * 1000)
-                return AnalysisOutcome(
-                    status=AiAnalysisStatus.failed,
-                    report=None,
-                    incomplete_reasons=[],
-                    error_code=fail_code,
-                    error_message=fail_message,
-                    usage=_aggregate_usage(call_usages),
-                    call_count=call_count,
-                    latency_ms=latency_ms,
-                    is_demo=False,
-                )
-            repair_attempts += 1
-            call_count += 1
-            messages.append(ChatMessage(role="assistant", content=result.text[:4000]))
-            messages.append(ChatMessage(role="user", content=feedback))
-            result = adapter.chat(
-                request.__class__(
-                    messages=messages,
-                    max_output_tokens=request.max_output_tokens,
-                    json_mode=request.json_mode,  # 修复请求继续声明 JSON 模式
-                )
-            )
-            call_usages.append(result.usage)  # 不覆盖:每次调用的用量都计入合计
-
-        latency_ms = int((time.monotonic() - start) * 1000)
-
-        report, reasons = verify_report(report, evidence, snippets, categories)
-        return AnalysisOutcome(
-            status=AiAnalysisStatus.incomplete if reasons else AiAnalysisStatus.success,
-            report=report.model_dump(),
-            incomplete_reasons=reasons,
-            error_code="",
-            error_message="",
-            usage=_aggregate_usage(call_usages),
-            call_count=call_count,
-            latency_ms=latency_ms,
-            is_demo=False,
-        )
-    except LLMError as exc:
-        latency_ms = int((time.monotonic() - start) * 1000)
-        if len(call_usages) < call_count:
-            call_usages.append(None)  # 失败调用的用量不可知:整次用量按未知处理
+    if completion.value is None:
         return AnalysisOutcome(
             status=AiAnalysisStatus.failed,
             report=None,
             incomplete_reasons=[],
-            error_code=exc.code,
-            error_message=exc.message,  # 已由适配层保证不含密钥
-            usage=_aggregate_usage(call_usages),
-            call_count=call_count,
-            latency_ms=latency_ms,
+            error_code=completion.error_code,
+            error_message=completion.error_message,
+            usage=completion.usage,
+            call_count=completion.call_count,
+            latency_ms=completion.latency_ms,
             is_demo=False,
         )
+
+    report, reasons = verify_report(completion.value, evidence, snippets, categories)
+    return AnalysisOutcome(
+        status=AiAnalysisStatus.incomplete if reasons else AiAnalysisStatus.success,
+        report=report.model_dump(),
+        incomplete_reasons=reasons,
+        error_code="",
+        error_message="",
+        usage=completion.usage,
+        call_count=completion.call_count,
+        latency_ms=completion.latency_ms,
+        is_demo=False,
+    )
 
 
 def _persist(

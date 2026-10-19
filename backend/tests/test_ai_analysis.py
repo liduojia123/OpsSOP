@@ -40,12 +40,16 @@ def _reset_ai_state():
     with ai_service._rate_lock:
         ai_service._rate_buckets.clear()
         ai_service._inflight.clear()
+        ai_service._embed_rate_buckets.clear()
+        ai_service._embed_inflight.clear()
     with ai_service._cache_lock:
         ai_service._cache.clear()
     yield
     with ai_service._rate_lock:
         ai_service._rate_buckets.clear()
         ai_service._inflight.clear()
+        ai_service._embed_rate_buckets.clear()
+        ai_service._embed_inflight.clear()
     with ai_service._cache_lock:
         ai_service._cache.clear()
 

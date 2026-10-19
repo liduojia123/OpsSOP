@@ -75,6 +75,10 @@ const searching = ref(false)
 const searchDone = ref(false)
 const searchError = ref('')
 const hits = ref<SearchHit[]>([])
+// 实际检索方式与降级信息(第三批:不把关键词结果冒充语义检索,服务错误不显示为无匹配)
+const searchMode = ref('keyword')
+const searchDegraded = ref(false)
+const searchDegradeReason = ref('')
 
 // 请求序号 + AbortController:倒序响应/切换故障后旧响应一律丢弃
 let requestSeq = 0
@@ -349,6 +353,9 @@ watch(
     searchDone.value = false
     searching.value = false
     searchError.value = ''
+    searchMode.value = 'keyword'
+    searchDegraded.value = false
+    searchDegradeReason.value = ''
     void loadHistory()
   },
   { immediate: true },
@@ -363,7 +370,7 @@ onBeforeUnmount(() => {
   searchSeq++ // 旧检索响应随卸载整体失效(复审 P3)
 })
 
-// ===== 知识检索(关键词,不依赖模型)=====
+// ===== 知识检索(关键词;状态确认后可用时向量混合)=====
 async function runSearch() {
   const q = searchQuery.value.trim()
   if (!q) return
@@ -371,15 +378,30 @@ async function runSearch() {
   lastSearchQuery = q
   searching.value = true
   searchError.value = ''
+  // 新查询开始即清旧方式标签/旧降级横幅,失败后不残留(复审次要项)
+  searchDegraded.value = false
+  searchDegradeReason.value = ''
   try {
-    const { data } = await client.get<SearchResponse>('/api/search', { params: { q } })
+    // AI 状态未知:走服务端纯关键词路径(零 embedding 外发,复审 P2-4)。
+    // 未确认模式与出网提示前不发送查询文本;关键词基本能力不依赖模型可达。
+    const keywordOnly = aiStatusMissing.value
+    const { data } = await client.get<SearchResponse>('/api/search', {
+      params: keywordOnly ? { q, keyword_only: true } : { q },
+    })
     // 过期响应(旧查询后到/故障切换/卸载)不覆盖新结果(复审 P3)
     if (seq !== searchSeq || disposed || q !== lastSearchQuery) return
     hits.value = data.hits
+    searchMode.value = data.retrieval_mode || 'keyword'
+    searchDegraded.value = Boolean(data.degraded)
+    searchDegradeReason.value = data.degrade_reason || ''
     searchDone.value = true
   } catch (e) {
     if (seq !== searchSeq || disposed || q !== lastSearchQuery) return // 过期错误不打扰
     searchError.value = errMsg(e)
+    // 失败后旧检索方式标签/降级横幅不再代表本次结果:清掉
+    searchMode.value = 'keyword'
+    searchDegraded.value = false
+    searchDegradeReason.value = ''
   } finally {
     // 过期请求不修改 loading(由当前请求/状态复位负责)
     if (seq === searchSeq && !disposed) searching.value = false
@@ -488,7 +510,7 @@ function triggerLabel(t: string): string {
         v-else
         class="text-xs leading-5 p-2 rounded mb-2 bg-amber-50 text-amber-800 border border-amber-200"
       >
-        AI 状态未知:已暂停自动分析与模型调用(未确认模式与出网提示前不发送)。
+        AI 状态未知:已暂停自动分析与模型调用(未确认模式与出网提示前不发送);知识检索仅走关键词路径,不外发查询文本。
         <el-button size="small" type="warning" plain class="ml-1" @click="emit('retry-status')">
           重新加载状态
         </el-button>
@@ -758,9 +780,14 @@ function triggerLabel(t: string): string {
           </div>
         </section>
 
-        <!-- 关键词知识检索 -->
+        <!-- 知识检索(关键词 + 可用时向量混合;实际方式与降级如实标注) -->
         <section class="border-t border-slate-100 pt-2">
-          <h3 class="text-sm font-semibold text-slate-700 mb-1.5">知识检索(关键词)</h3>
+          <div class="flex items-center gap-2 mb-1.5">
+            <h3 class="text-sm font-semibold text-slate-700">知识检索</h3>
+            <el-tag v-if="searchDone" size="small" :type="searchMode === 'hybrid' ? 'primary' : 'info'" effect="plain">
+              {{ searchMode === 'hybrid' ? '混合检索(关键词+向量)' : '关键词检索' }}
+            </el-tag>
+          </div>
           <div class="flex gap-1.5">
             <el-input
               v-model="searchQuery"
@@ -771,9 +798,21 @@ function triggerLabel(t: string): string {
             />
             <el-button size="small" :loading="searching" @click="runSearch">检索</el-button>
           </div>
+          <div v-if="searchDone && searchDegraded" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1.5">
+            已降级为关键词检索:{{ searchDegradeReason || '向量路径不可用' }}
+          </div>
+          <div v-if="searchDone && aiStatusMissing" class="text-xs text-amber-700 leading-5 mt-1">
+            AI 状态未知:本次仅关键词检索(纯关键词路径,查询文本未发送至 embedding 服务);状态恢复后可用混合检索。
+          </div>
+          <div v-else-if="aiStatus?.embedding_mode === 'cloud'" class="text-xs text-amber-700 leading-5 mt-1">
+            说明:查询文本(脱敏后)与索引构建时的脱敏知识内容会发送至已配置的 embedding 服务。
+          </div>
+          <div v-else-if="aiStatus?.embedding_mode === 'local'" class="text-xs text-gray-400 leading-5 mt-1">
+            向量检索使用本地/内网 embedding 服务(不外发云端)。
+          </div>
           <div v-if="searchError" class="text-xs text-red-500 mt-1">检索失败:{{ searchError }}</div>
           <div v-else-if="searchDone && !hits.length" class="text-xs text-gray-400 mt-1">
-            无匹配的正式知识(已审核案例与有效已发布 SOP)。
+            无匹配的正式知识(已审核案例与有效已发布 SOP);检索仅作推荐,不自动确认根因。
           </div>
           <div v-else-if="hits.length" class="mt-1.5 space-y-1.5">
             <div

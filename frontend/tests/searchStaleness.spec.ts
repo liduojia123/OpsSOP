@@ -244,4 +244,49 @@ describe('知识检索过期响应防护(复审 P3)', () => {
     // 卸载后无异常即通过(过期守卫拦截状态写入);VM 已卸载不再断言文本
     expect(pending.get('redis')).toBeTruthy()
   })
+
+  // ===== 第三批:实际检索方式与降级状态展示 =====
+
+  it('混合检索成功:展示实际方式,不把关键词结果冒充语义检索', async () => {
+    const pending = mockSearchDispatch()
+    const wrapper = mount(AiAssistantPanel, {
+      props: makeProps({ aiStatus: { ai_mode: 'cloud', embedding_mode: 'cloud', message: '云端', model_config_version: 'cfg-v1' } }),
+      global: globalCfg,
+    })
+    await drainMicrotasks()
+    await typeAndEnter(wrapper, 'redis')
+    pending.get('redis')!.resolve({
+      data: {
+        hits: [searchHit('混合命中')],
+        retrieval_mode: 'hybrid',
+        degraded: false,
+        degrade_reason: '',
+      },
+    })
+    await drainMicrotasks()
+    expect(wrapper.text()).toContain('混合检索(关键词+向量)')
+    expect(wrapper.text()).not.toContain('已降级为关键词检索')
+    expect(wrapper.text()).toContain('查询文本(脱敏后)') // cloud 出网说明
+  })
+
+  it('向量失败降级:展示关键词方式与安全降级原因;服务错误不显示为无匹配', async () => {
+    const pending = mockSearchDispatch()
+    const wrapper = mount(AiAssistantPanel, { props: makeProps(), global: globalCfg })
+    await drainMicrotasks()
+    await typeAndEnter(wrapper, 'redis')
+    pending.get('redis')!.resolve({
+      data: {
+        hits: [searchHit('关键词命中')],
+        retrieval_mode: 'keyword',
+        degraded: true,
+        degrade_reason: '查询向量生成失败(timeout),仅关键词检索',
+      },
+    })
+    await drainMicrotasks()
+    const text = wrapper.text()
+    expect(text).toContain('关键词检索')
+    expect(text).toContain('已降级为关键词检索')
+    expect(text).toContain('查询向量生成失败') // 降级原因可见,不是「无匹配」
+    expect(text).toContain('关键词命中')
+  })
 })

@@ -8,7 +8,8 @@
 - 查询与排序前过滤权限与状态;返回前再次校验(引用展示前的二次验证);
 - 每条结果带来源类型、ID、版本、相关片段与定位链接;无匹配如实返回空,不编造。
 
-本阶段为纯关键词检索;embedding/向量/混合检索属于第三阶段。
+关键词路径为向量/混合检索(第三阶段第三批)的基础通道:hybrid.py 在其上融合向量候选,
+两者共用本模块的来源过滤与返回前复核;关键词能力独立可用,向量不可用时自动降级回本路径。
 """
 
 import re
@@ -22,6 +23,8 @@ from app.models import Case, CaseStatus, Role, Sop, SopStatus, User
 MAX_QUERY_CHARS = 200
 MAX_RESULTS = 8
 SNIPPET_RADIUS = 60
+# 片段进入模型上下文前的长度上限(与 ai.service.MAX_SNIPPET_CHARS 同值;此处独立定义避免循环 import)
+MAX_INDEX_SNIPPET_CHARS = 800
 
 # CJK 统一表意文字范围(含扩展 A 基本够用;不做分词词典)
 _CJK_RE = re.compile(r"[一-鿿㐀-䶿]+")
@@ -186,6 +189,147 @@ def _finalize_hit(hit: SearchHit, db: Session, user: User) -> SearchHit | None:
     return hit
 
 
+def finalize_hits(hits: list[SearchHit], db: Session, user: User) -> list[SearchHit]:
+    """批量返回前复核(正式搜索与右侧助手共用同一来源校验逻辑)。"""
+    return [h for h in (_finalize_hit(h, db, user) for h in hits) if h is not None]
+
+
+def _best_field_hit(obj, fields, lowered: list[tuple[str, float]]) -> tuple[float, str, list[str]]:
+    """对来源对象的字段组打分,返回 (总分, 最佳命中字段文本, 最佳命中词)。
+
+    「最佳」=加权得分最高的字段,而非第一个出现命中的字段(复审 P2-6):
+    多词查询下弱词命中标题不得掩盖错误码等强词命中排查/处理字段,
+    否则查询相关依据(如排查指令)会从片段中消失。
+    正式检索(search_knowledge)与发模型前片段复核(source_snippet_for_query)
+    共用这一提取逻辑,保证助手依据与搜索展示依据不分叉。
+    """
+    score = 0.0
+    best_score = -1.0
+    best_field_text = ""
+    best_field_matched: list[str] = []
+    for field_name, field_weight in fields:
+        text = getattr(obj, field_name, "") or ""
+        if field_name == "title" and getattr(obj, "tags", None):
+            text = text + " " + " ".join(str(t) for t in obj.tags)
+        s, matched = _score_text(text, lowered, field_weight)
+        if s > 0:
+            score += s
+            if matched and s > best_score:
+                best_score, best_field_text, best_field_matched = s, text, matched
+    return score, best_field_text, best_field_matched
+
+
+def _source_field_texts(obj, fields) -> str:
+    """来源对象当前字段拼接(用于旧片段可验证性检查)。"""
+    return "\n".join((getattr(obj, name, "") or "") for name, _ in fields)
+
+
+def _read_source_fields(db: Session, source_type: str, source_id: int):
+    """列级直读当前来源字段(绕过会话 identity map 陈旧实例,与 _finalize_hit 同理由)。
+
+    检索与发模型之间的窗口内内容变更必须在这里被看到,否则旧正文会被
+    「仍可验证」误判为有效(复审 P2-6 的内容变化场景)。
+    """
+    from types import SimpleNamespace
+
+    if source_type == "case":
+        cols = [
+            Case.title,
+            Case.symptom,
+            Case.environment,
+            Case.service,
+            Case.component_version,
+            Case.confirmed_root_cause,
+            Case.handling_steps,
+            Case.recovery_verification,
+            Case.tags,
+        ]
+        fields = _CASE_FIELDS
+        id_col = Case.id
+    elif source_type == "sop":
+        cols = [
+            Sop.title,
+            Sop.symptom,
+            Sop.check_steps,
+            Sop.handling_steps,
+            Sop.recovery_verification,
+            Sop.preconditions,
+            Sop.applicable_env,
+            Sop.rollback_steps,
+            Sop.notes,
+            Sop.tags,
+        ]
+        fields = _SOP_FIELDS
+        id_col = Sop.id
+    else:
+        return None, None
+    row = db.execute(select(*cols).where(id_col == source_id)).first()
+    if row is None:
+        return None, None
+    obj = SimpleNamespace(**dict(row._mapping))
+    return obj, fields
+
+
+def source_snippet_for_query(
+    db: Session,
+    source_type: str,
+    source_id: int,
+    query: str,
+    old_snippet: str = "",
+) -> tuple[str, str] | None:
+    """按查询在当前来源字段上定位相关片段(与正式检索同一提取逻辑;复审 P2-6)。
+
+    - 旧命中片段仍能在当前来源中验证(原文未变)→ 保留其命中位置,
+      不把查询相关依据退化成通用现象前缀;
+    - 来源已变化/旧片段不再可验证 → 以当前字段按查询重新定位(不沿用旧正文);
+    - 查询无词命中时回退现象/标题(与 search_knowledge 的片段底稿一致)。
+    返回 (标题, 片段);来源不存在返回 None。
+    """
+    terms = extract_terms(query)
+    lowered = [(t.text, t.weight) for t in terms]
+    matched_terms = [t.text for t in terms]
+
+    obj, fields = _read_source_fields(db, source_type, source_id)
+    if obj is None:
+        return None
+
+    title = obj.title or ""
+    if old_snippet:
+        # 旧片段(去省略号)仍是当前来源的原文子集 → 来源未变或该内容仍有效,保留
+        core = old_snippet.strip("…")
+        if core and core in _source_field_texts(obj, fields):
+            return title, old_snippet[:MAX_INDEX_SNIPPET_CHARS]
+
+    _score, best_field_text, best_field_matched = _best_field_hit(obj, fields, lowered)
+    fallback = getattr(obj, "symptom", "") or title
+    snippet_src = best_field_text or fallback
+    return title, _make_snippet(snippet_src, best_field_matched or matched_terms)[
+        :MAX_INDEX_SNIPPET_CHARS
+    ]
+
+
+def source_display_fields(db: Session, source_type: str, source_id: int) -> tuple[str, str] | None:
+    """按当前来源读取 (标题, 片段底稿) 供检索结果展示。
+
+    片段从受控的当前来源字段生成;索引 text_excerpt 不作为可信正文。
+    """
+    if source_type == "case":
+        row = db.execute(
+            select(Case.title, Case.symptom, Case.confirmed_root_cause).where(Case.id == source_id)
+        ).first()
+        if row is None:
+            return None
+        return row[0] or "", (row[1] or row[2] or row[0] or "")
+    if source_type == "sop":
+        row = db.execute(
+            select(Sop.title, Sop.symptom, Sop.check_steps).where(Sop.id == source_id)
+        ).first()
+        if row is None:
+            return None
+        return row[0] or "", (row[1] or row[2] or row[0] or "")
+    return None
+
+
 def search_knowledge(db: Session, user: User, query: str) -> tuple[list[SearchHit], str]:
     """关键词检索正式知识。返回 (命中列表, 知识版本)。无匹配返回空列表。"""
     terms = extract_terms(query)
@@ -199,20 +343,7 @@ def search_knowledge(db: Session, user: User, query: str) -> tuple[list[SearchHi
     # 案例:仅已通过(正式诊断依据);排序前过滤状态与可见性
     case_stmt = select(Case).where(_case_visible(user), Case.status == CaseStatus.approved)
     for case in db.scalars(case_stmt).all():
-        score = 0.0
-        all_matched: list[str] = []
-        best_field_text = ""
-        best_field_matched: list[str] = []
-        for field_name, field_weight in _CASE_FIELDS:
-            text = getattr(case, field_name, "") or ""
-            if field_name == "title" and case.tags:
-                text = text + " " + " ".join(str(t) for t in case.tags)
-            s, matched = _score_text(text, lowered, field_weight)
-            if s > 0:
-                score += s
-                all_matched.extend(matched)
-                if not best_field_matched and matched:
-                    best_field_text, best_field_matched = text, matched
+        score, best_field_text, best_field_matched = _best_field_hit(case, _CASE_FIELDS, lowered)
         if score <= 0:
             continue
         snippet_src = best_field_text or case.symptom or case.title
@@ -233,20 +364,7 @@ def search_knowledge(db: Session, user: User, query: str) -> tuple[list[SearchHi
     # SOP:仅当前有效已发布版本;superseded/deprecated/草稿/待审/退回不进入
     sop_stmt = select(Sop).where(Sop.status == SopStatus.published)
     for sop in db.scalars(sop_stmt).all():
-        score = 0.0
-        all_matched = []
-        best_field_text = ""
-        best_field_matched = []
-        for field_name, field_weight in _SOP_FIELDS:
-            text = getattr(sop, field_name, "") or ""
-            if field_name == "title" and sop.tags:
-                text = text + " " + " ".join(str(t) for t in sop.tags)
-            s, matched = _score_text(text, lowered, field_weight)
-            if s > 0:
-                score += s
-                all_matched.extend(matched)
-                if not best_field_matched and matched:
-                    best_field_text, best_field_matched = text, matched
+        score, best_field_text, best_field_matched = _best_field_hit(sop, _SOP_FIELDS, lowered)
         if score <= 0:
             continue
         snippet_src = best_field_text or sop.symptom or sop.title

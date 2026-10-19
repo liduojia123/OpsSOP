@@ -438,6 +438,96 @@ class SearchHitOut(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    """检索响应:结果 + 实际检索方式与降级信息(如实标注,不把关键词结果冒充语义检索)。"""
+
     query: str
     hits: list[SearchHitOut]
     knowledge_version: str
+    retrieval_mode: str = "keyword"  # keyword | hybrid(实际执行的检索方式)
+    degraded: bool = False  # True = 向量路径不可用/失败,已降级关键词
+    degrade_reason: str = ""  # 安全的降级原因(不含密钥/堆栈)
+
+
+# ===== AI 生成 SOP 草稿(第三阶段第一批)=====
+
+class SopGenerateAiRequest(BaseModel):
+    """AI 生成 SOP 草稿请求。
+
+    request_token 为一次「点击生成」的幂等键:同一次请求重复提交/重试沿用同一 token
+    (不重复创建草稿、不重复计费);用户主动再次生成使用新 token,可创建另一份新草稿。
+    """
+
+    request_token: str = Field(min_length=8, max_length=64)
+
+
+class SopGenerationRunOut(ORMModel):
+    """一次 AI 生成运行记录(与故障分析历史分开,不混用)。
+
+    usage 缺失时为 null(前端显示「用量未知」);error_message 为脱敏后的安全原因。
+    """
+
+    id: int
+    case_id: int
+    created_by: int
+    request_token: str
+    attempt: int  # 执行领取计数(标识最近一次执行尝试)
+    input_hash: str
+    model_config_version: str
+    is_demo: bool
+    status: str  # running | success | failed
+    sop_id: int | None
+    missing_information: list
+    incomplete_reasons: list
+    field_sources: list  # 校验后的字段来源映射 [{target, evidence_ids}]
+    error_code: str
+    error_message: str
+    usage: dict | None
+    call_count: int
+    latency_ms: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class SopGenerateAiResponse(BaseModel):
+    """生成响应:运行记录 + 成功时的 draft。HTTP 201 不是成功判据,须检查 run.status。"""
+
+    run: SopGenerationRunOut
+    sop: SopOut | None = None
+    reused: bool = False  # 幂等重复返回既有结果(未重复计费)
+
+
+# ===== embedding 索引管理(第三阶段第二批)=====
+
+class EmbeddingIndexStatusOut(BaseModel):
+    """索引状态快照:实际数量/配置标识/更新时间/安全失败原因;不含密钥、不伪造进度。"""
+
+    status: str  # unconfigured | pending | building | ready | needs_rebuild | failed
+    embedding_mode: str
+    embedding_model: str
+    config_fingerprint: str  # 不含明文密钥
+    text_version: str
+    active_generation: int
+    active_fingerprint: str
+    active_model: str
+    embedding_dims: int
+    unit_count: int  # 活动代次实际单元数
+    total_rows: int  # 含非活动代次的行数(排查用)
+    building_generation: int
+    build_attempt: int
+    error_code: str
+    error_message: str  # 已脱敏的安全原因
+    built_at: datetime | None
+    updated_at: datetime | None
+    egress_notice: str = ""  # cloud 模式出网范围说明
+
+
+class EmbeddingIndexBuildOut(BaseModel):
+    """构建/重建结果:result=success|partial|failed;失败原因见 status 快照。"""
+
+    result: str
+    built_units: int
+    reused_units: int  # 同指纹同内容复用的向量数(不重复计费)
+    embedded_calls: int  # 实际 embedding 调用批次次数
+    usage: dict | None  # 实际用量;缺失为 null(未知,不虚构)
+    skipped: list[str]  # 构建期间变化/移除而未纳入的来源(部分成功必须明示覆盖范围)
+    status: EmbeddingIndexStatusOut
