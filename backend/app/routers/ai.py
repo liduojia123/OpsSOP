@@ -127,11 +127,21 @@ def list_analyses(
 @router.get("/search", response_model=SearchResponse)
 def search(
     q: str = Query(default="", max_length=200, description="关键词:错误码/组件/中文描述"),
+    keyword_only: bool = Query(
+        default=False,
+        description="纯关键词路径:零 embedding 调用(AI 状态未知时客户端使用,复审 P2-4)",
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SearchResponse:
-    """关键词检索正式知识。无匹配返回空列表,不编造结果。"""
-    hits, knowledge_ver = search_knowledge(db, user, q)
+    """检索正式知识(关键词 + 可用时的向量混合;向量不可用自动降级并标注原因)。
+
+    无匹配返回空列表,不编造结果;结果片段来自当前来源,返回前再次来源复核。
+    keyword_only=true 为明确的服务端纯关键词路径:不生成查询向量、零外发。
+    """
+    from app.search.hybrid import search_knowledge_hybrid
+
+    result = search_knowledge_hybrid(db, user, q, get_settings(), keyword_only=keyword_only)
     return SearchResponse(
         query=q,
         hits=[
@@ -146,7 +156,10 @@ def search(
                 status=h.status,
                 score=h.score,
             )
-            for h in hits
+            for h in result.hits
         ],
-        knowledge_version=knowledge_ver,
+        knowledge_version=result.knowledge_version,
+        retrieval_mode=result.retrieval_mode,
+        degraded=result.degraded,
+        degrade_reason=result.degrade_reason,
     )

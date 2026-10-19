@@ -248,6 +248,12 @@ export interface SearchResponse {
   query: string
   hits: SearchHit[]
   knowledge_version: string
+  /** 实际检索方式:keyword(关键词) | hybrid(关键词+向量混合) */
+  retrieval_mode: string
+  /** 向量路径不可用/失败已降级关键词 */
+  degraded: boolean
+  /** 安全的降级原因(不含密钥/堆栈) */
+  degrade_reason: string
 }
 
 export interface AuditEvent {
@@ -258,4 +264,39 @@ export interface AuditEvent {
   target_id: string
   detail: Record<string, unknown>
   created_at: string
+}
+
+// ===== AI 生成 SOP 草稿(第三阶段第一批)=====
+
+export type SopGenStatus = 'running' | 'success' | 'failed'
+
+/** 一次 AI 生成运行记录(与故障分析历史分开)。usage 缺失为 null(显示「用量未知」)。 */
+export interface SopGenerationRun {
+  id: number
+  case_id: number
+  created_by: number
+  request_token: string
+  attempt: number
+  input_hash: string
+  model_config_version: string
+  is_demo: boolean
+  status: SopGenStatus
+  sop_id: number | null
+  missing_information: string[]
+  incomplete_reasons: string[]
+  /** 校验后的字段来源映射 [{target, evidence_ids}](P2-4) */
+  field_sources: Array<{ target: string; evidence_ids: string[] }>
+  error_code: string
+  error_message: string
+  usage: Record<string, number> | null
+  call_count: number
+  latency_ms: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SopGenerateAiResponse {
+  run: SopGenerationRun
+  sop: Sop | null
+  reused: boolean
 }

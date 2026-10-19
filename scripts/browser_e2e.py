@@ -140,7 +140,7 @@ def main():
         page.get_by_text(f"{marker} 计费服务内存泄漏").first.click()
         drawer = page.locator(".el-drawer")
         page.wait_for_timeout(800)
-        drawer.get_by_role("button", name="生成 SOP 草稿").click()
+        drawer.get_by_role("button", name="模板生成草稿").click()
         page.wait_for_url(re.compile(r".*/sops/\d+"), timeout=15000)
         sop_v1_url = page.url
         sop_marker = f"{marker} SOP-未保存-处理方法编辑"
