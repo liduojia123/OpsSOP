@@ -9,12 +9,12 @@
  * - 演示数据逐条标注;usage 缺失显示未知,不估算费用;命令仅展示与复制,不执行。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import client, { errMsg } from '../api'
 import { fmtTime } from '../labels'
 import { renderSafeMd } from '../safeMd'
+import { sourcePath, sourceTagLabel, sourceVersionText, sourceViewLabel } from '../sourceLinks'
 import type {
   AiAnalysis,
   AiStatus,
@@ -53,8 +53,6 @@ const emit = defineEmits<{
   (e: 'apply-suggestion', payload: { category_id: number | null; tags: string[] }): void
   (e: 'retry-status'): void // AI 状态未知时请求父页重新加载(复审 P2 #4)
 }>()
-
-const router = useRouter()
 
 // ===== 分析状态 =====
 const autoAnalyze = ref(true)
@@ -408,11 +406,6 @@ async function runSearch() {
   }
 }
 
-function openHit(hit: SearchHit) {
-  if (hit.source_type === 'sop') void router.push(`/sops/${hit.source_id}`)
-  // 案例无独立详情路由:仅展示片段,不跳转
-}
-
 // ===== 展示辅助 =====
 function md(text: string): string {
   return renderSafeMd(text ?? '')
@@ -694,8 +687,23 @@ function triggerLabel(t: string): string {
                 <el-tag size="small" :type="r.source_type === 'sop' ? 'primary' : 'success'" effect="plain">
                   {{ refLabel(r.ref_id) }}
                 </el-tag>
-                <span v-if="r.version" class="text-gray-400 ml-1">v{{ r.version }}</span>
+                <span v-if="sourceVersionText(r.version)" class="text-gray-400 ml-1">
+                  {{ sourceVersionText(r.version) }}
+                </span>
                 <span class="ml-1 md-body" v-html="md(r.relevance)"></span>
+                <!-- 来源地址只由受控 source_type/source_id 构造,不使用模型返回的任意 URL -->
+                <a
+                  v-if="sourcePath(r.source_type, r.source_id)"
+                  :href="sourcePath(r.source_type, r.source_id) || undefined"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="ml-1.5 text-blue-600 hover:underline whitespace-nowrap"
+                  :title="`${sourceViewLabel(r.source_type)}(在新标签页打开,不影响当前未保存输入)`"
+                  data-testid="reference-source-link"
+                >
+                  {{ sourceViewLabel(r.source_type) }} ↗
+                </a>
+                <span v-else class="ml-1.5 text-gray-400">来源无效</span>
               </li>
             </ul>
           </section>
@@ -818,19 +826,35 @@ function triggerLabel(t: string): string {
             <div
               v-for="h in hits"
               :key="h.ref_id"
-              class="p-2 rounded border border-slate-100 hover:border-slate-200 cursor-pointer"
-              @click="openHit(h)"
+              class="p-2 rounded border border-slate-100 hover:border-slate-200"
             >
               <div class="flex items-center gap-1.5">
                 <el-tag size="small" :type="h.source_type === 'sop' ? 'primary' : 'success'" effect="plain">
-                  {{ h.source_type === 'sop' ? 'SOP' : '案例' }}
+                  {{ sourceTagLabel(h.source_type) }}
                 </el-tag>
                 <span class="text-xs text-slate-700 font-medium">{{ h.title }}</span>
-                <span v-if="h.version" class="text-xs text-gray-400">v{{ h.version }}</span>
+                <span v-if="sourceVersionText(h.version)" class="text-xs text-gray-400">
+                  {{ sourceVersionText(h.version) }}
+                </span>
+                <!-- 案例与 SOP 均提供明确入口;新标签页打开,保留左侧未保存输入 -->
+                <a
+                  v-if="sourcePath(h.source_type, h.source_id)"
+                  :href="sourcePath(h.source_type, h.source_id) || undefined"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="ml-auto text-xs text-blue-600 hover:underline whitespace-nowrap"
+                  :title="`${sourceViewLabel(h.source_type)}(在新标签页打开,不影响当前未保存输入)`"
+                  data-testid="search-hit-source-link"
+                >
+                  {{ sourceViewLabel(h.source_type) }} ↗
+                </a>
+                <span v-else class="ml-auto text-xs text-gray-400">来源无效</span>
               </div>
               <div class="text-xs text-gray-500 leading-5 mt-0.5">{{ h.snippet }}</div>
             </div>
-            <div class="text-xs text-gray-400">仅检索已审核案例与当前有效已发布 SOP;SOP 可点击查看详情。</div>
+            <div class="text-xs text-gray-400">
+              仅检索已审核案例与当前有效已发布 SOP;查看来源会在新标签页打开,不影响当前未保存输入。
+            </div>
           </div>
         </section>
       </div>

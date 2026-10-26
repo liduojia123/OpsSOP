@@ -12,6 +12,8 @@ COPY alembic.ini .
 COPY alembic ./alembic
 COPY app ./app
 COPY scripts ./scripts
+# 评测入口(scripts/eval_suite.py)与测试都在容器内运行,需要版本化评测集
+COPY eval_data ./eval_data
 
 EXPOSE 8000
 

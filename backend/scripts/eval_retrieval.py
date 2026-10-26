@@ -24,9 +24,11 @@ gold 为人工标注(见 EVAL_CASES)。合成 embedding(同义词表词袋)只�
 """
 
 import argparse
+import hashlib
 import json
 import re
 import sys
+import uuid
 from dataclasses import dataclass, field
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
@@ -178,6 +180,7 @@ def setup_fixtures(db) -> dict[str, str]:
                 environment="评测环境",
                 service="eval-svc",
                 component_version="1.0",
+                tags=["evaluation-fixture", "legacy-eval-retrieval"],
                 confirmed_root_cause=fx["confirmed_root_cause"],
                 handling_steps=fx["handling_steps"],
                 recovery_verification=fx["recovery_verification"],
@@ -189,7 +192,12 @@ def setup_fixtures(db) -> dict[str, str]:
             # fault_id 非空约束:挂到一个专用占位故障(评测夹具不混入演示输入)
             from app.models import Fault, FaultStatus
 
-            f = Fault(title=f"评测占位-{fx['title']}", created_by=owner.id, status=FaultStatus.resolved)
+            f = Fault(
+                title=f"评测占位-{fx['title']}",
+                tags=["evaluation-fixture", "legacy-eval-retrieval"],
+                created_by=owner.id,
+                status=FaultStatus.resolved,
+            )
             db.add(f)
             db.flush()
             row.fault_id = f.id
@@ -205,6 +213,7 @@ def setup_fixtures(db) -> dict[str, str]:
                 doc_id=f"eval-{label}",
                 version=1,
                 title=fx["title"],
+                tags=["evaluation-fixture", "legacy-eval-retrieval"],
                 symptom=fx["symptom"],
                 check_steps=fx["check_steps"],
                 handling_steps=fx["handling_steps"],
@@ -222,16 +231,19 @@ def setup_fixtures(db) -> dict[str, str]:
 
 
 def cleanup_fixtures(db) -> int:
-    from app.models import Case, CaseStatus, Fault, Sop, SopStatus, User
+    """按本轮评测标签精确清理,不使用标题前缀或全表删除。"""
+    from app.models import Case, Fault, Sop
 
+    marker = ["legacy-eval-retrieval"]
     n = 0
-    for row in db.query(Case).filter(Case.title.like("评测集-%")).all():
+    # 先删案例/SOP,再删占位故障,避免外键顺序问题
+    for row in db.query(Case).filter(Case.tags.contains(marker)).all():
         db.delete(row)
         n += 1
-    for row in db.query(Sop).filter(Sop.title.like("评测集-%")).all():
+    for row in db.query(Sop).filter(Sop.tags.contains(marker)).all():
         db.delete(row)
         n += 1
-    for row in db.query(Fault).filter(Fault.title.like("评测占位-%")).all():
+    for row in db.query(Fault).filter(Fault.tags.contains(marker)).all():
         db.delete(row)
         n += 1
     db.commit()
@@ -431,59 +443,105 @@ def run_eval(db, user, settings, mapping, adapter=None) -> dict:
     }
 
 
+_ACTIVE_EVAL_DB: dict = {}
+_LEGACY_DATASET_VERSION = "legacy-eval-retrieval/1"
+
+
 def _eval_session():
-    """独立评测库 opssop_eval:查询与演示输入/业务数据完全分开;不存在则创建并建表。"""
-    from sqlalchemy import create_engine, text
-    from sqlalchemy.engine import URL
-    from sqlalchemy.orm import sessionmaker
+    """安全旧入口:每轮创建 opssop_eval_<run_id> 专用库,正式迁移并记录 manifest。
 
+    不再使用固定 opssop_eval 或 create_all;连接前由 app.eval.db 校验目标库名/
+    生产环境/业务库冲突。旧入口保留 0/2/3 退出语义;清理改用 --cleanup + 精确目标。
+    """
     from app.config import get_settings
-    from app.database import Base
-    import app.models  # noqa: F401  注册 metadata
+    from app.eval.db import create_or_reuse_database, default_target_db
 
-    s = get_settings()
-    admin_url = s.database_url.rsplit("/", 1)[0] + "/postgres"
-    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-    with admin_engine.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = 'opssop_eval'")
-        ).scalar()
-        if not exists:
-            conn.execute(text('CREATE DATABASE "opssop_eval"'))
-    admin_engine.dispose()
-    url = URL.create(
-        "postgresql+psycopg",
-        username=s.postgres_user,
-        password=s.postgres_password,
-        host=s.postgres_host,
-        port=s.postgres_port,
-        database="opssop_eval",
-    ).render_as_string(hide_password=False)
-    engine = create_engine(url)
-    with engine.begin() as conn:
-        conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
+    legacy_payload = {
+        "cases": [
+            [c.case_id, c.category, c.query, list(c.gold)]
+            for c in EVAL_CASES
+        ],
+        "fixtures": FIXTURES,
+    }
+    legacy_hash = hashlib.sha256(
+        json.dumps(legacy_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    run_id = "legacy" + uuid.uuid4().hex[:8]
+    eval_db = create_or_reuse_database(
+        get_settings(),
+        default_target_db(run_id),
+        run_id=run_id,
+        dataset_version=_LEGACY_DATASET_VERSION,
+        dataset_hash=legacy_hash,
+        reuse=False,
+    )
+    _ACTIVE_EVAL_DB.clear()
+    _ACTIVE_EVAL_DB.update({"name": eval_db.name, "run_id": run_id})
+    print(
+        json.dumps(
+            {
+                "legacy_eval_database": eval_db.name,
+                "run_id": run_id,
+                "cleanup_hint": (
+                    "python scripts/eval_retrieval.py --cleanup "
+                    f"--target-db {eval_db.name} --run-id {run_id}"
+                ),
+            },
+            ensure_ascii=False,
+        ),
+        file=sys.stderr,
+    )
+    return eval_db.session_factory()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="检索评测(关键词 vs 混合;独立库 opssop_eval)")
     parser.add_argument("--setup", action="store_true", help="写入评测夹具(评测集-前缀);评测前必带")
-    parser.add_argument("--cleanup", action="store_true", help="删除评测夹具")
     parser.add_argument("--synthetic", action="store_true", help="使用合成向量(验证口径;非真实效果)")
+    parser.add_argument("--allow-real-embedding", action="store_true", help="显式允许旧入口真实 embedding 评测(本批不执行)")
     parser.add_argument("--out", default="", help="结果 JSON 输出路径(可选)")
+    parser.add_argument("--cleanup", action="store_true", help="按精确名称清理本轮评测库(需 --target-db/--run-id)")
+    parser.add_argument("--target-db", default="", help="--cleanup 的评测库名")
+    parser.add_argument("--run-id", default="", help="--cleanup 的 run_id")
     args = parser.parse_args()
 
     from app.config import get_settings
+    from app.eval.db import EvalSetupError, drop_eval_database
     from app.models import User
 
     settings = get_settings()
-    db = _eval_session()
-    try:
-        if args.cleanup:
-            n = cleanup_fixtures(db)
-            print(json.dumps({"action": "cleanup", "removed": n}, ensure_ascii=False))
+    if args.cleanup:
+        if not args.target_db or not args.run_id:
+            print(
+                "旧入口 cleanup 需要精确 --target-db 和 --run-id;"
+                "也推荐使用 python scripts/eval_suite.py --cleanup --target-db ... --run-id ...",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            print(
+                json.dumps(
+                    {"cleanup": drop_eval_database(settings, args.target_db, args.run_id)},
+                    ensure_ascii=False,
+                )
+            )
             return 0
+        except EvalSetupError as exc:
+            print(f"清理拒绝: {exc}", file=sys.stderr)
+            return 2
+    if not args.synthetic and not args.allow_real_embedding:
+        print(
+            "旧入口真实 embedding 评测未授权;本批只执行合成机制评测。"
+            "如确需真实入口,显式 --allow-real-embedding。",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        db = _eval_session()
+    except EvalSetupError as exc:
+        print(f"评测库准备失败: {exc}", file=sys.stderr)
+        return 2
+    try:
         try:
             mapping = resolve_fixtures(db, setup=args.setup)
             user = db.query(User).filter(User.username == "eval_owner").first()

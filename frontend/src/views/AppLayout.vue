@@ -64,7 +64,10 @@ function logout() {
           class="block px-5 py-2.5 text-sm hover:bg-slate-700 transition-colors"
           :class="{
             'bg-slate-700 border-l-4 border-blue-400':
-              route.name === m.name || (m.name === 'faults' && route.name === 'fault-detail') || (m.name === 'sops' && route.name === 'sop-detail'),
+              route.name === m.name ||
+              (m.name === 'faults' && route.name === 'fault-detail') ||
+              (m.name === 'cases' && route.name === 'case-detail') ||
+              (m.name === 'sops' && route.name === 'sop-detail'),
           }"
         >
           {{ m.title }}

@@ -109,6 +109,29 @@ class Settings(BaseSettings):
         """知识版本种子:与检索缓存键组合使用(实际版本由知识表状态计算)。"""
         return self.ai_config_version
 
+    def validate_production_config(self) -> None:
+        """生产启动前的配置预检(在 Alembic 迁移之前执行)。
+
+        只检查配置本身,不连接数据库。遗留账号检查仍由 ensure_seed 在迁移后执行。
+        """
+        if not self.is_production:
+            return
+        from app.seed import WEAK_PASSWORDS
+
+        problems: list[str] = []
+        if self.opssop_admin_password in WEAK_PASSWORDS:
+            problems.append("OPSSOP_ADMIN_PASSWORD 仍是示例默认口令")
+        if len(self.opssop_admin_password) < 12:
+            problems.append("OPSSOP_ADMIN_PASSWORD 长度不足 12")
+        if self.secret_key in WEAK_PASSWORDS:
+            problems.append("SECRET_KEY 仍是示例默认值")
+        if len(self.secret_key) < 32:
+            problems.append("SECRET_KEY 长度不足 32")
+        if self.opssop_seed_demo:
+            problems.append("OPSSOP_SEED_DEMO 必须为 0")
+        if problems:
+            raise ValueError("生产配置预检失败: " + "; ".join(problems))
+
     def validate_ai_config(self) -> None:
         """启动时校验 AI 配置冲突;LOCAL_ONLY 下禁止 cloud 模式。"""
         if self.local_only and self.ai_mode == "cloud":

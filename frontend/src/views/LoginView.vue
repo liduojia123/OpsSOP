@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
+import { safeRedirect } from '../safeRedirect'
 import { useAuthStore } from '../stores/auth'
 import type { User } from '../types'
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const form = reactive({ username: '', password: '' })
@@ -21,7 +23,13 @@ async function doLogin() {
     const { data } = await client.post('/api/auth/login', form)
     auth.setSession(data.token, data.user as User)
     ElMessage.success(`欢迎,${data.user.display_name}`)
-    router.push({ name: 'workbench' })
+    // 登录后回到被拦截的来源(仅站内路径);无 redirect 时进入工作台
+    const target = safeRedirect(route.query.redirect)
+    if (target) {
+      await router.replace(target)
+    } else {
+      await router.replace({ name: 'workbench' })
+    }
   } catch (e) {
     ElMessage.error(errMsg(e))
   } finally {

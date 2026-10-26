@@ -81,6 +81,7 @@ def test_upgrade_from_empty_db(disposable_db_url):
         "sop_feedback",
         "audit_events",
         "ai_analyses",
+        "demo_seed_records",
     } <= tables
 
 

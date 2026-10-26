@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client, { errMsg } from '../api'
 import { fmtTime, sopStatusMap } from '../labels'
@@ -18,8 +19,15 @@ const userOptions = ref<UserOption[]>([])
 const saving = ref(false)
 const submitting = ref(false)
 const loading = ref(false)
+const loadError = ref<{ kind: 'invalid' | 'forbidden' | 'not-found' | 'network' | 'server'; message: string } | null>(null)
 // 请求序号:切换版本时丢弃过期响应,防止旧内容覆盖新页面
 let loadSeq = 0
+
+function parseSopId(raw: unknown): number | null {
+  if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return null
+  const id = Number(raw)
+  return Number.isSafeInteger(id) && id > 0 ? id : null
+}
 
 const form = reactive({
   title: '',
@@ -65,14 +73,20 @@ function fillForm(data: Sop) {
 }
 
 async function load() {
-  const id = Number(route.params.id)
+  const id = parseSopId(route.params.id)
   const seq = ++loadSeq
-  loading.value = true
-  // 清除旧版本状态,避免 URL 与页面内容不一致
+  // 清除旧版本状态,避免 URL 与页面内容不一致;失败时不得残留上一个来源正文
   sop.value = null
   history.value = []
   feedbacks.value = []
   reviewComment.value = ''
+  loadError.value = null
+  if (id === null) {
+    loading.value = false
+    loadError.value = { kind: 'invalid', message: '来源地址无效:SOP ID 必须是正整数' }
+    return
+  }
+  loading.value = true
   try {
     const [detail, hist, fb] = await Promise.all([
       client.get(`/api/sops/${id}`),
@@ -86,7 +100,18 @@ async function load() {
     fillForm(detail.data)
   } catch (e) {
     if (seq !== loadSeq) return
-    ElMessage.error(errMsg(e))
+    const status = axios.isAxiosError(e) ? e.response?.status : undefined
+    if (status === 403) {
+      loadError.value = { kind: 'forbidden', message: '当前账号无权查看该 SOP' }
+    } else if (status === 404) {
+      loadError.value = { kind: 'not-found', message: 'SOP 不存在或已被删除' }
+    } else if (status === 400 || status === 422) {
+      loadError.value = { kind: 'invalid', message: 'SOP ID 无效' }
+    } else if (!axios.isAxiosError(e) || !e.response) {
+      loadError.value = { kind: 'network', message: `网络错误:${errMsg(e)}` }
+    } else {
+      loadError.value = { kind: 'server', message: errMsg(e) || '加载 SOP 失败' }
+    }
   } finally {
     if (seq === loadSeq) loading.value = false
   }
@@ -247,8 +272,27 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-if="!sop" class="p-6 text-gray-500">
-    {{ loading ? '加载中…' : '无法加载该 SOP(可能已删除或无权查看)' }}
+  <div v-if="!sop" class="p-6">
+    <div v-if="loading" class="text-gray-500">加载中…</div>
+    <div v-else class="page-card max-w-3xl" data-testid="sop-detail-error">
+      <el-alert
+        :type="loadError?.kind === 'forbidden' || loadError?.kind === 'not-found' || loadError?.kind === 'invalid' ? 'warning' : 'error'"
+        :closable="false"
+        show-icon
+        :title="loadError?.message || '无法加载该 SOP'"
+      />
+      <div class="mt-4 flex gap-2">
+        <el-button
+          v-if="loadError?.kind === 'network' || loadError?.kind === 'server'"
+          type="primary"
+          plain
+          @click="load"
+        >
+          重试
+        </el-button>
+        <el-button @click="router.push('/sops')">返回 SOP 列表</el-button>
+      </div>
+    </div>
   </div>
   <div class="p-6" v-else>
     <div class="flex items-center justify-between mb-4">

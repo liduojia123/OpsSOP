@@ -245,13 +245,15 @@ def main():
         page.get_by_role("button", name="创建并处理").click()
         page.wait_for_url(re.compile(r".*/faults/\d+"), timeout=10000)
         open_fault_url = page.url
+        # 等待详情页实际加载完成(标题出现),避免在加载中统计按钮造成假失败/假通过
+        expect(page.locator("h1")).to_have_text(open_title, timeout=10000)
         # 运维本人在未解决故障上应看到写按钮(对照组,防止断言恒真)
         n_save = page.get_by_role("button", name="保存", exact=True).count()
         check("对照: 运维在未解决故障上可见保存按钮", n_save > 0, f"save={n_save}")
 
         do_login(page, RV_USER, RV_PASS)
         page.goto(open_fault_url)
-        page.wait_for_timeout(1000)
+        expect(page.locator("h1")).to_have_text(open_title, timeout=10000)
         n_save = page.get_by_role("button", name="保存", exact=True).count()
         n_append = page.get_by_role("button", name="追加", exact=True).count()
         n_resolve = page.get_by_role("button", name="确认解决", exact=True).count()

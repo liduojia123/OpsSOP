@@ -389,6 +389,31 @@ class EmbeddingIndexState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class DemoSeedRecord(Base):
+    """显式演示内容的稳定标识映射(第四阶段第一批)。
+
+    演示内容通过专用 CLI 显式写入,不在启动/登录/页面打开时自动创建。
+    (scenario_key, entity_role) 唯一定位一个演示实体,避免依赖可编辑标题;
+    重复执行时据此跳过已有实体,不覆盖人工修改。
+    """
+
+    __tablename__ = "demo_seed_records"
+    __table_args__ = (
+        UniqueConstraint("scenario_key", "entity_role", name="uq_demo_seed_scenario_role"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scenario_key: Mapped[str] = mapped_column(String(64), index=True)
+    entity_role: Mapped[str] = mapped_column(String(32))  # fault | case | sop | sop_v1 | sop_v2
+    entity_type: Mapped[str] = mapped_column(String(16))  # fault | case | sop
+    entity_id: Mapped[int] = mapped_column(Integer)
+    seed_version: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class EmbeddingIndexUnit(Base):
     """embedding 索引单元(一个来源文档一单元;向量为 pgvector 列)。
 

@@ -18,7 +18,11 @@ client.interceptors.response.use(
     if (error.response?.status === 401) {
       const auth = useAuthStore()
       auth.logout()
-      router.push({ name: 'login' })
+      const current = router.currentRoute.value
+      // 会话过期时也保留当前来源路径,登录后回到同一位置;登录页本身不递归携带
+      if (current.name !== 'login') {
+        router.push({ name: 'login', query: { redirect: current.fullPath } })
+      }
     }
     return Promise.reject(error)
   },

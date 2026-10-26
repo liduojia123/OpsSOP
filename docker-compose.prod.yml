@@ -1,0 +1,20 @@
+# 生产覆盖配置:与 docker-compose.yml 合并使用。
+# 用法:
+#   docker compose -p <project> --env-file .env.production \
+#     -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 关键点(不依赖“看起来删掉了端口”):
+# - 数据库和后端不发布宿主端口;
+# - 移除开发用 backend/tests 只读挂载;
+# - 前端只绑定回环地址,由宿主反向代理提供 HTTPS。
+services:
+  db:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    volumes: !reset []
+
+  frontend:
+    ports: !override
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"

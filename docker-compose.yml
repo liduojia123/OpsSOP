@@ -61,16 +61,18 @@ services:
     volumes:
       # 便于容器内跑 pytest(测试库在 PostgreSQL 中,不产生文件卷)
       - ./backend/tests:/srv/opssop/tests:ro
+    # 宿主机端口可覆盖:演示环境使用独立端口,避免与既有项目冲突
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
 
   frontend:
     build: ./frontend
     depends_on:
       backend:
         condition: service_healthy
+    # 云部署默认监听所有地址;本地演示可在 .env.demo 设 FRONTEND_HOST=127.0.0.1
     ports:
-      - "${FRONTEND_PORT:-8080}:80"
+      - "${FRONTEND_HOST:-0.0.0.0}:${FRONTEND_PORT:-8080}:80"
 
 volumes:
   pgdata:

@@ -1,0 +1,36 @@
+{
+  "schema_version": "opssop-eval-dataset/1",
+  "dataset_version": "2026-10-22.1",
+  "label_status": "provisional",
+  "label_source": "synthetic-reference-labels-by-development-ai",
+  "human_reviewed": false,
+  "description": "合成评测集:知识夹具、样本输入、参考标签与合成模型行为分开存储。参考标签由开发 AI 编写,未经独立人工复核,只能用于机制与标签一致性验证,不能称为真人 gold 或真实模型效果。",
+  "files": [
+    "knowledge.json",
+    "samples.json",
+    "labels.json",
+    "synthetic_behaviours.json"
+  ],
+  "sample_count": 39,
+  "knowledge_count": 25,
+  "groups": {
+    "analysis_permission": 1,
+    "cache": 1,
+    "explicit_category": 5,
+    "failure": 8,
+    "injection": 2,
+    "insufficient": 3,
+    "no_answer": 3,
+    "paraphrase": 4,
+    "permission": 6,
+    "same_symptom": 4,
+    "version": 2
+  },
+  "tasks": {
+    "analysis": 21,
+    "analysis_cache": 1,
+    "analysis_failure": 8,
+    "analysis_permission": 1,
+    "retrieval": 24
+  }
+}

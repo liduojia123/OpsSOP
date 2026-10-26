@@ -1,6 +1,9 @@
 #!/bin/sh
-# 启动流程:等待数据库 -> 迁移 -> 种子初始化 -> 启动 API
+# 启动流程:等待数据库 -> 配置预检 -> 迁移 -> 种子初始化 -> 启动 API
 set -e
+
+echo "[opssop] 启动前配置预检(不连接数据库)..."
+python scripts/preflight.py
 
 echo "[opssop] 执行数据库迁移..."
 alembic upgrade head
