@@ -1,7 +1,7 @@
 """修复:已执行「旧版 f7e8d9c0b1a2」的数据库补齐 sop_ai_generation_runs 新列。
 
-背景(2026-10-15 第三阶段复审记录):
-- f7e8d9c0b1a2(第三阶段第一批)sop_ai_generation_runs 表曾在未发布状态下原地修改,
+兼容性背景:
+- 旧版 f7e8d9c0b1a2 迁移的 sop_ai_generation_runs 表可能缺少后续补充的列,
   增加 attempt / field_sources 两列;
 - 若某本地数据库在修改前已执行旧版迁移,alembic_version 已是 f7e8d9c0b1a2,
   单纯 `alembic upgrade head` 不会补齐新列;

@@ -1,7 +1,7 @@
 """模型适配层冒烟测试:验证真实接口连通性、鉴权、模型名与 JSON 模式。
 
 用法(容器内,读取容器环境变量):
-    docker exec -i mimo-backend-1 python - < backend/scripts/smoke_llm.py
+    docker compose -p opssop-prod --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml exec -T backend python scripts/smoke_llm.py
 
 判据(云端冒烟增量复核 2026-10-14 收紧):
 - 真实接口冒烟仅允许 AI_MODE=cloud|local;demo/disabled 明确拒绝且 0 次调用,

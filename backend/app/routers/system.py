@@ -19,7 +19,7 @@ def health(db: Session = Depends(get_db)) -> dict:
 
 @router.get("/ai-status", response_model=AiStatusOut)
 def ai_status(_: User = Depends(get_current_user)) -> AiStatusOut:
-    """当前 AI 模式状态。第一阶段不调用模型,仅展示配置状态。"""
+    """当前 AI 模式与配置状态;查询状态不触发模型调用。"""
     s = get_settings()
     messages = {
         "disabled": "AI 未启用,业务功能(录入/审核/归档)不受影响。",

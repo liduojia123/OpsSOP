@@ -1,7 +1,7 @@
 """Docker Compose / PostgreSQL 操作封装(标准库 + docker CLI)。
 
 安全原则:
-- 只接受 `opssop-` 前缀的 Compose 项目,避免误触既有 `mimo` 项目;
+- 只接受 `opssop-` 前缀的 Compose 项目,避免误触受保护的既有资源;
 - 数据库/归档操作使用参数列表,不拼接 shell;
 - 数据库备份/恢复在 DB 容器内通过本地 socket 执行,不把密码放到命令行;
 - 清理前核对容器/卷/网络的名称、Compose 项目标签和本轮 run_id。
@@ -866,7 +866,7 @@ def validate_project_name(value: str) -> str:
     value = validate_resource_name(value, role="Compose 项目")
     if not value.startswith("opssop-"):
         raise OpsError(
-            "Compose 项目必须以 opssop- 开头,避免误触既有 mimo 项目", stage="validate"
+            "Compose 项目必须以 opssop- 开头,避免误触受保护的既有资源", stage="validate"
         )
     return value
 

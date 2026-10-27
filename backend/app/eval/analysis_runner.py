@@ -764,7 +764,7 @@ def _metrics_for_quality(rows: list[dict]) -> dict:
             "value": None,
             "status": "not_available",
             "definition": "真实人工修改比例只来自可对应样本/AI 原建议/人工最终值的真人审核记录",
-            "reason": "本批没有真人复核记录;预置标签/AI 自评不计为人工修改",
+            "reason": "当前评测数据没有真人复核记录;预置标签/AI 自评不计为人工修改",
         },
         "per_category": dict(sorted(per_category.items())),
     }

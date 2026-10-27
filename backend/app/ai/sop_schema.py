@@ -1,4 +1,4 @@
-"""AI 生成 SOP 草稿的固定 Schema(第三阶段第一批,独立于故障分析报告 Schema)。
+"""AI 生成 SOP 草稿的固定 Schema(独立于故障分析报告 Schema)。
 
 覆盖现有 SOP 内容字段:title / applicable_env / symptom / preconditions /
 check_steps / handling_steps / recovery_verification / rollback_steps / notes,
@@ -27,7 +27,7 @@ CONTENT_FIELDS = (
 )
 
 # 关键内容字段(有直接来源材料):生成文本若无有效来源映射,必须明确「待人工确认」,
-# 不把全局证据清单当作字段来源映射(2026-10-15 复审 P2-4)
+# 不把全局证据清单当作字段来源映射
 KEY_SOURCE_FIELDS = ("applicable_env", "symptom", "handling_steps", "recovery_verification")
 
 # 材料缺失/推测性内容的标注词(命中其一即视为已明确标注)

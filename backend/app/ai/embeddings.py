@@ -1,4 +1,4 @@
-"""embedding 适配层(第三阶段第二批):与聊天模型独立配置,优先 OpenAI 兼容接口。
+"""embedding 适配层:与聊天模型独立配置,优先 OpenAI 兼容接口。
 
 模式(环境变量 EMBEDDING_MODE):
 - disabled: 不调用 embedding;基本业务与关键词检索不受影响;不静默生成伪向量;

@@ -368,7 +368,7 @@ class AiStatusOut(BaseModel):
     model_config_version: str = ""
 
 
-# ===== AI 分析(第二阶段)=====
+# ===== AI 分析=====
 
 class AnalysisInputPatch(BaseModel):
     """左栏未保存的表单编辑:分析时覆盖已保存故障字段,不回写数据库。"""
@@ -448,7 +448,7 @@ class SearchResponse(BaseModel):
     degrade_reason: str = ""  # 安全的降级原因(不含密钥/堆栈)
 
 
-# ===== AI 生成 SOP 草稿(第三阶段第一批)=====
+# ===== AI 生成 SOP 草稿=====
 
 class SopGenerateAiRequest(BaseModel):
     """AI 生成 SOP 草稿请求。
@@ -496,7 +496,7 @@ class SopGenerateAiResponse(BaseModel):
     reused: bool = False  # 幂等重复返回既有结果(未重复计费)
 
 
-# ===== embedding 索引管理(第三阶段第二批)=====
+# ===== embedding 索引管理=====
 
 class EmbeddingIndexStatusOut(BaseModel):
     """索引状态快照:实际数量/配置标识/更新时间/安全失败原因;不含密钥、不伪造进度。"""

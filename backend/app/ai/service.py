@@ -1,6 +1,6 @@
 """AI 分析编排:证据分配 → 检索 → 模型调用 → 引用校验 → 存储。
 
-关键行为(AGENTS.md「业务可靠性」):
+分析编排与数据可靠性约束:
 - 输入证据与知识片段由后端分配稳定 ID;模型输出结构/证据 ID/来源 ID/版本/权限/状态全部校验;
 - 无效引用移除并标记结果不完整(incomplete_reasons);格式修复重试次数有限;
 - 允许证据不足(insufficient_evidence)与无匹配知识;不编造引用;
@@ -100,7 +100,7 @@ def input_from_overlay(fault: Fault, overlay: dict) -> AnalysisInput:
     """表单覆盖(未保存编辑)叠在已保存故障之上:缺省字段沿用已保存值。
 
     category_id 显式出现时(含 null 清空)按覆盖处理:清空后分类名为空,
-    不再沿用数据库旧分类(复审次要项);非空覆盖的名称由 run_analysis 按 id 解析。
+    不再沿用数据库旧分类;非空覆盖的名称由 run_analysis 按 id 解析。
     """
     base = input_from_fault(fault)
     cat_id, cat_name = base.category_id, base.category_name
@@ -212,7 +212,7 @@ def _snippets_from_hits(hits: list[SearchHit]) -> list[KnowledgeSnippet]:
 def _revalidate_snippets(
     db: Session, user: User, snippets: list[KnowledgeSnippet], query: str = ""
 ) -> tuple[list[KnowledgeSnippet], list[str]]:
-    """模型请求发出前的片段复核(复审 P2-1 / P2-6):
+    """模型请求发出前的片段复核:
 
     检索完成与聊天请求之间的窗口内来源可能被废弃/换版;不能仅靠模型返回后的
     引用清洗——失效知识一旦发出就无法撤回。此处按当前状态/版本重新校验;
@@ -269,7 +269,7 @@ def _revalidate_snippets(
 
 
 def _clip(text: str, limit: int) -> str:
-    """整字段先脱敏、后截断(复审 P1 #2):
+    """整字段先脱敏、后截断:
 
     先截断会把长 PEM 的 END 行截掉,依赖 BEGIN/END 配对的打码因此失效,
     半截密钥材料会原样进入请求;因此每个进入提示词的字段都先打码再取前缀,
@@ -291,7 +291,7 @@ def _build_user_prompt(
     if snippets:
         # 知识元数据显式整数版本(source_type=sop, source_id=2, version=2),
         # 不用 "v2" 之类的展示后缀——模型模仿提示文本写 version:"v2" 会直接违反
-        # Schema(整数或 null),是 2026-10-15 复审 P2-1 的直接诱因
+        # Schema(整数或 null)
         knowledge_block = "\n".join(
             f"[{s.ref_id}] {_clip(s.title, 200)} "
             f"(source_type={s.source_type}, source_id={s.source_id}, "
@@ -519,7 +519,7 @@ def _release_slot(user_id: int) -> None:
         _inflight[user_id] = max(0, _inflight.get(user_id, 0) - 1)
 
 
-# 查询向量(embedding)独立配额:与聊天分析限流桶分离(复审 P2-3)。
+# 查询向量(embedding)独立配额:与聊天分析限流桶分离。
 # 单次助手 = 一次检索(可选向量)+ 一次分析,二者不得互相挤占;
 # 缓存命中不占聊天额度;向量查询仅占 embedding 额度,限流时降级关键词。
 _embed_rate_buckets: dict[int, list[float]] = {}
@@ -648,7 +648,7 @@ def run_analysis(
     input_hash = compute_input_hash(inp, records)
     config_ver = settings.ai_config_version
 
-    # 正式搜索与右侧助手共用同一检索与来源校验逻辑(第三批混合检索;向量不可用自动降级)
+    # 正式搜索与右侧助手共用同一检索与来源校验逻辑(混合检索;向量不可用自动降级)
     retrieval = search_knowledge_hybrid(db, user, _query_from_input(inp), settings)
     hits, knowledge_ver = retrieval.hits, retrieval.knowledge_version
     snippets = _snippets_from_hits(hits)
@@ -676,7 +676,7 @@ def run_analysis(
                 and cached_row.status != AiAnalysisStatus.failed
             ):
                 # 复用前重新校验:先按本次检索清单校验,再实时列级复核来源状态/版本
-                # (检索完成与缓存返回之间的并发窗口内来源可能被废弃/替换,复审 P2 #5)
+                # (检索完成与缓存返回之间的并发窗口内来源可能被废弃/替换)
                 report_model, verify_reasons = verify_report(
                     AnalysisReport.model_validate(cached_row.report),
                     evidence,
@@ -696,8 +696,8 @@ def run_analysis(
 
     _acquire_slot(user.id, settings)  # 频率与并发限制;缓存命中不占额度
     try:
-        # 模型请求发出前的片段复核:失效来源剔除(复审 P2-1),仍有效来源保留
-        # 查询相关片段/按查询在当前字段重定位(复审 P2-6);不把失效知识发给模型
+        # 模型请求发出前的片段复核:失效来源剔除,仍有效来源保留
+        # 查询相关片段/按查询在当前字段重定位;不把失效知识发给模型
         snippets, _dropped_refs = _revalidate_snippets(
             db, user, snippets, _query_from_input(inp)
         )

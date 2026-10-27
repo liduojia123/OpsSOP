@@ -1,4 +1,4 @@
-"""模型 JSON 输出的共用提取、Schema 错误反馈与有限修复(2026-10-15 复审 P2-1 契约)。
+"""模型 JSON 输出的共用提取、Schema 错误反馈与有限修复。
 
 故障分析与 SOP 草稿生成共用本模块,不各自复制一套修复循环:
 - `_extract_json` 提取合法 JSON 对象(容忍代码块围栏/前后杂文);
@@ -81,7 +81,7 @@ def format_schema_errors(exc: ValidationError) -> str:
 
 
 def aggregate_usage(call_usages: list[dict | None]) -> dict | None:
-    """逐次记录的 usage 按字段汇总(复审 P2 #6):
+    """逐次记录的 usage 按字段汇总:
 
     只有每次调用都返回数值的字段才汇总为确定值;某字段任一次缺失时不把缺失当 0,
     直接不输出该字段(前端显示「未知」);任一次整份缺失/为空 → None(整体未知)。

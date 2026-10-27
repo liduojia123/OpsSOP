@@ -19,7 +19,7 @@ const detailVisible = ref(false)
 const current = ref<Case | null>(null)
 const reviewComment = ref('')
 
-// ===== AI 生成 SOP 草稿(第三阶段第一批)=====
+// ===== AI 生成 SOP 草稿=====
 // 与模板生成分开;生成中防重复点击;失败持久展示原因与人工重试;
 // 同一次「点击生成」的重试沿用 request_token(不重复创建草稿/重复计费),
 // 主动再次生成使用新 token(可再建新草稿);过期响应不应用到其他案例。
@@ -29,7 +29,7 @@ const aiError = ref<{ message: string; code?: string } | null>(null)
 const aiLastRun = ref<SopGenerationRun | null>(null)
 let aiRequestToken = ''
 let aiGenSeq = 0
-// 组件卸载标记:迟到响应不得再触发跳转/通知/状态写入(复审 P2-2)
+// 组件卸载标记:迟到响应不得再触发跳转/通知/状态写入
 let disposed = false
 
 onBeforeUnmount(() => {
@@ -161,7 +161,7 @@ async function generateSop() {
   if (!current.value) return
   try {
     const { data } = await client.post(`/api/cases/${current.value.id}/generate-sop`)
-    if (disposed) return // 卸载后不再跳转/通知(复审 P2-2 同一契约)
+    if (disposed) return // 卸载后不再跳转/通知
     ElMessage.success('已生成模板 SOP 草稿(字段拷贝),请人工补全')
     detailVisible.value = false
     void router.push(`/sops/${data.id}`)

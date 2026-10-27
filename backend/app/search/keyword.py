@@ -1,6 +1,6 @@
 """关键词检索(正式知识:已审核案例 + 当前有效已发布 SOP)。
 
-设计要点(AGENTS.md「业务可靠性」/ PROJECT_PROMPT §6):
+检索范围与一致性约束:
 - 不假设 PostgreSQL 默认分词覆盖中文:自建查询词——英文/数字词(错误码、组件名)
   原样匹配,CJK 字符串生成 2-gram 词参与匹配,评分按字段加权;
 - 正式检索来源仅限:当前用户有权访问的「已通过案例」与「当前有效的已发布 SOP」;
@@ -8,7 +8,7 @@
 - 查询与排序前过滤权限与状态;返回前再次校验(引用展示前的二次验证);
 - 每条结果带来源类型、ID、版本、相关片段与定位链接;无匹配如实返回空,不编造。
 
-关键词路径为向量/混合检索(第三阶段第三批)的基础通道:hybrid.py 在其上融合向量候选,
+关键词路径为向量/混合检索的基础通道:hybrid.py 在其上融合向量候选,
 两者共用本模块的来源过滤与返回前复核;关键词能力独立可用,向量不可用时自动降级回本路径。
 """
 
@@ -167,7 +167,7 @@ def _finalize_hit(hit: SearchHit, db: Session, user: User) -> SearchHit | None:
 
     用列级 select 直读数据库,绕过会话 identity map 的陈旧实例——
     首次加载与本复核之间的独立事务变更(废弃/换版)必须在这里被看到
-    (修复复审 P2:db.get() 返回旧实例,失效命中未被剔除,旧正文进入模型上下文)。
+    (防止 db.get() 返回旧实例,使失效命中或旧正文进入模型上下文)。
     """
     if hit.source_type == "case":
         row = db.execute(
@@ -197,7 +197,7 @@ def finalize_hits(hits: list[SearchHit], db: Session, user: User) -> list[Search
 def _best_field_hit(obj, fields, lowered: list[tuple[str, float]]) -> tuple[float, str, list[str]]:
     """对来源对象的字段组打分,返回 (总分, 最佳命中字段文本, 最佳命中词)。
 
-    「最佳」=加权得分最高的字段,而非第一个出现命中的字段(复审 P2-6):
+    「最佳」=加权得分最高的字段,而非第一个出现命中的字段:
     多词查询下弱词命中标题不得掩盖错误码等强词命中排查/处理字段,
     否则查询相关依据(如排查指令)会从片段中消失。
     正式检索(search_knowledge)与发模型前片段复核(source_snippet_for_query)
@@ -228,7 +228,7 @@ def _read_source_fields(db: Session, source_type: str, source_id: int):
     """列级直读当前来源字段(绕过会话 identity map 陈旧实例,与 _finalize_hit 同理由)。
 
     检索与发模型之间的窗口内内容变更必须在这里被看到,否则旧正文会被
-    「仍可验证」误判为有效(复审 P2-6 的内容变化场景)。
+    「仍可验证」误判为有效(来源内容变化场景)。
     """
     from types import SimpleNamespace
 
@@ -277,7 +277,7 @@ def source_snippet_for_query(
     query: str,
     old_snippet: str = "",
 ) -> tuple[str, str] | None:
-    """按查询在当前来源字段上定位相关片段(与正式检索同一提取逻辑;复审 P2-6)。
+    """按查询在当前来源字段上定位相关片段(与正式检索同一提取逻辑)。
 
     - 旧命中片段仍能在当前来源中验证(原文未变)→ 保留其命中位置,
       不把查询相关依据退化成通用现象前缀;

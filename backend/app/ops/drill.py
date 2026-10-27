@@ -1,4 +1,4 @@
-"""第四阶段第三批隔离演练编排。
+"""备份、恢复、持久化与生产配置的隔离演练编排。
 
 一次完整演练:
 - 新建 Compose 项目/命名卷/源库 A,正式 Alembic 迁移;
@@ -45,7 +45,7 @@ from .httpclient import HttpClient
 from .restore import run_restore
 from .snapshot import compare_snapshots, take_snapshot
 
-DEFAULT_BACKEND_IMAGE = "opssop-review-backend:20261019"
+DEFAULT_BACKEND_IMAGE = "opssop-backend:1.0.0"
 DB_IMAGE = "pgvector/pgvector:pg16"
 NGINX_IMAGE = "nginx:1.27-alpine"
 
@@ -638,10 +638,10 @@ def run_drill(config: DrillConfig) -> dict:
         "production": {},
         "cleanup": {},
         "limitations": [
-            "这是本地 Linux 容器验证(已有依赖镜像 + 当前源码只读挂载),不是新镜像构建成功,也不是目标云服务器/公网 HTTPS 验收。",
-            "真实聊天模型质量、真实 embedding、真人标签复核未验证;本轮 AI/embedding 均为 disabled。",
-            "强制终止进程/断电恢复、自动异地容灾、自动调度不在本批范围。",
-            "演练网络未启用 Docker internal 出口隔离;通过受控子进程环境、禁用的模型配置和清空端点避免外发,不以网络层隔离冒充保证。",
+            "演练使用本地 Linux 容器、已有镜像和当前源码只读挂载;报告不覆盖镜像重建、目标云环境或公网 HTTPS。",
+            "本演练不评估真实聊天模型、embedding 效果或人工标签;运行时 AI/embedding 均为 disabled。",
+            "本演练不覆盖强制终止进程、断电恢复、自动异地容灾或自动调度。",
+            "演练未启用 Docker internal 网络;外发约束来自受控子进程环境、禁用模型和空端点,严格隔离需部署环境限制出口。",
         ],
     }
     state = DrillState(result=result, config=config)
@@ -1672,7 +1672,7 @@ def _cleanup_after_run(state: DrillState, *, success: bool) -> None:
 
 def _summary(result: dict) -> str:
     lines = [
-        "# OpsSOP 第四阶段第三批备份/恢复/持久化演练摘要",
+        "# OpsSOP 运维演练报告",
         "",
         f"- run_id: `{result.get('run_id')}`",
         f"- 模式: `{result.get('mode')}`",

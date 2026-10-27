@@ -1,138 +1,143 @@
-# 备份与恢复
+# OpsSOP 1.0.0 备份与恢复
 
-工具入口:`backend/scripts/ops_cli.py`。只依赖 Python 标准库和 `docker` CLI;
-备份/恢复在数据库容器内通过本地 socket 执行,不把密码放进命令行,也不经过
-PowerShell 文本管道或 `Get-Content`/`Set-Content` 传递归档。
+运维入口为 `backend/scripts/ops_cli.py`，在 Docker 引擎所在宿主环境执行，只依赖 Python 3.10+ 标准库及 Docker CLI。本文生产示例使用项目 `opssop-prod`、`.env.production` 和生产 Compose 覆盖；操作已有安装时使用其实际项目名与配置。
 
-## 1. 备份
+归档通过容器内 PostgreSQL 工具及二进制文件复制传递，不通过 PowerShell 文本管道处理。备份目录、元信息和恢复报告保存在仓库外。
+
+## 备份范围
+
+| 包含 | 不包含 |
+|---|---|
+| 应用 schema、业务数据、账号哈希、序列 | PostgreSQL 集群级角色与角色口令 |
+| Alembic 版本、pgvector 扩展及索引数据 | `pg_hba.conf`、`postgresql.conf`、宿主及网络配置 |
+| 配套计数、状态分布、业务摘要与校验信息 | 环境文件、模型密钥、TLS 证书及外部模型配置 |
+
+私有环境配置、角色配置和证书应单独安全保存。数据库归档包含业务内容及账号哈希，须限制访问，不提交版本库或公开存储。
+
+备份前安排维护窗口并暂停应用写入。工具的核对快照与 `pg_dump` 分别采集，持续写入可能导致恢复后的快照与元信息不同。维护时可停止后端与前端，保留数据库服务：
 
 ```powershell
-# PowerShell 7。先确认项目/环境文件/输出目录均为本轮目标。
-$run = "backup20261022a"
+docker compose -p opssop-prod --env-file .env.production `
+  -f docker-compose.yml -f docker-compose.prod.yml stop backend frontend
+```
+
+## 创建备份
+
+以下 PowerShell 7 示例生成独立运行 ID 和输出目录。归档与元信息路径供后面的恢复命令使用；重新打开终端时，应填写已保存的实际路径。
+
+```powershell
+$backupRun = 'backup' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$backupDir = Join-Path $env:USERPROFILE "opssop-backups\$backupRun"
+$archive = Join-Path $backupDir "opssop-$backupRun.dump"
+$metadata = Join-Path $backupDir "opssop-$backupRun.json"
 python backend/scripts/ops_cli.py backup `
-  --project opssop-demo-p4b1 `
-  --env-file .env.demo `
+  --project opssop-prod `
+  --env-file .env.production `
   --compose-file docker-compose.yml `
-  --run-id $run `
-  --out-dir "D:\opssop-backups" `
-  --name "opssop-$run.dump"
+  --compose-file docker-compose.prod.yml `
+  --run-id $backupRun `
+  --out-dir $backupDir `
+  --name "opssop-$backupRun.dump"
 ```
 
+Linux 示例，输出父目录须预先具备写入权限：
+
 ```bash
-# Linux
-RUN_ID=backup20261022a
+BACKUP_RUN="backup$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
+BACKUP_DIR="/var/backups/opssop/$BACKUP_RUN"
+ARCHIVE="$BACKUP_DIR/opssop-$BACKUP_RUN.dump"
+METADATA="$BACKUP_DIR/opssop-$BACKUP_RUN.json"
 python3 backend/scripts/ops_cli.py backup \
-  --project opssop-demo-p4b1 \
-  --env-file .env.demo \
+  --project opssop-prod \
+  --env-file .env.production \
   --compose-file docker-compose.yml \
-  --run-id "$RUN_ID" \
-  --out-dir /var/backups/opssop \
-  --name "opssop-$RUN_ID.dump"
+  --compose-file docker-compose.prod.yml \
+  --run-id "$BACKUP_RUN" \
+  --out-dir "$BACKUP_DIR" \
+  --name "opssop-$BACKUP_RUN.dump"
 ```
 
-- 归档格式:`pg_dump -Fc`;默认拒绝覆盖同名 `.dump` 或 `.json`。
-- 工具成功、`pg_restore -l` 可读、文件大小与 SHA-256 校验、归档/元信息落盘全部成功后才返回成功。
-- 元信息 `<name>.json` 含:格式版本、run_id、时间、PostgreSQL/pg_dump/pg_restore 版本、
-  Alembic 版本、pgvector 扩展版本、数据库非敏感标识、大小、SHA-256、代码 HEAD/状态哈希/
-  工作区内容指纹、计数/状态/业务摘要(不含业务全文或口令哈希)。
-- 输出目录不可写、`pg_dump` 非零、归档为空/不可读、元信息写入失败均非零退出。
-- 取消(可捕获的 `KeyboardInterrupt`)返回 130,并清理本次临时文件;不会留下“成功备份”。
-- 容器内临时文件只清理本次生成的 `/tmp/opssop-*` 确切路径;清理失败时归档仍保留,
-  但结果标记 `core_success=true`、`cleanup_complete=false`、`status=cleanup_incomplete`,
-  CLI 以非零(4)退出,不把只有 warning 的情况当作完整成功。
+工具使用 `pg_dump -Fc` 创建归档，拒绝覆盖同名 `.dump` 或 `.json`。归档非空、`pg_restore -l` 可读、SHA-256 与大小生成、元信息落盘且临时文件清理完成后，才返回完整成功。
 
-**归档包含**:业务 schema、数据、序列、Alembic 版本、pgvector 扩展/索引数据。
-**不包含**:PostgreSQL 集群级角色/密码、`pg_hba.conf`、`postgresql.conf`、外部模型配置;
-真实模型/embedding 密钥不属于数据库逻辑备份,由部署方单独保存和轮换。
+保存以下产物：
 
-## 2. 恢复到全新库
+- `opssop-<run_id>.dump`：数据库归档。
+- `opssop-<run_id>.json`：归档大小、SHA-256、来源数据库与工具版本、Alembic / pgvector 版本、来源快照和代码信息。
+- `backup-result.json`：操作结果与清理状态。
+
+归档和元信息必须成对保存。取消或失败返回非零；可捕获的用户取消返回 `130`。容器临时文件清理失败时，归档可能有效，但结果为 `cleanup_incomplete`、`core_success=true`、`cleanup_complete=false`，退出 `4`，应完成收尾后再关闭工单。
+
+若备份后继续运行原业务，使用相同项目、环境和 Compose 参数执行 `start backend frontend`，再检查服务状态。升级或灾难恢复期间按维护计划保持暂停写入。
+
+## 恢复到全新目标库
+
+恢复工具只创建新库，不覆盖来源或既有目标。默认要求来源与目标 PostgreSQL 主版本一致，并核对归档与完整元信息；跨主版本迁移应单独制定方案，不作为常规恢复步骤。
+
+PowerShell 7，沿用上面保存的 `$archive` 和 `$metadata`：
 
 ```powershell
-$run = "restore20261022a"
+$restoreRun = 'restore' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$restoreDir = Join-Path $env:USERPROFILE "opssop-restore\$restoreRun"
 python backend/scripts/ops_cli.py restore `
-  --project opssop-demo-p4b1 `
-  --env-file .env.demo `
+  --project opssop-prod `
+  --env-file .env.production `
   --compose-file docker-compose.yml `
-  --run-id $run `
-  --archive "D:\opssop-backups\opssop-backup20261022a.dump" `
-  --metadata "D:\opssop-backups\opssop-backup20261022a.json" `
-  --target-db "opssop_restore_$run" `
-  --out-dir "D:\opssop-restore"
+  --compose-file docker-compose.prod.yml `
+  --run-id $restoreRun `
+  --archive $archive `
+  --metadata $metadata `
+  --target-db "opssop_restore_$restoreRun" `
+  --out-dir $restoreDir
 ```
+
+Linux，沿用上面的 `$ARCHIVE` 和 `$METADATA`：
 
 ```bash
-RUN_ID=restore20261022a
+RESTORE_RUN="restore$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
 python3 backend/scripts/ops_cli.py restore \
-  --project opssop-demo-p4b1 \
-  --env-file .env.demo \
+  --project opssop-prod \
+  --env-file .env.production \
   --compose-file docker-compose.yml \
-  --run-id "$RUN_ID" \
-  --archive "/var/backups/opssop/opssop-backup20261022a.dump" \
-  --metadata "/var/backups/opssop/opssop-backup20261022a.json" \
-  --target-db "opssop_restore_$RUN_ID" \
-  --out-dir /var/backups/opssop/restore
+  --compose-file docker-compose.prod.yml \
+  --run-id "$RESTORE_RUN" \
+  --archive "$ARCHIVE" \
+  --metadata "$METADATA" \
+  --target-db "opssop_restore_$RESTORE_RUN" \
+  --out-dir "/var/backups/opssop/restore/$RESTORE_RUN"
 ```
 
-### 安全顺序
+### 执行顺序与保护
 
-1. 校验元信息 schema/格式、归档存在、大小、SHA-256、`pg_restore -l` 可读性;
-2. 在创建目标库前校验恢复所需元信息完整结构:来源库标识、`source_snapshot` 的
-   表计数/状态分布/业务摘要/Alembic/pgvector 版本及表清单;缺失或畸形即拒绝;
-3. 校验目标名安全、目标不存在、目标 != 来源库、来源/目标 PostgreSQL 主版本一致;
-4. 才创建目标库;
-5. `pg_restore --no-owner --no-privileges --exit-on-error`;
-6. 快照比对计数/状态/业务摘要/Alembic/pgvector 版本;不一致即失败。
+1. 校验元信息格式、来源标识、快照结构、归档存在性、大小与 SHA-256。
+2. 校验目标名称、目标不存在、目标不同于来源，以及 PostgreSQL 主版本。
+3. 在容器内确认归档可读后，创建全新目标库。
+4. 使用 `pg_restore --no-owner --no-privileges --exit-on-error` 恢复。
+5. 比对表计数、状态分布、业务摘要、Alembic 与 pgvector 版本，写入恢复报告。
 
-### 目标保护
+目标名只能包含安全的 PostgreSQL 标识符字符。工具拒绝既有库（包括空库）、来源库、系统与模板库、保留的应用数据库名，以及测试或评测命名空间；不提供自动覆盖、清空或 `--clean` 开关。
 
-- 目标必须显式指定,且只能是新库;已存在(包括空库)一律拒绝。
-- 拒绝 `postgres`、`template0/1`、`opssop`、`opssop_test`、`opssop_demo`、`opssop_prod`
-  及测试/评测命名空间。
-- 拒绝目标与元信息来源库相同。
-- 不提供 `--clean`、自动 drop/truncate/覆盖开关。
-- 系统/模板/来源库和受保护目标不会被本工具修改。
+恢复报告为 `<out-dir>/<target-db>-restore.json`。恢复或核对失败时，默认保留本次创建的目标库以便诊断。只有显式 `--cleanup-failed-target` 才尝试清理本次创建的失败目标，不处理启动前已存在的库。临时文件清理失败仍以非零退出并记录 `cleanup_incomplete`。
 
-### 失败与取消
+逻辑归档不包含集群角色。迁移到其他集群前，应准备登录角色、连接权限及所需 schema 权限；恢复后核对业务表属主与授权，不能依靠归档自动重建整个集群权限。
 
-- `pg_restore` 失败/校验不一致/取消:非零(取消 130);结果 JSON 记录各阶段。
-- 默认保留本轮已创建但不可用的目标库,便于诊断;`--cleanup-failed-target` 才按本轮
-  创建记录清理该目标。绝不处理启动前已存在的库。
-- 只清理归档的容器内临时路径;不会删除其他库或卷。临时文件清理失败时恢复数据可保留,
-  但 `success=false`、`status=cleanup_incomplete`,CLI 非零退出。
+## 恢复后接入业务
 
-### 角色/权限
+工具完成数据库恢复后不会自动切换生产流量。保留原配置，并先用独立应用实例连接恢复库：数据库主机指向承载恢复库的 PostgreSQL 实例，`POSTGRES_DB` 使用报告中的 `target_database`，其余凭据按目标集群设置。使用 Compose 时，通过额外覆盖文件设置 `backend.environment.POSTGRES_HOST` 和数据库连接字段，并将后端接入目标数据库可达的容器网络；仅在环境文件新增 `POSTGRES_HOST` 不会覆盖基础 Compose 中的 `db`。独立实例需使用单独项目、端口和环境文件，不重新初始化或复用生产命名卷。
 
-逻辑备份不恢复 PostgreSQL 集群角色。应用数据库用户和 PostgreSQL 登录角色不是同一概念:
+检查以下内容后，再安排正式切换：
 
-- 预先准备目标集群的登录角色、数据库连接权限和必要 schema 权限;
-- `--no-owner --no-privileges` 避免归档中的 OWNER/GRANT 指向不存在角色;
-- 业务表属主/授权需按目标环境另行核对;本工具不承诺自动恢复集群全部角色。
+- 登录、角色权限及工作台数据正常。
+- 正式检索仅包含已审核案例和当前有效已发布 SOP；无权及未发布材料不作为正式依据。
+- 可以创建故障、追加证据、人工确认、审核和发布，主键序列与审计记录能够续写。
+- 恢复库的应用版本与 Alembic 版本匹配，启动迁移符合计划。
+- embedding 配置与备份索引兼容；配置变化时按“需要重建／关键词降级”处理，不混用旧向量。
 
-## 3. 恢复后核对与续办
+需要重建索引时，由管理员在已指向正确目标库的后端容器执行 `python scripts/build_embedding_index.py --rebuild`。启用 embedding 后，该操作会向配置的模型服务发送脱敏后的授权知识文本；先核对服务配置与数据边界。
 
-```powershell
-# 在 DB 容器内核对迁移版本/关键计数(示例;用户名/库名按实际替换)
-docker compose -p opssop-demo-p4b1 --env-file .env.demo exec -T db `
-  psql -X -U opssop -d opssop_restore_restore20261022a -Atc `
-  "SELECT version_num FROM alembic_version; SELECT count(*) FROM sops;"
-```
+周期性隔离演练见[运维指南](operations.md)。备份成功仅证明归档生成，定期在新库恢复并执行真实业务续办，才能确认恢复流程可用。
 
-- 用指向恢复库的另一套后端/前端实例实际 HTTP 登录、检索和权限检查;
-  不能只用 TestClient/SQL 代替。
-- 正式检索只应返回已审核案例/有效发布 SOP;草稿、待审/退回、无权材料不可见。
-- 通过业务 API 新建故障/补证/确认/审核,核对新 ID 和审计,证明序列可续分配。
-- 若 embedding 配置与备份索引不兼容,保留“需重建/关键词降级”规则,人工执行:
-  `python backend/scripts/build_embedding_index.py`(按部署配置);不得混用旧向量。
+## 升级与回退
 
-## 4. 升级与回退
+升级前保存配套归档、元信息、应用版本、镜像及私有配置。在全新库恢复备份后，再按发行版本支持的 Alembic 路径升级。需要回退时，切回兼容的旧应用镜像，并按计划使用旧库或恢复到新库的旧备份；单独回滚镜像不会回滚数据库。
 
-1. 升级前先备份,并记录备份 SHA-256/元信息;
-2. 在**新库**恢复/验证备份,再对目标走受支持的 Alembic 升级路径;
-3. 升级失败时切回旧应用镜像与旧库/旧备份;不要把“回滚镜像”当成“回滚数据库”;
-4. 不承诺数据库降级一定无损;需要降级时先在副本演练并人工确认。
-
-## 5. 私有数据与保留
-
-- 归档含账号哈希与业务内容,属于私有数据;不要提交 Git、公开对象存储或聊天记录。
-- 操作者应离机保存、限制访问、定期恢复验证;本批不实现自动异地容灾/保留策略执行器。
-- 备份成功不等于恢复成功;至少按本批演练方式定期做全新目标库恢复和业务续办验证。
+保留期限、加密、离机副本、自动调度及过期删除由部署方的备份策略管理。操作归档或数据库前核对确切目标，避免以通配清理替代保留策略。

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     opssop_demo_operator_password: str = "demo-operator-password"
     opssop_demo_reviewer_password: str = "demo-reviewer-password"
 
-    # AI 聊天模型(第二阶段接入;当前仅暴露配置与状态)
+    # AI 聊天模型配置
     ai_mode: str = "disabled"  # disabled | demo | cloud | local
     ai_base_url: str = ""
     ai_api_key: str = ""
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     ai_rate_limit_per_minute: int = 6
     ai_max_concurrent_per_user: int = 2
 
-    # embedding 独立配置(与聊天模型独立;第三阶段第二批)
+    # embedding 独立配置(与聊天模型独立)
     embedding_mode: str = "disabled"  # disabled | cloud | local
     embedding_base_url: str = ""
     embedding_api_key: str = ""
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: int = 30
     embedding_batch_size: int = 16  # 单次 embed 请求的最大文本条数
     embedding_max_input_chars: int = 6000  # 单条文本进入 embedding 前的长度上限(脱敏后)
-    # 查询向量独立限流/并发(与聊天 AI_RATE_LIMIT 分离;复审 P2-3:
+    # 查询向量独立限流/并发(与聊天 AI_RATE_LIMIT 分离:
     # 检索与分析不得互相挤占配额,向量限流时降级关键词,不影响分析额度)
     embedding_rate_limit_per_minute: int = 30
     embedding_max_concurrent_per_user: int = 4

@@ -1,7 +1,9 @@
 {
   "name": "opssop-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "OpsSOP 运维故障知识库与 SOP 管理系统",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

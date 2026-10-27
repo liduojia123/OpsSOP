@@ -237,7 +237,7 @@ def generate_sop_draft_ai(
     db: Session = Depends(get_db),
     user: User = Depends(require_operator),
 ) -> SopGenerateAiResponse:
-    """人工主动从已通过案例 AI 生成 SOP 草稿(第三阶段第一批)。
+    """人工主动从已通过案例 AI 生成 SOP 草稿。
 
     与模板生成(/generate-sop)分开;不自动提交审核或发布;不改写来源案例。
     审核员不能调用(沿用生成权限:require_operator);运维仅限自己提交的已通过案例。

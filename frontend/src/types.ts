@@ -157,7 +157,7 @@ export interface AiStatus {
   model_config_version: string
 }
 
-// ===== AI 分析(第二阶段)=====
+// ===== AI 分析=====
 
 export type AiAnalysisStatus = 'success' | 'incomplete' | 'failed'
 
@@ -266,7 +266,7 @@ export interface AuditEvent {
   created_at: string
 }
 
-// ===== AI 生成 SOP 草稿(第三阶段第一批)=====
+// ===== AI 生成 SOP 草稿=====
 
 export type SopGenStatus = 'running' | 'success' | 'failed'
 

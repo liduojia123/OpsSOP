@@ -171,7 +171,7 @@ async function doResolve() {
   }
 }
 
-// 分类与 AI 状态独立加载(复审 P2 #4):任一失败不牵连另一个,
+// 分类与 AI 状态独立加载:任一失败不牵连另一个,
 // AI 状态失败时保持 null,面板禁用模型调用并提供重试入口
 async function loadCategories() {
   try {
@@ -354,7 +354,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 右侧:AI 排查助手(第二阶段) -->
+      <!-- 右侧:AI 排查助手 -->
       <AiAssistantPanel
         v-if="fault"
         :fault-id="fault.id"

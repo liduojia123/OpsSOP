@@ -1,5 +1,5 @@
-# 第四阶段第三批隔离演练覆盖(本地 Linux 容器验证)。
-# 使用已有依赖镜像 + 当前源码只读/可读挂载,不冒充新镜像构建成功。
+# 隔离运维演练覆盖配置。
+# 使用已准备的运行镜像与当前源码挂载,记录实际镜像和源码信息。
 # 正式生产用 docker-compose.yml + docker-compose.prod.yml;本文件只用于演练。
 #
 # 用法(由 scripts/ops_cli.py drill 生成并传入):
@@ -27,7 +27,7 @@ services:
       com.opssop.run_id: ${OPS_RUN_ID:-}
 
   backend:
-    image: opssop-review-backend:20261019
+    image: opssop-backend:1.0.0
     working_dir: /srv/opssop
     command: ["sh", "scripts/start.sh"]
     env_file:

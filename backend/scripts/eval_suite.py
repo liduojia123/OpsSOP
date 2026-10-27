@@ -1,7 +1,7 @@
-"""第四阶段第二批评测入口:版本化合成检索/分析评测。
+"""版本化合成检索与分析评测入口。
 
 默认 synthetic 模式:显式合成适配器、零真实模型/embedding 调用、无 API Key。
-真实模式必须显式 --mode real --allow-real;本批不执行真实效果评测。
+真实模式参数保留兼容;该入口仅支持合成机制评测,不调用真实服务。
 
 用法(后端容器内或已配置数据库环境的主机):
     python scripts/eval_suite.py --suite all --mode synthetic
@@ -206,7 +206,7 @@ def _summary_markdown(report: dict) -> str:
     dataset_hash = dataset.get("dataset_hash") or ""
     dataset_hash_short = f"{dataset_hash[:16]}…" if dataset_hash else "-"
     lines = [
-        "# OpsSOP 第四阶段第二批合成评测摘要",
+        "# OpsSOP 合成评测报告",
         "",
         f"- run_id: `{report.get('run_id') or 'unknown'}`",
         f"- 数据集: `{dataset_version}` / `{dataset_hash_short}`",
@@ -342,11 +342,11 @@ def _summary_markdown(report: dict) -> str:
                 "",
             ]
     lines += [
-        "## 未验证/限制",
+        "## 评测范围与结果解读",
         "",
-        "- 真实模型质量、真实 embedding、Linux/HTTPS、备份恢复未验证。",
+        "- 本工具不覆盖真实模型质量、真实 embedding 效果、云部署、HTTPS 或备份恢复。",
         "- 预置夹具/合成标签不是真人复核证据;真实人工修改比例不可用。",
-        "- 本批不代表第四阶段整体验收完成。",
+        "- 本报告只描述本次合成评测结果,不代表生产部署验收或真实业务效果。",
         "",
     ]
     return "\n".join(lines)
@@ -412,11 +412,11 @@ def _write_outputs(out_dir: Path, report: dict) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="OpsSOP 第四阶段第二批合成评测")
+    parser = argparse.ArgumentParser(description="OpsSOP 合成检索与分析评测")
     parser.add_argument("--dataset", default=str(BACKEND_DIR / "eval_data" / "v1"))
     parser.add_argument("--suite", choices=["all", "retrieval", "analysis"], default="all")
     parser.add_argument("--mode", choices=["synthetic", "real"], default="synthetic")
-    parser.add_argument("--allow-real", action="store_true", help="显式允许真实模型调用(本批不执行)")
+    parser.add_argument("--allow-real", action="store_true", help="兼容参数;当前入口不执行真实模型调用")
     parser.add_argument("--run-id", default="", help="本轮 run_id(默认自动生成)")
     parser.add_argument("--target-db", default="", help="评测库名;默认 opssop_eval_<run_id>")
     parser.add_argument("--reuse", action="store_true", help="复用 manifest 匹配的既有评测库")
@@ -440,14 +440,14 @@ def main() -> int:
 
     if args.mode == "real" and not args.allow_real:
         print(
-            "真实模式未授权:本批默认只执行合成协议评测。"
-            "真实效果入口需显式 --mode real --allow-real;当前不执行真实模型调用。",
+            "真实模式未授权:当前入口仅提供合成协议评测。"
+            "真实效果评测应使用经授权的专用流程;当前入口不执行真实模型调用。",
             file=sys.stderr,
         )
         return 2
     if args.mode == "real":
         print(
-            "真实模式入口存在但本批未执行:真实模型质量/embedding 效果仍需另行授权与数据。",
+            "当前入口仅支持合成评测,不执行真实聊天或 embedding 调用;真实效果需使用经授权的专用流程。",
             file=sys.stderr,
         )
         return 2
@@ -493,10 +493,10 @@ def main() -> int:
         "analysis": None,
         "limitations": [
             "合成适配器只验证路由/校验/引用/指标机制,不代表真实模型质量或语义检索效果。",
-            "参考标签为开发 AI 编写的 provisional 合成标签,不是真人审核 gold。",
+            "参考标签为 AI 编写的 provisional 合成标签,不是真人审核 gold。",
             "真实人工修改比例不可用;没有真人复核记录。",
             "耗时是进程内 API 耗时,不是生产网络端到端性能。",
-            "未验证真实聊天模型、真实 embedding、Linux/HTTPS、备份恢复。",
+            "本次合成运行不覆盖真实聊天模型、真实 embedding 效果、云部署、HTTPS 或备份恢复。",
         ],
         "exit_code": None,
         "cleanup": None,

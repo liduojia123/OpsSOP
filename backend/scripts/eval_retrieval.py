@@ -1,4 +1,4 @@
-"""小型检索评测集与脚本(第三阶段第三批)。
+"""关键词与混合检索的独立评测脚本。
 
 比较关键词检索与混合检索;指标口径:
 - Recall@3 / Recall@5:正确来源(gold)出现在前 3/前 5 的比例(按查询平均);
@@ -250,7 +250,7 @@ def cleanup_fixtures(db) -> int:
     return n
 
 
-# ---- 评测入口契约:夹具解析、索引准备、退出状态(复审 P2-5)----
+# ---- 评测入口契约:夹具解析、索引准备、退出状态----
 
 
 class EvalConfigError(Exception):
@@ -282,7 +282,7 @@ def resolve_fixtures(db, setup: bool) -> dict[str, str]:
 
 
 def prepare_index(db, settings, synthetic: bool, adapter=None) -> dict:
-    """构建评测对应的兼容索引;每次评测强制重建,隔离合成与真实向量来源(复审 P2-5)。
+    """构建评测对应的兼容索引;每次评测强制重建,隔离合成与真实向量来源。
 
     - synthetic:注入合成适配器构建(机制验证,零真实调用);
     - 非 synthetic(真实评测入口):用配置的真实适配器构建真实来源索引,
@@ -371,7 +371,7 @@ def run_eval(db, user, settings, mapping, adapter=None) -> dict:
                 row[mode] = {"top": [f"{h.source_type}:{h.source_id}" for h in hits[:5]], "first_gold_rank": (min(found) if found else None)}
             else:
                 # gold 为空:查询应无答案,任何命中都是误报(不只评测夹具来源;
-                # 复审 P2-5 次要项:按真实返回结果计误报)
+                # 按真实返回结果计误报)
                 false_pos = [f"{h.source_type}:{h.source_id}" for h in hits]
                 correct = 0.0 if false_pos else 1.0
                 agg[mode]["empty_correct"].append(correct)
@@ -412,7 +412,7 @@ def run_eval(db, user, settings, mapping, adapter=None) -> dict:
         }
         hybrid_metrics_valid = True
     else:
-        # 有查询降级为关键词:不得把关键词降级结果汇总成有效的混合指标(复审 P2-5);
+        # 有查询降级为关键词:不得把关键词降级结果汇总成有效的混合指标;
         # 混合指标标为未验证/不可用,另行给出降级率
         summary["hybrid"] = {
             "status": "unverified",
@@ -498,7 +498,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="检索评测(关键词 vs 混合;独立库 opssop_eval)")
     parser.add_argument("--setup", action="store_true", help="写入评测夹具(评测集-前缀);评测前必带")
     parser.add_argument("--synthetic", action="store_true", help="使用合成向量(验证口径;非真实效果)")
-    parser.add_argument("--allow-real-embedding", action="store_true", help="显式允许旧入口真实 embedding 评测(本批不执行)")
+    parser.add_argument("--allow-real-embedding", action="store_true", help="显式允许兼容入口调用真实 embedding 服务")
     parser.add_argument("--out", default="", help="结果 JSON 输出路径(可选)")
     parser.add_argument("--cleanup", action="store_true", help="按精确名称清理本轮评测库(需 --target-db/--run-id)")
     parser.add_argument("--target-db", default="", help="--cleanup 的评测库名")
@@ -531,7 +531,7 @@ def main() -> int:
             return 2
     if not args.synthetic and not args.allow_real_embedding:
         print(
-            "旧入口真实 embedding 评测未授权;本批只执行合成机制评测。"
+            "真实 embedding 评测未授权;默认仅执行合成机制评测。"
             "如确需真实入口,显式 --allow-real-embedding。",
             file=sys.stderr,
         )
@@ -546,7 +546,7 @@ def main() -> int:
             mapping = resolve_fixtures(db, setup=args.setup)
             user = db.query(User).filter(User.username == "eval_owner").first()
             adapter = _SyntheticEvalAdapter() if args.synthetic else None
-            # 真实评测与合成评测都先构建对应来源的索引(强制重建,来源不混用;复审 P2-5)
+            # 真实评测与合成评测都先构建对应来源的索引(强制重建,来源不混用)
             build_info = prepare_index(db, settings, synthetic=args.synthetic, adapter=adapter)
         except EvalConfigError as exc:
             print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)

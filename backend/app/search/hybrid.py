@@ -1,7 +1,7 @@
-"""向量候选检索与混合排序(第三阶段第三批)。
+"""向量候选检索与混合排序。
 
-设计要点(AGENTS.md「业务可靠性」/ PROJECT_PROMPT §6):
-- 向量查询复用第二批 embedding 适配层:查询文本最终请求边界脱敏、长度/超时/有限重试/
+检索范围与一致性约束:
+- 向量查询复用 embedding 适配层:查询文本最终请求边界脱敏、长度/超时/有限重试/
   频率限制;disabled 零调用;失败不循环、不切服务;
 - pgvector 距离计算在数据库内完成(ORDER BY embedding <=> :qvec),不把向量读入 Python 排序;
 - 只使用与当前配置兼容的活动索引(配置指纹/模型/维度/文本版本);一次请求绑定一个代次,
@@ -49,7 +49,7 @@ RRF_K = 60
 # 向量候选池上限(融合前);融合后 top_k = MAX_RESULTS
 MAX_VECTOR_CANDIDATES = 20
 # 有界补取上限:SQL 前置过滤后仍可能被内容指纹陈旧等剔除,按需扩大窗口补取,
-# 但单次请求最多考察这么多向量行(明确的查询成本上限,复审 P2-2)
+# 但单次请求最多考察这么多向量行(明确的查询成本上限)
 MAX_VECTOR_FETCH = 60
 # 查询文本长度上限(脱敏后截断;远小于索引文本上限)
 MAX_QUERY_TEXT_CHARS = 500
@@ -84,7 +84,7 @@ def _vector_distance_query(
 ) -> list[tuple]:
     """pgvector 距离查询:在数据库内完成排序(ORDER BY embedding <=> :qvec)。
 
-    当前状态、权限与有效版本约束在距离排名与候选 LIMIT 之前过滤(复审 P2-2):
+    当前状态、权限与有效版本约束在距离排名与候选 LIMIT 之前过滤:
     已废弃/换版/无权来源不占候选池。谓词与 search_knowledge/_finalize_hit 同源——
     正式知识仅「已通过案例(operator 可见性谓词)」与「当前有效已发布 SOP 版本」。
     """
@@ -196,7 +196,7 @@ def _fetch_vector_hits(
     text_limit: int,
 ) -> tuple[list[SearchHit], list[str], int]:
     """向量候选获取:状态/权限/有效版本已在 SQL 前置过滤;内容指纹陈旧等
-    无法完全 SQL 过滤的候选被剔除时按需扩大窗口补取(有界,复审 P2-2),
+    无法完全 SQL 过滤的候选被剔除时按需扩大窗口补取(有界),
     避免失效近邻耗尽候选池;返回 (候选, 说明, 首轮 SQL 行数)。
     """
     notes: list[str] = []
@@ -275,7 +275,7 @@ def search_knowledge_hybrid(
     向量路径不可用/失败时降级为关键词,并给出安全降级原因;
     不自动重建索引;查询向量只生成一次(代次切换重读不重复调用)。
     keyword_only=True:服务端纯关键词路径(零 embedding 调用;AI 状态未知时使用,
-    复审 P2-4),不视为降级——这是受控的约束模式,不是向量路径失败。
+    受控关键词查询),不视为降级——这是受控的约束模式,不是向量路径失败。
     """
 
     def _out(
@@ -287,7 +287,7 @@ def search_knowledge_hybrid(
         notes: list[str] | None = None,
     ) -> RetrievalResult:
         """统一返回出口:任何路径(成功/限流/配置异常/维度异常/embedding 失败)
-        都在返回前对当前来源做最后复核(复审 P2-1)——远程等待期间被废弃/换版的
+        都在返回前对当前来源做最后复核——远程等待期间被废弃/换版的
         命中不得随降级结果绕过正式知识有效性边界。"""
         return RetrievalResult(
             hits=finalize_hits(hits, db, user),
@@ -323,7 +323,7 @@ def search_knowledge_hybrid(
     if not query.strip():
         return _out(kw_hits, bound_generation, "hybrid")
 
-    # ---- 查询向量:脱敏 + 长度限制 + 独立频率限制(与聊天配额分离,复审 P2-3);
+    # ---- 查询向量:脱敏 + 长度限制 + 独立频率限制(与聊天配额分离);
     #      失败降级,不循环/不切服务 ----
     from app.ai import service as ai_service
 
@@ -382,7 +382,7 @@ def search_knowledge_hybrid(
     kw_hits = finalize_hits(kw_hits, db, user)
 
     # ---- 向量候选:绑定代次;代次切换最多重读一次;不混代次;
-    #      SQL 前置过滤 + 陈旧候选有界补取(复审 P2-2)----
+    #      SQL 前置过滤 + 陈旧候选有界补取----
     notes: list[str] = []
     vec_hits, drop_notes, row_count = _fetch_vector_hits(
         db,

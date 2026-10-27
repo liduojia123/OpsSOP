@@ -1,4 +1,4 @@
-"""embedding 索引构建/重建命令行(第三阶段第二批)。
+"""embedding 索引构建/重建命令行。
 
 用法(后端容器内或已配置数据库环境的主机):
     python scripts/build_embedding_index.py            # 构建/刷新(同内容复用向量)

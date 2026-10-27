@@ -1,4 +1,4 @@
-"""AI 分析与知识检索接口(第二阶段)。
+"""AI 分析与知识检索接口。
 
 - POST /api/faults/{id}/analyze:触发分析(auto/manual);分析绑定输入快照哈希、
   模型配置版本与知识版本;空输入返回 400 不调用模型;模型失败落失败记录,不回退预设答案。
@@ -129,7 +129,7 @@ def search(
     q: str = Query(default="", max_length=200, description="关键词:错误码/组件/中文描述"),
     keyword_only: bool = Query(
         default=False,
-        description="纯关键词路径:零 embedding 调用(AI 状态未知时客户端使用,复审 P2-4)",
+        description="纯关键词路径:零 embedding 调用(AI 状态未知时客户端使用)",
     ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),

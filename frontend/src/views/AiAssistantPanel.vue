@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 右侧 AI 排查助手面板(第二阶段)。
+ * 右侧 AI 排查助手面板。
  *
  - 输入停顿约 2 秒自动分析,可关闭自动并手动触发;空输入/无实质变化不调用。
  * - 请求绑定故障 ID、输入版本(内容指纹)与模型配置版本:
@@ -51,7 +51,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'apply-suggestion', payload: { category_id: number | null; tags: string[] }): void
-  (e: 'retry-status'): void // AI 状态未知时请求父页重新加载(复审 P2 #4)
+  (e: 'retry-status'): void // AI 状态未知时请求父页重新加载
 }>()
 
 // ===== 分析状态 =====
@@ -73,23 +73,23 @@ const searching = ref(false)
 const searchDone = ref(false)
 const searchError = ref('')
 const hits = ref<SearchHit[]>([])
-// 实际检索方式与降级信息(第三批:不把关键词结果冒充语义检索,服务错误不显示为无匹配)
+// 实际检索方式与降级信息(不把关键词结果冒充语义检索,服务错误不显示为无匹配)
 const searchMode = ref('keyword')
 const searchDegraded = ref(false)
 const searchDegradeReason = ref('')
 
 // 请求序号 + AbortController:倒序响应/切换故障后旧响应一律丢弃
 let requestSeq = 0
-// 检索请求序号与最近一次提交的查询:旧响应后到不得覆盖新结果(复审 P3)
+// 检索请求序号与最近一次提交的查询:旧响应后到不得覆盖新结果
 let searchSeq = 0
 let lastSearchQuery = ''
 let controller: AbortController | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 let lastAnalyzedSig = ''
-// 组件卸载标记:使在途请求与待排队任务整体失效(复审 P2 #3)
+// 组件卸载标记:使在途请求与待排队任务整体失效
 let disposed = false
 
-// 状态未知(aiStatus 为 null)时视为不可调用:未确认模式与出网提示前不自动外发(复审 P2 #4)
+// 状态未知(aiStatus 为 null)时视为不可调用:未确认模式与出网提示前不自动外发
 const aiDisabled = computed(() => !props.aiStatus || props.aiStatus.ai_mode === 'disabled')
 const aiStatusMissing = computed(() => !props.aiStatus)
 const isDemo = computed(() => analysis.value?.is_demo ?? false)
@@ -168,9 +168,9 @@ function markStale(reason: string) {
 let pendingAuto = false
 
 async function analyze(trigger: 'auto' | 'manual') {
-  if (disposed) return // 卸载后不再发起或补发请求(复审 P2 #3)
+  if (disposed) return // 卸载后不再发起或补发请求
   if (aiStatusMissing.value) {
-    // 状态未知:不知道当前模式与是否允许出网,一律不调用(复审 P2 #4)
+    // 状态未知:不知道当前模式与是否允许出网,一律不调用
     ElMessage.warning('AI 状态未知,已暂停模型调用;请重新加载状态后再试。')
     return
   }
@@ -239,10 +239,10 @@ async function analyze(trigger: 'auto' | 'manual') {
       // 模型失败:保留输入与既有报告,可手动重试;不回退预设答案
       error.value = { message: errMsg(e), status }
     }
-    // 请求失败但保留上一份成功报告时:明确标注旧结果,不把旧报告冒充本次结果(复审 P2-2)
+    // 请求失败但保留上一份成功报告时:明确标注旧结果,不把旧报告冒充本次结果
     markStale('本次分析未成功,以下为上一份结果(旧结果)')
   } finally {
-    if (disposed) return // 卸载后不得再排队任务(取消请求会进入 finally,复审 P2 #3)
+    if (disposed) return // 卸载后不得再排队任务(取消请求会进入 finally)
     if (seq === requestSeq) {
       analyzing.value = false
       if (pendingAuto) {
@@ -335,7 +335,7 @@ watch(
     historySeq++
     pendingAuto = false
     clearTimeout(debounceTimer)
-    // 旧请求已作废(序号不匹配不会回收状态):这里复位,避免新故障的自动触发被当成在途(复审次要项)
+    // 旧请求已作废(序号不匹配不会回收状态):这里复位,避免新故障的自动触发被当成在途
     analyzing.value = false
     analysis.value = null
     reused.value = false
@@ -345,7 +345,7 @@ watch(
     emptyHint.value = false
     lastAnalyzedSig = ''
     history.value = []
-    // 切换故障使旧检索失效(复审 P3)
+    // 切换故障使旧检索失效
     searchSeq++
     hits.value = []
     searchDone.value = false
@@ -360,12 +360,12 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  // 卸载:使在途请求与待排队任务整体失效,防止 finally/计时器再补发请求(复审 P2 #3)
+  // 卸载:使在途请求与待排队任务整体失效,防止 finally/计时器再补发请求
   disposed = true
   pendingAuto = false
   controller?.abort()
   clearTimeout(debounceTimer)
-  searchSeq++ // 旧检索响应随卸载整体失效(复审 P3)
+  searchSeq++ // 旧检索响应随卸载整体失效
 })
 
 // ===== 知识检索(关键词;状态确认后可用时向量混合)=====
@@ -376,17 +376,17 @@ async function runSearch() {
   lastSearchQuery = q
   searching.value = true
   searchError.value = ''
-  // 新查询开始即清旧方式标签/旧降级横幅,失败后不残留(复审次要项)
+  // 新查询开始即清旧方式标签/旧降级横幅,失败后不残留
   searchDegraded.value = false
   searchDegradeReason.value = ''
   try {
-    // AI 状态未知:走服务端纯关键词路径(零 embedding 外发,复审 P2-4)。
+    // AI 状态未知:走服务端纯关键词路径(零 embedding 外发)。
     // 未确认模式与出网提示前不发送查询文本;关键词基本能力不依赖模型可达。
     const keywordOnly = aiStatusMissing.value
     const { data } = await client.get<SearchResponse>('/api/search', {
       params: keywordOnly ? { q, keyword_only: true } : { q },
     })
-    // 过期响应(旧查询后到/故障切换/卸载)不覆盖新结果(复审 P3)
+    // 过期响应(旧查询后到/故障切换/卸载)不覆盖新结果
     if (seq !== searchSeq || disposed || q !== lastSearchQuery) return
     hits.value = data.hits
     searchMode.value = data.retrieval_mode || 'keyword'
@@ -450,7 +450,7 @@ async function copyCommand(cmd: string) {
 
 const report = computed<AnalysisReport | null>(() => analysis.value?.report ?? null)
 
-// ===== 业务失败展示(2026-10-15 复审 P2-2)=====
+// ===== 业务失败展示=====
 // HTTP 201 只代表创建了分析记录,不代表分析成功;业务 failed 与历史 failed
 // 从分析记录统一派生(error_code/error_message),持久显示原因与人工重试入口,
 // 不再要求「有 report」或「无 analysis」——failed/report=null 不得显示空白。
@@ -465,7 +465,7 @@ function usageText(a: AiAnalysis): string {
   const u = a.usage
   if (!u || Object.keys(u).length === 0) return '用量未知'
   // 按字段展示:后端只汇总每次调用都返回的字段,缺失字段显示「未知」,
-  // 不把部分调用的值当作整次合计(复审 P2 #6)
+  // 不把部分调用的值当作整次合计
   const fmt = (v: unknown) => (typeof v === 'number' ? String(v) : '未知')
   return `用量:输入 ${fmt(u.prompt_tokens)} / 输出 ${fmt(u.completion_tokens)} / 合计 ${fmt(u.total_tokens)}(仅接口返回时记录)`
 }
@@ -498,7 +498,7 @@ function triggerLabel(t: string): string {
       >
         {{ aiStatus.message }}
       </div>
-      <!-- 状态未知:暂停模型调用并提供重试(复审 P2 #4) -->
+      <!-- 状态未知:暂停模型调用并提供重试 -->
       <div
         v-else
         class="text-xs leading-5 p-2 rounded mb-2 bg-amber-50 text-amber-800 border border-amber-200"
@@ -567,7 +567,7 @@ function triggerLabel(t: string): string {
           <b>演示数据 / 模拟分析</b>:以下结果由演示适配器模拟生成,不代表真实模型能力。
         </div>
 
-        <!-- 分析失败(业务 failed:新结果与历史统一,持久显示原因与人工重试入口,复审 P2-2) -->
+        <!-- 分析失败(业务 failed:新结果与历史统一,持久显示原因与人工重试入口) -->
         <div
           v-if="analysisFailed"
           class="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5"
@@ -725,7 +725,7 @@ function triggerLabel(t: string): string {
 
         </template>
 
-        <!-- 分析元信息:独立于报告展示(失败/report=null 时同样可见;无 usage 显示未知,复审 P2-2) -->
+        <!-- 分析元信息:独立于报告展示(失败/report=null 时同样可见;无 usage 显示未知) -->
         <section
           v-if="analysis"
           class="text-xs text-gray-400 space-y-0.5 border-t border-slate-100 pt-2"

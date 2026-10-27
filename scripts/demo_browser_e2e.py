@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""第四阶段第一批:demo 模式完整浏览器闭环(Playwright + 系统 Chrome)。
+"""demo 模式完整浏览器业务闭环(Playwright + 系统 Chrome)。
 
 [注意] 会向目标环境写入带 [demo-e2e:<run_id>] 标记的真实业务材料(故障/案例/SOP),
 请只指向隔离的演示环境。脚本不直接改库、不跳过业务流程审核/发布步骤。
@@ -256,7 +256,7 @@ def write_result() -> dict:
         "limitations": [
             "模型输出为 AI_MODE=demo 的模拟数据,不代表真实模型能力或质量。",
             "EMBEDDING_MODE=disabled:检索为关键词检索,不是语义/混合检索效果验证。",
-            "未验证 Linux 云部署、HTTPS、备份恢复、真实云模型与真实 embedding。",
+            "本脚本不覆盖云部署、HTTPS、备份恢复、真实云模型与真实 embedding 效果。",
             "演示 seed 内容不是独立评测集。",
         ],
     }
@@ -304,12 +304,12 @@ def main() -> int:
             require(
                 "前置: AI_MODE=demo",
                 ai_status.get("ai_mode") == "demo",
-                f"当前 ai_mode={ai_status.get('ai_mode')!r};本批按要求使用 demo",
+                f"当前 ai_mode={ai_status.get('ai_mode')!r};本脚本要求使用 demo",
             )
             require(
                 "前置: EMBEDDING_MODE=disabled",
                 ai_status.get("embedding_mode") == "disabled",
-                f"当前 embedding_mode={ai_status.get('embedding_mode')!r};本批不使用向量检索",
+                f"当前 embedding_mode={ai_status.get('embedding_mode')!r};本脚本使用关键词检索",
             )
 
             pre_hits = search_api(page, token, "DEMO-OOMKILLED").get("hits", [])
@@ -365,7 +365,7 @@ def main() -> int:
             # ===== 2. 失败不丢输入 + 首次 demo 分析 =====
             print("== 2. 分析失败不丢输入 + demo 分析 ==")
             # 先记录已保存值,再输入与其完全不同的未保存值;仅检查 MARKER 子串会
-            # 在“表单被重置为数据库已保存内容”时也通过(独立复审 P2)。
+            # 在“表单被重置为数据库已保存内容”时也通过。
             saved_desc = field(page, "详细描述").input_value()
             saved_logs = field(page, "报错日志").input_value()
             unsaved_desc = f"UNSAVED-DESC-{RUN_ID}-分析失败后必须保留"
@@ -745,7 +745,7 @@ def main() -> int:
 
             # ===== 10. 负面来源与版本链(正式检索排除) =====
             print("== 10. 负面来源与版本链 ==")
-            # 先确认夹具存在且状态正确,避免演示库不完整时 hits=[] 假通过(独立复审建议)
+            # 先确认夹具存在且状态正确,避免演示库不完整时 hits=[] 假通过
             neg_cases = api_ok(page, "GET", "/api/cases", token, params={"q": "DEMO-NEG-PENDING-CASE"})
             require(
                 "负面夹具存在:待审核案例",

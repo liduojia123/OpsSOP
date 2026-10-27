@@ -1,6 +1,6 @@
 """AI 分析输出的固定 Schema(模型输出契约)。
 
-字段与 PROJECT_PROMPT.md 要求一致:
+分析报告字段:
 summary / observed_facts / suggested_category / suggested_tags /
 hypotheses / missing_information / next_checks / references。
 

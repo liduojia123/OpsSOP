@@ -1,6 +1,6 @@
-"""embedding 索引构建与状态管理(第三阶段第二批)。
+"""embedding 索引构建与状态管理。
 
-设计要点(AGENTS.md「业务可靠性」/ 本批要求):
+索引一致性与可靠性约束:
 - 只纳入已通过案例与当前有效已发布 SOP;单元行可定位来源类型/ID/版本与内容指纹;
 - 配置指纹绑定 模式|端点|模型|文本版本(不含密钥):相同维度不同模型不混用,
   配置/文本版本变化后旧代次标「需要重建」,不静默继续使用;
@@ -178,7 +178,7 @@ def _recover_if_stale(
     observed_attempt: int,
     observed_generation: int,
 ) -> bool:
-    """过期中断执行者的条件回收(复审 P2-1/P2-3 执行者契约):
+    """过期中断执行者的条件回收(执行者租约约束):
 
     仅当仍是读取时看到的那个过期 building(attempt + 代次 + 状态 + 过期时间)才写入;
     未命中(已被新执行者领取/已完成)返回 False,调用方重新读取;
@@ -237,7 +237,7 @@ def effective_status(view: _StateView, settings: Settings) -> str:
 def get_status(db: Session, settings: Settings) -> dict:
     """索引状态快照:不触发任何模型调用;除过期中断执行者的条件回收外不写库。
 
-    回收写入按读取时的 attempt/代次/状态/过期时间做原子条件更新(复审 P2-1);
+    回收写入按读取时的 attempt/代次/状态/过期时间做原子条件更新;
     未命中(被并发领取/已完成)则重新读取,绝不把新领取者的 building 覆盖成失败。
     """
     view: _StateView | None = None
@@ -598,7 +598,7 @@ def run_build(
             db.commit()
 
         # 构建期间配置切换:旧任务不得提交为当前有效结果(指纹与领取时不一致即拒绝),
-        # 同时结束本执行者租约(复审 P2-3:不得遗留 building 阻塞新配置立即恢复)
+        # 同时结束本执行者租约(不得遗留 building 阻塞新配置立即恢复)
         if _fingerprint(settings) != claim.fingerprint:
             _finalize_failure(
                 db,

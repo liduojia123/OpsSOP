@@ -1,6 +1,6 @@
-"""AI 生成 SOP 草稿编排(第三阶段第一批):案例 → 可信输入快照 → 模型 → 校验 → draft。
+"""AI 生成 SOP 草稿编排:案例 → 可信输入快照 → 模型 → 校验 → draft。
 
-关键行为(AGENTS.md「业务可靠性」/ 第三阶段第一批要求):
+业务可靠性约束:
 - 仅以指定已审核案例为生成依据,不额外检索其他知识;输入为可信来源快照
   (人工确认根因/处理/恢复验证 + 必要故障证据),不发送整份故障历史;
 - 调用前校验来源(已通过 + 生成权限),返回后、创建草稿前重新读取来源状态与
@@ -266,7 +266,7 @@ def verify_draft_content(
             updates[fname] = text.rstrip() + "\n【待补】来源材料缺失,以上内容需人工核对补充。"
             reasons.append(f"{fname}: 来源材料缺失且未标注待补,已追加待补标注")
 
-    # 关键内容无有效来源映射时明确「待人工确认」(复审 P2-4):
+    # 关键内容无有效来源映射时明确「待人工确认」:
     # 全局证据清单不能当作字段来源映射;没有可核对依据的关键内容不伪装成有依据。
     mapped = {s.target for s in content.sources}
     for fname in KEY_SOURCE_FIELDS:
@@ -390,7 +390,7 @@ def _create_draft(
     """由后端决定 doc_id/version/status/来源/维护人;模型内容仅填充 SOP 内容字段。
 
     字段来源映射与校验提示一并写入 notes,供人工在草稿编辑页核对
-    (刷新/重新进入草稿后仍可核对关键字段与有效证据的对应关系,复审 P2-4)。
+    (刷新/重新进入草稿后仍可核对关键字段与有效证据的对应关系)。
     """
     notes_parts: list[str] = []
     if is_demo:
@@ -443,7 +443,7 @@ def _create_draft(
     return sop
 
 
-# ---- 幂等返回与执行领取(复审 P1-1 / P2-1 / P2-3)----
+# ---- 幂等返回与执行领取----
 
 
 def _find_run_by_token(db: Session, request_token: str) -> SopAiGenerationRun | None:
@@ -486,10 +486,10 @@ def _claim_run(
     config_ver: str,
     is_demo: bool,
 ) -> int | None:
-    """原子领取 failed/过期 running 的执行权(CAS 条件更新,复审 P2-1)。
+    """原子领取 failed/过期 running 的执行权(CAS 条件更新)。
 
     并发下至多一个执行者领取成功;同时把输入快照/模型配置刷新为本次执行的实际值
-    (复审 P2-3:重试产物不得沿用首次失败时的配置标识)。
+    (重试产物不得沿用首次失败时的配置标识)。
     返回本次执行的 attempt(结果提交条件);未领取到返回 None。
     """
     now = utcnow()

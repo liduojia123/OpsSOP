@@ -305,7 +305,7 @@ class SopGenStatus(str, enum.Enum):
 
 
 class SopAiGenerationRun(Base):
-    """AI 生成 SOP 草稿记录(第三阶段第一批)。
+    """AI 生成 SOP 草稿记录。
 
     与故障分析历史(ai_analyses)分开,不伪装成故障分析历史:
     记录来源案例与输入快照标识、模型配置版本、真/演示模式、生成状态、
@@ -346,7 +346,7 @@ class SopAiGenerationRun(Base):
 
 
 class EmbeddingIndexStatus(str, enum.Enum):
-    """embedding 索引状态(第三阶段第二批)。
+    """embedding 索引状态。
 
     未配置/待构建/构建中/可用/需要重建/失败;
     实际展示以「配置 + 状态行」计算的有效状态为准(app.search.embedding_index)。
@@ -390,7 +390,7 @@ class EmbeddingIndexState(Base):
 
 
 class DemoSeedRecord(Base):
-    """显式演示内容的稳定标识映射(第四阶段第一批)。
+    """显式演示内容的稳定标识映射。
 
     演示内容通过专用 CLI 显式写入,不在启动/登录/页面打开时自动创建。
     (scenario_key, entity_role) 唯一定位一个演示实体,避免依赖可编辑标题;

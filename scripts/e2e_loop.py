@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""第一阶段业务闭环端到端验证脚本(仅用标准库)。
+"""基础业务闭环端到端验证脚本(仅用标准库)。
 
 [注意] 本脚本会向目标环境写入故障/案例/SOP 测试材料,请指向独立测试环境。
 
@@ -211,7 +211,7 @@ def main():
     st, _ = req("DELETE", f"/api/categories/{cat['id']}", adm)
     check("管理员删除分类", st == 204, f"got {st}")
 
-    print("== 12. AI 状态(第一阶段应为 disabled)==")
+    print("== 12. AI 状态(基础业务闭环使用 disabled 模式)==")
     st, ai = req("GET", "/api/system/ai-status", op)
     check("AI 状态可读", st == 200 and ai["ai_mode"] == "disabled", str(ai))
 
