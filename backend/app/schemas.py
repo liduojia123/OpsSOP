@@ -33,6 +33,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_bytes(cls, v: str) -> str:
+        return _check_password_bytes(v)
+
+
 class UserOut(ORMModel):
     id: int
     username: str

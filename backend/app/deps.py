@@ -6,8 +6,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AuditEvent, Role, User
-from app.security import decode_session_token, password_session_tag
+from app.models import AuditEvent, RevokedSession, Role, User
+from app.security import decode_session_token, password_session_tag, session_token_hash
 
 bearer_scheme = HTTPBearer(auto_error=True)
 
@@ -21,6 +21,8 @@ def get_current_user(
     payload = decode_session_token(credentials.credentials)
     if payload is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录会话无效或已过期")
+    if db.get(RevokedSession, session_token_hash(credentials.credentials)) is not None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录会话已退出")
     try:
         user_id = int(payload["sub"])
     except (KeyError, TypeError, ValueError):

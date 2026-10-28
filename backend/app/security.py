@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
+import uuid
 
 import bcrypt
 import jwt
@@ -14,6 +15,10 @@ ALGORITHM = "HS256"
 # bcrypt 只对前 72 字节做有效哈希;超长内容按字节截断会造成不同口令互相验证通过。
 # 因此直接拒绝超长口令(按 UTF-8 字节计),与已有哈希兼容(旧哈希不受影响)。
 MAX_PASSWORD_BYTES = 72
+
+
+def session_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def hash_password(password: str) -> str:
@@ -47,6 +52,7 @@ def create_session_token(user_id: int, username: str, role: str, password_hash: 
         "sub": str(user_id),
         "username": username,
         "role": role,
+        "jti": uuid.uuid4().hex,
         "password_tag": password_session_tag(password_hash),
         "exp": expires_at,
         "iat": datetime.now(timezone.utc),
@@ -58,6 +64,6 @@ def create_session_token(user_id: int, username: str, role: str, password_hash: 
 def decode_session_token(token: str) -> dict | None:
     settings = get_settings()
     try:
-        return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM], options={"require": ["exp", "sub"]})
     except jwt.PyJWTError:
         return None

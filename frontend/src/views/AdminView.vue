@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
@@ -16,8 +16,19 @@ const tab = ref('users')
 const savingUser = ref(false)
 const auditEvents = ref<AuditEvent[]>([])
 const auditAction = ref('')
+const auditActor = ref<number | undefined>()
+const auditDates = ref<[Date, Date] | null>(null)
+const userSearch = ref('')
+const filteredUsers = computed(() => {
+  const term = userSearch.value.trim().toLowerCase()
+  return term ? users.value.filter((u) => `${u.username} ${u.display_name}`.toLowerCase().includes(term)) : users.value
+})
 const auditLoading = ref(false)
 const auditError = ref('')
+const auditCursor = ref<number | null>(null)
+const auditHistory = ref<(number | null)[]>([])
+const auditHasMore = ref(false)
+let appliedAuditFilters: Record<string, string | number> = {}
 
 const userDialog = ref(false)
 const userForm = reactive({
@@ -53,13 +64,28 @@ function openUserEdit(user: User) {
   userDialog.value = true
 }
 
-async function loadAudit() {
+async function loadAudit(direction: 'search' | 'next' | 'previous' = 'search') {
   if (auditLoading.value) return
+  const filters: Record<string, string | number> = direction === 'search' ? {} : { ...appliedAuditFilters }
+  if (direction === 'search') {
+    if (auditAction.value.trim()) filters.action = auditAction.value.trim()
+    if (auditActor.value != null) filters.actor_id = auditActor.value
+    if (auditDates.value) {
+      filters.start = auditDates.value[0].toISOString()
+      filters.end = auditDates.value[1].toISOString()
+    }
+  }
+  const cursor = direction === 'next' ? auditEvents.value.at(-1)?.id ?? null : direction === 'previous' ? auditHistory.value.at(-1) ?? null : null
   auditLoading.value = true
   auditError.value = ''
   try {
-    const { data } = await client.get('/api/audit', { params: { limit: 100, ...(auditAction.value.trim() ? { action: auditAction.value.trim() } : {}) } })
-    auditEvents.value = data
+    const { data } = await client.get('/api/audit', { params: { ...filters, limit: 51, ...(cursor === null ? {} : { before_id: cursor }) } })
+    if (direction === 'search') { auditHistory.value = []; appliedAuditFilters = filters }
+    if (direction === 'next') auditHistory.value.push(auditCursor.value)
+    if (direction === 'previous') auditHistory.value.pop()
+    auditCursor.value = cursor
+    auditHasMore.value = data.length > 50
+    auditEvents.value = data.slice(0, 50)
   } catch (e) {
     auditEvents.value = []
     auditError.value = errMsg(e)
@@ -69,7 +95,7 @@ async function loadAudit() {
 }
 
 function actorName(id: number | null) {
-  if (id === null) return '系统'
+  if (id === null) return '未登录或系统'
   const user = users.value.find((item) => item.id === id)
   return user ? `${user.display_name} (${user.username})` : `用户 #${id}`
 }
@@ -234,9 +260,9 @@ onMounted(async () => {
         <section class="ops-panel ops-table-panel">
           <div class="ops-section-header">
             <div><h2>团队成员</h2><p class="ops-section-caption mt-1">根据职责分配角色，独立管理每位成员的访问状态。</p></div>
-            <el-button type="primary" @click="openUserCreate"><AppIcon name="plus" :size="16" />新建账号</el-button>
+            <div class="admin-user-tools"><el-input v-model="userSearch" placeholder="搜索账号或显示名" clearable aria-label="搜索账号或显示名" /><el-button type="primary" @click="openUserCreate"><AppIcon name="plus" :size="16" />新建账号</el-button></div>
           </div>
-          <el-table :data="users" empty-text="暂无账号">
+          <el-table :data="filteredUsers" empty-text="没有匹配账号">
             <el-table-column label="账号" min-width="230">
               <template #default="{ row }">
                 <div class="admin-member">
@@ -261,11 +287,13 @@ onMounted(async () => {
       <el-tab-pane label="审计记录" name="audit">
         <section class="ops-panel ops-table-panel">
           <div class="ops-section-header">
-            <div><h2>操作记录</h2><p class="ops-section-caption mt-1">显示最近 100 条记录，可按事件名称精确筛选。</p></div>
-            <div class="admin-audit-filter">
-              <el-input v-model="auditAction" placeholder="事件名称，如 user.update" clearable @keyup.enter="loadAudit" />
-              <el-button :loading="auditLoading" @click="loadAudit">查询</el-button>
-            </div>
+            <div><h2>操作记录</h2><p class="ops-section-caption mt-1">按时间、操作人和事件筛选，每页 50 条。</p></div>
+          </div>
+          <div class="admin-audit-filter">
+            <el-input v-model="auditAction" :disabled="auditLoading" placeholder="事件名称，如 user.update" clearable @keyup.enter="loadAudit()" />
+            <el-select v-model="auditActor" :disabled="auditLoading" placeholder="全部操作人" clearable filterable aria-label="筛选操作人"><el-option v-for="user in users" :key="user.id" :label="`${user.display_name} (${user.username})`" :value="user.id" /></el-select>
+            <el-date-picker v-model="auditDates" :disabled="auditLoading" type="datetimerange" start-placeholder="开始时间" end-placeholder="结束时间" range-separator="至" />
+            <el-button :loading="auditLoading" @click="loadAudit()">查询</el-button>
           </div>
           <el-alert v-if="auditError" title="审计记录加载失败" :description="auditError" type="error" :closable="false" show-icon />
           <el-table v-else v-loading="auditLoading" :data="auditEvents" empty-text="暂无审计记录">
@@ -275,6 +303,7 @@ onMounted(async () => {
             <el-table-column label="对象" min-width="120"><template #default="{ row }">{{ row.target_type }} #{{ row.target_id }}</template></el-table-column>
             <el-table-column label="详情" min-width="220"><template #default="{ row }"><span class="admin-audit-detail">{{ JSON.stringify(row.detail) }}</span></template></el-table-column>
           </el-table>
+          <div class="admin-audit-pages"><el-button :disabled="auditLoading || auditHistory.length === 0" @click="loadAudit('previous')">上一页</el-button><el-button :disabled="auditLoading || !auditHasMore" @click="loadAudit('next')">下一页</el-button></div>
         </section>
       </el-tab-pane>
       <el-tab-pane label="分类管理" name="categories">
@@ -326,6 +355,9 @@ onMounted(async () => {
 .admin-member-name { color: var(--ops-text); font-weight: 600; }
 .admin-category-name { display: flex; align-items: center; gap: 10px; padding: 4px 0; color: var(--ops-text); font-weight: 550; }
 .admin-category-name > svg { color: var(--ops-brand); }
-.admin-audit-filter { display: flex; gap: 8px; width: min(100%, 350px); }
+.admin-audit-filter, .admin-user-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.admin-audit-filter { margin-bottom: 16px; }
+.admin-audit-filter > .el-input, .admin-audit-filter > .el-select, .admin-user-tools > .el-input { width: 200px; }
+.admin-audit-pages { display: flex; justify-content: flex-end; margin-top: 16px; }
 .admin-audit-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

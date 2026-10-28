@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
-import client from '../api'
+import client, { errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { roleMap } from '../labels'
 import type { AiStatus } from '../types'
@@ -14,6 +15,10 @@ const aiStatus = ref<AiStatus | null>(null)
 const statusLoading = ref(true)
 const mobileMenuOpen = ref(false)
 const mainEl = ref<HTMLElement | null>(null)
+const passwordDialog = ref(false)
+const passwordSaving = ref(false)
+const loggingOut = ref(false)
+const passwordForm = reactive({ current: '', next: '', confirm: '' })
 
 const menuGroups = computed(() => [
   {
@@ -80,9 +85,44 @@ onMounted(async () => {
   }
 })
 
-function logout() {
-  auth.logout()
-  router.push({ name: 'login' })
+async function logout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try {
+    await client.post('/api/auth/logout')
+    auth.logout()
+    await router.replace({ name: 'login' })
+  } catch (e) {
+    ElMessage.error('退出失败，请重试：' + errMsg(e))
+  } finally {
+    loggingOut.value = false
+  }
+}
+
+function openPasswordDialog() {
+  Object.assign(passwordForm, { current: '', next: '', confirm: '' })
+  passwordDialog.value = true
+}
+
+async function changePassword() {
+  if (passwordSaving.value) return
+  if (!passwordForm.current || passwordForm.next.length < 8 || passwordForm.next !== passwordForm.confirm) {
+    ElMessage.warning('请填写当前密码，并确认新密码至少 8 个字符且两次一致')
+    return
+  }
+  passwordSaving.value = true
+  try {
+    await client.post('/api/auth/change-password', { current_password: passwordForm.current, new_password: passwordForm.next })
+    passwordDialog.value = false
+    Object.assign(passwordForm, { current: '', next: '', confirm: '' })
+    auth.logout()
+    ElMessage.success('密码已修改，请重新登录')
+    await router.replace({ name: 'login' })
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  } finally {
+    passwordSaving.value = false
+  }
 }
 </script>
 
@@ -123,12 +163,23 @@ function logout() {
             <strong>{{ auth.user?.display_name }}</strong>
             <span>{{ auth.user ? roleMap[auth.user.role] : '' }}</span>
           </div>
-          <button class="ops-logout-button" title="退出登录" aria-label="退出登录" @click="logout">
+          <button class="ops-logout-button" title="修改密码" aria-label="修改密码" @click="openPasswordDialog"><AppIcon name="lock" :size="18" /></button>
+          <button class="ops-logout-button" title="退出登录" aria-label="退出登录" :disabled="loggingOut" @click="logout">
             <AppIcon name="logout" :size="18" />
           </button>
         </div>
       </div>
     </aside>
+
+    <el-dialog v-model="passwordDialog" title="修改密码" width="min(480px, 94vw)" class="ops-dialog" :close-on-click-modal="!passwordSaving" @closed="Object.assign(passwordForm, { current: '', next: '', confirm: '' })">
+      <p class="ops-page-description mb-5">修改后所有已登录会话将失效，请使用新密码重新登录。</p>
+      <el-form label-position="top" @submit.prevent="changePassword">
+        <el-form-item label="当前密码"><el-input v-model="passwordForm.current" type="password" show-password autocomplete="current-password" /></el-form-item>
+        <el-form-item label="新密码"><el-input v-model="passwordForm.next" type="password" show-password autocomplete="new-password" /></el-form-item>
+        <el-form-item label="确认新密码"><el-input v-model="passwordForm.confirm" type="password" show-password autocomplete="new-password" /></el-form-item>
+      </el-form>
+      <template #footer><el-button :disabled="passwordSaving" @click="passwordDialog = false">取消</el-button><el-button type="primary" :loading="passwordSaving" @click="changePassword">修改密码</el-button></template>
+    </el-dialog>
 
     <div class="ops-workspace">
       <header class="ops-topbar">

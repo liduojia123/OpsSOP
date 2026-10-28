@@ -1,4 +1,4 @@
-# OpsSOP 1.1.2 部署指南
+# OpsSOP 1.2.1 部署指南
 
 OpsSOP 采用 Vue 前端、FastAPI 后端与 PostgreSQL / pgvector 数据库，通过 Docker Compose 部署。应用与模型服务独立配置；关闭模型时，故障录入、案例审核、SOP 管理和关键词检索仍可使用。
 
@@ -98,15 +98,15 @@ docker compose -p opssop-prod --env-file .env.production `
 ## 升级与回退
 
 1. 安排维护窗口，暂停业务写入，按[备份与恢复](backup-restore.md)保存归档及元信息，记录当前应用版本、镜像标识和环境配置。
-2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v1.1.2`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
+2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v1.2.1`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
 3. 在不覆盖私有环境文件的情况下更新源码。沿用生产项目名和数据卷，执行上述 `up -d --build`；后端按发行迁移自动升级数据库。
 4. 确认健康状态、登录、权限、检索和关键业务操作后恢复流量，保留升级前备份。
 
-固定发行版本的操作示例，升级时将 `v1.1.2` 替换为选定的目标标签：
+固定发行版本的操作示例，升级时将 `v1.2.1` 替换为选定的目标标签：
 
 ```powershell
 git fetch --tags origin
-git checkout --detach v1.1.2
+git checkout --detach v1.2.1
 docker compose -p opssop-prod --env-file .env.production `
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
@@ -121,4 +121,25 @@ docker compose -p opssop-prod --env-file .env.production `
 
 当前部署方式面向单实例应用；模型限流与并发计数位于进程内。多实例、统一限流、自动异地容灾、备份调度与保留策略由部署方案补充。模型接入、数据库持久化、目标服务器网络与 HTTPS 应分别管理，各自的可用状态互不替代。
 
-登录限流同样位于后端进程内，进程重启后计数清空，多进程之间不共享；反向代理可能使多个用户共用来源额度。公网部署需在可信代理或网关另设入口限流，并仅在受控配置下处理客户端地址。升级到启用密码绑定会话的版本时，旧令牌不再可用，用户需重新登录。
+登录限流使用 PostgreSQL 事务锁及共享记录，后端进程间共享；默认账号每 60 秒 10 次、直接连接来源每 60 秒 120 次。随版 Nginx 对登录入口设置 60 次/分钟、突发 20 次的来源限流。反向代理后来源可能是代理地址，多个用户会共用来源额度；公网部署应在最外层可信 HTTPS 入口按真实客户端地址配置登录限流。如果上游还有 CDN 或负载均衡器，必须只信任已明确配置的上游地址，不能直接信任任意客户端提供的转发头。
+
+本版增加会话撤销和登录限流表，升级前备份数据库并执行迁移；回退前按[备份恢复](backup-restore.md)流程评估恢复。修改密码会使该账号所有已签发会话失效，退出仅撤销当前令牌。已在途的请求可能在撤销前完成。回退到不检查撤销表的旧版时，已退出但未过期的令牌可能重新有效；回退时轮换 `SECRET_KEY`，让所有会话重新登录。
+
+例如，若宿主机 Nginx 直接接收客户端 HTTPS 请求，可在其 `http` 块和对应 HTTPS `server` 块中分别配置：
+
+```nginx
+# http 块中
+limit_req_zone $binary_remote_addr zone=opssop_public_login:10m rate=30r/m;
+
+# 已启用 TLS 的 server 块中；其他路径仍按现有反向代理规则处理
+location = /api/auth/login {
+    limit_req zone=opssop_public_login burst=10 nodelay;
+    limit_req_status 429;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_pass http://127.0.0.1:8080;
+}
+```
+
+这是直接接入场景的示例。部署方应先确认 TLS、端口和上游代理拓扑；如果存在 CDN，只有配置受信任的 CDN 地址并正确还原客户端地址后，才能按客户端限流。容器内部与后端仍可能看到宿主代理地址，因而共享额度，须根据实际并发评估。

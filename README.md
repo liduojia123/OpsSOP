@@ -6,7 +6,7 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [模型配置](docs/ai-configuration.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **1.1.2**：密码重置后撤销旧会话，并增加登录限流与失败审计。升级说明见[版本记录](CHANGELOG.md)，视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **1.2.1**：支持自行改密、服务端撤销退出会话、共享登录限流与审计筛选分页。升级说明见[版本记录](CHANGELOG.md)，视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -35,7 +35,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v1.1.2
+git checkout v1.2.1
 ```
 
 复制环境变量示例：
@@ -60,7 +60,7 @@ docker compose -p opssop-local --env-file .env up --build -d
 
 默认关闭 AI 与 embedding，人工业务和关键词检索可以独立使用。需要模拟场景时，在独立环境显式启用 `OPSSOP_SEED_DEMO=1` 与 `AI_MODE=demo`，详见[产品使用指南](docs/product-guide.md)。
 
-账号安全：密码重置后已有会话失效；升级到包含该功能的版本时，旧会话需要重新登录。登录次数限制及反向代理部署注意事项见[管理入口](docs/product-guide.md#管理入口)。
+账号安全：用户可自行修改密码，修改或重置密码会使旧会话失效；退出登录会撤销当前会话。登录次数限制及反向代理部署注意事项见[管理入口](docs/product-guide.md#管理入口)。
 
 ## 生产部署
 
