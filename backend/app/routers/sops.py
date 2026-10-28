@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.concurrency import advance_version, require_current_version
 from app.deps import get_current_user, record_audit, require_operator, require_reviewer
 from app.models import (
     FeedbackKind,
@@ -52,12 +53,19 @@ def _can_view_sop(user: User, sop: Sop) -> bool:
     return True
 
 
-def _get_editable_sop(db: Session, sop_id: int, user: User) -> Sop:
-    sop = db.get(Sop, sop_id)
-    if sop is None:
+def _lock_sop_document(db: Session, sop_id: int) -> Sop:
+    doc_id = db.scalar(select(Sop.doc_id).where(Sop.id == sop_id))
+    if doc_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "SOP 不存在")
+    rows = db.scalars(select(Sop).where(Sop.doc_id == doc_id).order_by(Sop.id).with_for_update().execution_options(populate_existing=True)).all()
+    return next(s for s in rows if s.id == sop_id)
+
+
+def _get_editable_sop(db: Session, sop_id: int, user: User, expected: str | None) -> Sop:
+    sop = _lock_sop_document(db, sop_id)
     if user.role == Role.operator and sop.created_by != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能编辑自己创建的 SOP")
+    require_current_version(expected, sop.updated_at)
     if sop.status not in EDITABLE_STATUSES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前状态不可编辑")
     return sop
@@ -161,13 +169,15 @@ def create_sop(
 def update_sop(
     sop_id: int,
     body: SopUpdate,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     user: User = Depends(require_operator),
 ) -> SopOut:
-    sop = _get_editable_sop(db, sop_id, user)
+    sop = _get_editable_sop(db, sop_id, user, expected)
     data = body.model_dump(exclude_unset=True)
     for key, value in data.items():
         setattr(sop, key, value)
+    advance_version(sop)
     record_audit(db, user, "sop.update", "sop", sop.id, {"fields": list(data.keys())})
     db.commit()
     return SopOut.model_validate(sop)
@@ -176,14 +186,16 @@ def update_sop(
 @router.post("/{sop_id}/submit", response_model=SopOut)
 def submit_sop(
     sop_id: int,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     user: User = Depends(require_operator),
 ) -> SopOut:
-    sop = _get_editable_sop(db, sop_id, user)
+    sop = _get_editable_sop(db, sop_id, user, expected)
     missing = _missing_sop_content(sop)
     if missing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"缺少必填内容: {', '.join(missing)}")
     sop.status = SopStatus.submitted
+    advance_version(sop)
     record_audit(db, user, "sop.submit", "sop", sop.id)
     db.commit()
     return SopOut.model_validate(sop)
@@ -193,14 +205,14 @@ def submit_sop(
 def approve_sop(
     sop_id: int,
     body: ReviewRequest,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     reviewer: User = Depends(require_reviewer),
 ) -> SopOut:
     """发布:只允许从待审核(submitted)发布;退回状态须作者修改后重新提交。
     同一 doc_id 旧的已发布版本自动转为历史版本;新版本在此之前不生效。"""
-    sop = db.get(Sop, sop_id)
-    if sop is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "SOP 不存在")
+    sop = _lock_sop_document(db, sop_id)
+    require_current_version(expected, sop.updated_at)
     if sop.status != SopStatus.submitted:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有待审核状态可发布;退回后须重新提交")
     # 审核时复核完整性:防止退回后清空内容再直接发布
@@ -217,8 +229,10 @@ def approve_sop(
     ).all()
     for old in old_published:
         old.status = SopStatus.superseded
+        advance_version(old)
 
     sop.status = SopStatus.published
+    advance_version(sop)
     sop.published_at = utcnow()
     sop.review_comment = body.comment
     sop.reviewed_by = reviewer.id
@@ -239,17 +253,18 @@ def approve_sop(
 def return_sop(
     sop_id: int,
     body: ReviewRequest,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     reviewer: User = Depends(require_reviewer),
 ) -> SopOut:
-    sop = db.get(Sop, sop_id)
-    if sop is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "SOP 不存在")
+    sop = _lock_sop_document(db, sop_id)
+    require_current_version(expected, sop.updated_at)
     if sop.status != SopStatus.submitted:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有待审核状态可退回")
     if not body.comment.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "退回必须填写审核意见")
     sop.status = SopStatus.returned
+    advance_version(sop)
     sop.review_comment = body.comment
     sop.reviewed_by = reviewer.id
     sop.reviewed_at = utcnow()
@@ -262,15 +277,16 @@ def return_sop(
 def deprecate_sop(
     sop_id: int,
     body: ReviewRequest,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     reviewer: User = Depends(require_reviewer),
 ) -> SopOut:
-    sop = db.get(Sop, sop_id)
-    if sop is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "SOP 不存在")
+    sop = _lock_sop_document(db, sop_id)
+    require_current_version(expected, sop.updated_at)
     if sop.status not in (SopStatus.published, SopStatus.superseded):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有已发布/历史版本可废弃")
     sop.status = SopStatus.deprecated
+    advance_version(sop)
     sop.review_comment = body.comment
     record_audit(db, reviewer, "sop.deprecate", "sop", sop.id, {"comment": body.comment[:200]})
     db.commit()
@@ -280,13 +296,15 @@ def deprecate_sop(
 @router.post("/{sop_id}/new-version", response_model=SopOut, status_code=status.HTTP_201_CREATED)
 def new_sop_version(
     sop_id: int,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     user: User = Depends(require_operator),
 ) -> SopOut:
     """修改已发布 SOP:产生新草稿版本;旧版本保持有效直至新版本通过审核发布。"""
-    src = db.get(Sop, sop_id)
-    if src is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "SOP 不存在")
+    src = _lock_sop_document(db, sop_id)
+    if not _can_view_sop(user, src):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该 SOP")
+    require_current_version(expected, src.updated_at)
     if src.status not in (SopStatus.published, SopStatus.superseded):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有已发布/历史版本可派生新版本")
 

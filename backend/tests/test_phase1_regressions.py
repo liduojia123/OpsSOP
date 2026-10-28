@@ -195,3 +195,22 @@ def test_repair_script_then_resolve_roundtrip(db, operator):
     db.expire_all()
     assert db.get(Fault, fault.id).status == FaultStatus.open
     assert db.get(Case, case.id).status == CaseStatus.returned, "空白案例被降级但不删除"
+
+
+def test_repair_script_apply_advances_case_version(db, operator, monkeypatch):
+    import sys
+
+    repair = _load_script("repair_fake_resolved")
+    fault = Fault(title="待修复", description="d", status=FaultStatus.resolved, actual_root_cause="", handling_steps="", recovery_verification="", created_by=operator.id)
+    db.add(fault)
+    db.flush()
+    case = Case(fault_id=fault.id, title="待修复", confirmed_root_cause="", handling_steps="", recovery_verification="", status=CaseStatus.approved, created_by=operator.id)
+    db.add(case)
+    db.commit()
+    old_version = case.updated_at
+    monkeypatch.setattr(repair, "SessionLocal", lambda: db)
+    monkeypatch.setattr(sys, "argv", ["repair_fake_resolved.py", "--apply"])
+    assert repair.main() == 0
+    refreshed = db.get(Case, case.id)
+    assert refreshed.status == CaseStatus.returned
+    assert refreshed.updated_at > old_version

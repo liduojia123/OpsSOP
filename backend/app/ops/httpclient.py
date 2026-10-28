@@ -31,6 +31,7 @@ class HttpClient:
         json_body: dict | None = None,
         expected: tuple[int, ...] = (200, 201),
         allow_any: bool = False,
+        version: str | None = None,
     ) -> HttpResponse:
         url = f"{self.base_url}{path}"
         data = None
@@ -40,6 +41,8 @@ class HttpClient:
             headers["Content-Type"] = "application/json"
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        if version is not None:
+            headers["X-Expected-Updated-At"] = version
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -83,11 +86,12 @@ class HttpClient:
         body: dict | None = None,
         *,
         expected: tuple[int, ...] = (200, 201),
+        version: str | None = None,
     ) -> HttpResponse:
-        return self._request("POST", path, json_body=body, expected=expected)
+        return self._request("POST", path, json_body=body, expected=expected, version=version)
 
-    def patch(self, path: str, body: dict, *, expected: tuple[int, ...] = (200,)) -> HttpResponse:
-        return self._request("PATCH", path, json_body=body, expected=expected)
+    def patch(self, path: str, body: dict, *, expected: tuple[int, ...] = (200,), version: str | None = None) -> HttpResponse:
+        return self._request("PATCH", path, json_body=body, expected=expected, version=version)
 
     def raw(
         self,

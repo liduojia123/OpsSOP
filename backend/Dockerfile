@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="OpsSOP Backend" \
-      org.opencontainers.image.version="1.2.1" \
+      org.opencontainers.image.version="2.0.0" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/liduojia123/OpsSOP"
 

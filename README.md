@@ -6,7 +6,7 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [模型配置](docs/ai-configuration.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **1.2.1**：支持自行改密、服务端撤销退出会话、共享登录限流与审计筛选分页。升级说明见[版本记录](CHANGELOG.md)，视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **2.0.0**：案例与 SOP 的编辑、提交和审核增加并发冲突保护。外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -28,6 +28,8 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自动解决故障，不自动发布 SOP。
 
+案例和 SOP 的编辑与审核使用版本检查；检测到其他人修改时拒绝旧操作，并保留当前输入。API 接入要求见[产品使用指南](docs/product-guide.md)。
+
 ## 快速启动
 
 需要 Docker Engine 与 Docker Compose。Windows 可使用 Docker Desktop 或 WSL2 内的 Docker；WSL2 场景在发行版内执行 Docker 命令。生产部署使用 Compose **2.24.4 或更高版本**。
@@ -35,7 +37,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v1.2.1
+git checkout v2.0.0
 ```
 
 复制环境变量示例：

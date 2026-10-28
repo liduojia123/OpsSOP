@@ -7,6 +7,7 @@
 """
 
 import os
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +30,21 @@ from app.security import hash_password  # noqa: E402
 from app.seed import ensure_seed  # noqa: E402
 
 settings = get_settings()
+
+
+class SnapshotTestClient(TestClient):
+    """兼容既有业务测试：未显式指定时，先按当前身份读取版本再提交。"""
+
+    def request(self, method, url, **kwargs):
+        match = re.fullmatch(r"/api/(cases|sops)/(\d+)(?:/(submit|approve|return|deprecate|new-version))?", str(url))
+        if match and ((method.upper() == "PATCH" and match.group(3) is None) or (method.upper() == "POST" and match.group(3))):
+            headers = dict(kwargs.get("headers") or {})
+            if not any(key.lower() == "x-expected-updated-at" for key in headers):
+                response = super().request("GET", f"/api/{match.group(1)}/{match.group(2)}", headers=headers)
+                if response.status_code == 200:
+                    headers["X-Expected-Updated-At"] = response.json()["updated_at"]
+                    kwargs["headers"] = headers
+        return super().request(method, url, **kwargs)
 
 
 def _assert_database_isolation() -> None:
@@ -112,7 +128,7 @@ def client(db, monkeypatch):
     monkeypatch.setattr("app.main.seed_fn", lambda: ensure_seed(session_factory=TestingSessionLocal))
 
     app.dependency_overrides[get_db] = _override_get_db
-    with TestClient(app) as c:
+    with SnapshotTestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
 

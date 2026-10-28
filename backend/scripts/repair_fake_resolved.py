@@ -26,6 +26,7 @@ from sqlalchemy import select
 sys.path.insert(0, "/srv/opssop")
 
 from app.database import SessionLocal  # noqa: E402
+from app.concurrency import advance_version  # noqa: E402
 from app.models import AuditEvent, Case, CaseStatus, Fault, FaultStatus  # noqa: E402
 
 
@@ -67,7 +68,16 @@ def main() -> int:
             print("仅报告。加 --apply 执行修复(重置为处理中,可重新人工确认解决)。")
             return 0
 
+        repaired = 0
         for fault, case in found:
+            # 与正常故障确认按相同顺序持锁，重新核对，避免覆盖并发中的人工修复。
+            fault = db.scalar(select(Fault).where(Fault.id == fault.id).with_for_update().execution_options(populate_existing=True))
+            if fault is None or fault.status != FaultStatus.resolved:
+                continue
+            case = db.scalar(select(Case).where(Case.fault_id == fault.id).with_for_update().execution_options(populate_existing=True))
+            blank_confirm = _blank(fault.actual_root_cause) and _blank(fault.handling_steps) and _blank(fault.recovery_verification)
+            if not blank_confirm and case is not None:
+                continue
             fault.status = FaultStatus.open
             fault.actual_root_cause = ""
             fault.handling_steps = ""
@@ -94,6 +104,7 @@ def main() -> int:
                 if case_blank:
                     # 内容空白的案例不再是正式依据;保留记录与引用,退回待重新确认
                     case.status = CaseStatus.returned
+                    advance_version(case)
                     case.review_comment = (
                         "历史异常数据修复:关联故障绕过人工确认,案例内容为空白,"
                         "已退回。重新确认解决后将原地更新并重新送审。"
@@ -107,9 +118,10 @@ def main() -> int:
                             detail={"fault_id": fault.id, "reason": "blank confirmation content"},
                         )
                     )
+            repaired += 1
         db.commit()
         print(
-            f"已修复 {len(found)} 条记录(重置为处理中)。"
+            f"已修复 {repaired} 条记录(重置为处理中)。"
             "有关联案例的故障重新确认解决时将原地更新既有案例并重新送审;"
             "请走正常人工确认解决流程。"
         )

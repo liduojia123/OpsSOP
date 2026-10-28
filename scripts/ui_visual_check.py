@@ -333,11 +333,18 @@ def run_checks(browser) -> None:
     page.get_by_role("button", name="保存").dispatch_event("click")
     page.wait_for_timeout(1400)
     check("保存时重复点击只提交一次", len(patches) == 1, f"PATCH count={len(patches)}")
-    page.request.patch(
-        BASE + "/api/sops/10",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        data=json.dumps({"symptom": original_symptom}, ensure_ascii=False),
-    )
+    current_sop = page.request.get(
+        BASE + "/api/sops/10", headers={"Authorization": f"Bearer {token}"}
+    ).json()
+    if current_sop.get("symptom") == original_symptom + "\n[动效检查临时文本]":
+        restored = page.request.patch(
+            BASE + "/api/sops/10",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "X-Expected-Updated-At": current_sop["updated_at"]},
+            data=json.dumps({"symptom": original_symptom}, ensure_ascii=False),
+        )
+        check("视觉检查恢复原始内容", restored.status == 200, f"HTTP {restored.status}")
+    else:
+        check("视觉检查恢复原始内容", current_sop.get("symptom") == original_symptom, "内容已变化，未覆盖")
 
     # 11. 未登录来源直达与只读边界
     direct = browser.new_context(viewport=DESKTOP)

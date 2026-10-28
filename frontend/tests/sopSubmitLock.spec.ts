@@ -146,6 +146,18 @@ function findButton(wrapper: ReturnType<typeof mount>, text: string) {
 }
 
 describe('SopDetailView 提交锁定(第二阶段审查 P2 #6)', () => {
+  it('版本冲突时保留未保存的编辑', async () => {
+    client.get.mockImplementation((url: string) => url === '/api/sops/5' ? Promise.resolve({ data: { ...sopData } }) : Promise.resolve({ data: [] }))
+    client.patch.mockRejectedValueOnce(new Error('记录已被其他人修改'))
+    const wrapper = mount(SopDetailView, { global: globalCfg })
+    await flushPromises()
+    const input = wrapper.findAll('textarea')[0]
+    await input.setValue('保留我的新标题')
+    await findButton(wrapper, '保存').trigger('click')
+    await flushPromises()
+    expect((input.element as HTMLTextAreaElement).value).toBe('保留我的新标题')
+    expect(client.patch).toHaveBeenCalledWith('/api/sops/5', expect.objectContaining({ title: '保留我的新标题' }), { headers: { 'X-Expected-Updated-At': sopData.updated_at } })
+  })
   it('提交审核在途时锁定表单与保存按钮,完成后恢复', async () => {
     client.get.mockImplementation((url: string) => {
       if (url === '/api/sops/5') return Promise.resolve({ data: { ...sopData } })
@@ -181,7 +193,7 @@ describe('SopDetailView 提交锁定(第二阶段审查 P2 #6)', () => {
     await flushPromises()
     await flushPromises()
 
-    expect(client.post).toHaveBeenCalledWith('/api/sops/5/submit', { comment: '' })
+    expect(client.post).toHaveBeenCalledWith('/api/sops/5/submit', { comment: '' }, { headers: { 'X-Expected-Updated-At': '2026-10-14T00:00:01Z' } })
     // 提交完成后恢复可编辑(表单已按服务端快照刷新)
     expect(mainForm().attributes('data-disabled')).toBe('false')
   })

@@ -182,6 +182,7 @@ def seed_drill_data(
         f"/api/cases/{fx.case_id}/approve",
         {"comment": "演练合成审核通过"},
         expected=(200,),
+        version=case_row["updated_at"],
     )
 
     draft = op1.post(
@@ -196,30 +197,33 @@ def seed_drill_data(
             "maintainer_id": fx.users["operator1"]["id"],
         }
     )
-    op1.patch(f"/api/sops/{v1_id}", payload)
-    op1.post(f"/api/sops/{v1_id}/submit", expected=(200,))
+    v1_draft = op1.patch(f"/api/sops/{v1_id}", payload, version=draft["updated_at"]).body
+    v1_submitted = op1.post(f"/api/sops/{v1_id}/submit", expected=(200,), version=v1_draft["updated_at"]).body
     v1 = reviewer.post(
         f"/api/sops/{v1_id}/approve",
         {"comment": "演练合成发布 v1"},
         expected=(200,),
+        version=v1_submitted["updated_at"],
     ).body
     fx.sop_v1_id = int(v1["id"])
 
-    v2_draft = op1.post(f"/api/sops/{v1_id}/new-version", expected=(201,)).body
+    v2_draft = op1.post(f"/api/sops/{v1_id}/new-version", expected=(201,), version=v1["updated_at"]).body
     v2_id = int(v2_draft["id"])
-    op1.patch(
+    v2_draft = op1.patch(
         f"/api/sops/{v2_id}",
         {
             "check_steps": "演练 v2:核对 limits.memory 与 HPA 配置",
             "handling_steps": "演练 v2:调整 limits.memory 并观察 30 分钟",
             "rollback_steps": "演练 v2:恢复旧 limits.memory",
         },
-    )
-    op1.post(f"/api/sops/{v2_id}/submit", expected=(200,))
+        version=v2_draft["updated_at"],
+    ).body
+    v2_submitted = op1.post(f"/api/sops/{v2_id}/submit", expected=(200,), version=v2_draft["updated_at"]).body
     v2 = reviewer.post(
         f"/api/sops/{v2_id}/approve",
         {"comment": "演练合成发布 v2"},
         expected=(200,),
+        version=v2_submitted["updated_at"],
     ).body
     fx.sop_v2_id = int(v2["id"])
     if v2.get("doc_id") != fx.sop_doc_id:

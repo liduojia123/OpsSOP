@@ -45,7 +45,7 @@ from .httpclient import HttpClient
 from .restore import run_restore
 from .snapshot import compare_snapshots, take_snapshot
 
-DEFAULT_BACKEND_IMAGE = "opssop-backend:1.2.1"
+DEFAULT_BACKEND_IMAGE = "opssop-backend:2.0.0"
 DB_IMAGE = "pgvector/pgvector:pg16"
 NGINX_IMAGE = "nginx:1.27-alpine"
 
@@ -274,6 +274,7 @@ def _http_write_business(base_url: str, fx: DrillFixtures, run_id: str, *, prefi
         f"/api/cases/{case[0]['id']}/approve",
         {"comment": f"{prefix} 续办审核"},
         expected=(200,),
+        version=case[0]["updated_at"],
     )
     return {
         "fault_id": fault["id"],

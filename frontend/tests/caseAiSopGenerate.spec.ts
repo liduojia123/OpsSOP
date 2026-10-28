@@ -93,9 +93,9 @@ const globalCfg = {
       },
     }),
     'el-alert': defineComponent({
-      props: { title: String },
-      setup(props: { title?: string }) {
-        return () => h('div', { class: 'alert' }, props.title)
+      props: { title: String, description: String },
+      setup(props: { title?: string; description?: string }) {
+        return () => h('div', { class: 'alert' }, [props.title, props.description])
       },
     }),
     'el-table': defineComponent({
@@ -109,6 +109,12 @@ const globalCfg = {
       props: { modelValue: Boolean },
       setup(_: unknown, { slots }: any) {
         return () => h('div', { class: 'drawer' }, slots.default?.())
+      },
+    }),
+    'el-dialog': defineComponent({
+      props: { modelValue: Boolean },
+      setup(props: { modelValue: boolean }, { slots }: any) {
+        return () => props.modelValue ? h('div', { class: 'dialog' }, [slots.default?.(), slots.footer?.()]) : null
       },
     }),
   },
@@ -208,6 +214,19 @@ afterEach(() => {
 })
 
 describe('案例页 AI 生成 SOP 草稿(第三阶段第一批)', () => {
+  it('案例编辑冲突时保留输入和对话框', async () => {
+    const { wrapper, vm } = await mountWithCase()
+    vm.openDetail(makeCaseRow({ status: 'returned' }))
+    vm.editField('handling_steps', '处理步骤')
+    vm.caseEdit.value = '保留我的处理步骤'
+    client.patch.mockRejectedValueOnce(new Error('记录已被其他人修改'))
+    await vm.saveCaseField()
+    await nextTick()
+    expect(vm.caseEditVisible).toBe(true)
+    expect(vm.caseEdit.value).toBe('保留我的处理步骤')
+    expect(wrapper.text()).toContain('记录已被其他人修改')
+    expect(client.patch).toHaveBeenCalledWith('/api/cases/3', { handling_steps: '保留我的处理步骤' }, { headers: { 'X-Expected-Updated-At': '2026-10-15T00:00:00Z' } })
+  })
   it('模板生成与 AI 生成入口名称区分;云模式说明出网范围', async () => {
     const { wrapper } = await mountWithCase()
     const text = wrapper.text()

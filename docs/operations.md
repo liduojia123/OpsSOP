@@ -1,4 +1,4 @@
-# OpsSOP 1.2.1 运维指南
+# OpsSOP 2.0.0 运维指南
 
 生产部署使用 Compose 项目 `opssop-prod`。日常操作沿用安装时的环境文件、项目名和数据卷；备份与演练产物保存在仓库外。
 
@@ -47,7 +47,7 @@ docker compose -p opssop-prod --env-file .env.production `
 准备后端镜像和基础镜像：
 
 ```powershell
-docker build --tag opssop-backend:1.2.1 ./backend
+docker build --tag opssop-backend:2.0.0 ./backend
 docker pull pgvector/pgvector:pg16
 docker pull nginx:1.27-alpine
 
@@ -68,7 +68,7 @@ $work = Join-Path $env:TEMP "opssop-drill-$run"
 python backend/scripts/ops_cli.py drill `
   --work-dir $work `
   --run-id $run `
-  --backend-image opssop-backend:1.2.1 `
+  --backend-image opssop-backend:2.0.0 `
   --timeout 180
 ```
 
@@ -79,7 +79,7 @@ RUN_ID="drill$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
 python3 backend/scripts/ops_cli.py drill \
   --work-dir "/var/tmp/opssop-drill-$RUN_ID" \
   --run-id "$RUN_ID" \
-  --backend-image opssop-backend:1.2.1 \
+  --backend-image opssop-backend:2.0.0 \
   --timeout 180
 ```
 

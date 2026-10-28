@@ -55,11 +55,13 @@ def require_credentials():
         sys.exit(2)
 
 
-def req(method, path, token=None, body=None):
+def req(method, path, token=None, body=None, version=None):
     r = urllib.request.Request(BASE + path, method=method)
     r.add_header("Content-Type", "application/json; charset=utf-8")
     if token:
         r.add_header("Authorization", "Bearer " + token)
+    if version is not None:
+        r.add_header("X-Expected-Updated-At", version)
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
     try:
         with urllib.request.urlopen(r, data) as resp:
@@ -142,7 +144,7 @@ def main():
     cid = mine[0]["id"]
 
     print("== 4. 越权校验 ==")
-    st, _ = req("POST", f"/api/cases/{cid}/approve", op, {"comment": "x"})
+    st, _ = req("POST", f"/api/cases/{cid}/approve", op, {"comment": "x"}, mine[0]["updated_at"])
     check("运维审核案例被拒(403)", st == 403, f"got {st}")
     st, _ = req("POST", "/api/faults", rv, {"title": f"[e2e:{RUN_ID}] 审核员建故障", "status": "draft"})
     check("审核员创建故障被拒(403)", st == 403, f"got {st}")
@@ -150,7 +152,7 @@ def main():
     check("运维查看账号列表被拒(403)", st == 403, f"got {st}")
 
     print("== 5. 审核通过案例 ==")
-    st, case = req("POST", f"/api/cases/{cid}/approve", rv, {"comment": "证据充分"})
+    st, case = req("POST", f"/api/cases/{cid}/approve", rv, {"comment": "证据充分"}, mine[0]["updated_at"])
     check("案例审核通过", st == 200 and case["status"] == "approved", str(case))
 
     print("== 6. 生成 SOP 草稿 → 提交 ==")
@@ -163,31 +165,31 @@ def main():
         "preconditions": "kubectl 只读权限",
         "rollback_steps": "回滚到原 limits",
         "notes": "先在测试环境验证",
-    })
+    }, sop["updated_at"])
     check("补全 SOP", st == 200, str(sop))
-    st, sop = req("POST", f"/api/sops/{sid}/submit", op)
+    st, sop = req("POST", f"/api/sops/{sid}/submit", op, version=sop["updated_at"])
     check("提交 SOP", st == 200 and sop["status"] == "submitted", str(sop))
 
     print("== 7. 发布 SOP ==")
-    st, sop = req("POST", f"/api/sops/{sid}/approve", rv, {"comment": "通过"})
+    st, sop = req("POST", f"/api/sops/{sid}/approve", rv, {"comment": "通过"}, sop["updated_at"])
     check("发布 SOP", st == 200 and sop["status"] == "published" and sop["published_at"], str(sop))
 
     print("== 8. 修改已发布 SOP → 新版本,旧版本转历史 ==")
-    st, v2 = req("POST", f"/api/sops/{sid}/new-version", op)
+    st, v2 = req("POST", f"/api/sops/{sid}/new-version", op, version=sop["updated_at"])
     check("生成新版本草稿", st == 201 and v2["version"] == 2 and v2["status"] == "draft", str(v2))
     st, v1 = req("GET", f"/api/sops/{sid}", op)
     check("新草稿存在时旧版仍有效", st == 200 and v1["status"] == "published", str(v1))
-    req("POST", f"/api/sops/{v2['id']}/submit", op)
-    st, v2 = req("POST", f"/api/sops/{v2['id']}/approve", rv, {"comment": "ok"})
+    _, v2 = req("POST", f"/api/sops/{v2['id']}/submit", op, version=v2["updated_at"])
+    st, v2 = req("POST", f"/api/sops/{v2['id']}/approve", rv, {"comment": "ok"}, v2["updated_at"])
     check("发布 v2", st == 200 and v2["status"] == "published")
     st, v1 = req("GET", f"/api/sops/{sid}", op)
     check("v1 自动转为历史版本", v1["status"] == "superseded", str(v1))
 
     print("== 9. 同 doc 未发布时禁止再开新版本 ==")
-    st, v3 = req("POST", f"/api/sops/{v2['id']}/new-version", op)
+    st, v3 = req("POST", f"/api/sops/{v2['id']}/new-version", op, version=v2["updated_at"])
     # v2 是 published,允许开 v3;此时同 doc 已有未发布草稿,再从 v2 派生应 409
     if st == 201:
-        st2, _ = req("POST", f"/api/sops/{v2['id']}/new-version", op)
+        st2, _ = req("POST", f"/api/sops/{v2['id']}/new-version", op, version=v2["updated_at"])
         check("已有未发布草稿时再开新版被拒(409)", st2 == 409, f"got {st2}")
     else:
         check("已有未发布草稿时再开新版被拒(409)", False, f"unexpected {st}")

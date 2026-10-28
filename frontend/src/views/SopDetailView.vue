@@ -138,11 +138,12 @@ function currentSopId(): number | null {
 async function save() {
   if (saving.value) return false
   const id = currentSopId()
-  if (id == null) return false
+  const expected = sop.value?.updated_at
+  if (id == null || !expected) return false
   saving.value = true
   try {
     // 只回写服务端元数据,不回填表单:请求期间继续输入的内容不被响应覆盖
-    const { data } = await client.patch(`/api/sops/${id}`, formPayload())
+    const { data } = await client.patch(`/api/sops/${id}`, formPayload(), { headers: { 'X-Expected-Updated-At': expected } })
     if (sop.value && sop.value.id === id) {
       sop.value.updated_at = data.updated_at
       sop.value.status = data.status
@@ -161,12 +162,14 @@ async function save() {
 async function submitForReview() {
   if (submitting.value) return
   const id = currentSopId()
-  if (id == null) return
+  const expected = sop.value?.updated_at
+  if (id == null || !expected) return
   submitting.value = true
   try {
     // 多步提交使用发起时的 ID 快照;等待期间切换历史版本不会改变请求目标
-    await client.patch(`/api/sops/${id}`, formPayload())
-    await client.post(`/api/sops/${id}/submit`, { comment: '' })
+    const { data } = await client.patch(`/api/sops/${id}`, formPayload(), { headers: { 'X-Expected-Updated-At': expected } })
+    if (sop.value?.id === id) sop.value.updated_at = data.updated_at
+    await client.post(`/api/sops/${id}/submit`, { comment: '' }, { headers: { 'X-Expected-Updated-At': data.updated_at } })
     ElMessage.success('已提交审核')
     // 仅当仍停留在发起提交的记录上时才刷新,避免覆盖切换后的页面
     if (Number(route.params.id) === id) {
@@ -182,9 +185,10 @@ async function submitForReview() {
 // 审核/废弃等动作作用于发起时的记录快照
 async function action(path: string, comment?: string) {
   const id = currentSopId()
-  if (id == null) return
+  const expected = sop.value?.updated_at
+  if (id == null || !expected) return
   try {
-    await client.post(`/api/sops/${id}/${path}`, { comment: comment ?? '' })
+    await client.post(`/api/sops/${id}/${path}`, { comment: comment ?? '' }, { headers: { 'X-Expected-Updated-At': expected } })
     ElMessage.success('操作成功')
     if (Number(route.params.id) === id) {
       await load()
@@ -217,9 +221,10 @@ async function deprecate() {
 
 async function newVersion() {
   const id = currentSopId()
-  if (id == null) return
+  const expected = sop.value?.updated_at
+  if (id == null || !expected) return
   try {
-    const { data } = await client.post(`/api/sops/${id}/new-version`)
+    const { data } = await client.post(`/api/sops/${id}/new-version`, undefined, { headers: { 'X-Expected-Updated-At': expected } })
     ElMessage.success(`已创建新草稿版本 v${data.version}(旧版本继续有效)`)
     // 等待导航完成;watcher 按新 ID 加载,避免读到旧路由参数
     await router.push({ name: 'sop-detail', params: { id: data.id } })

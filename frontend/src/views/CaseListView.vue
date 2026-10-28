@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import { caseStatusMap, fmtTime } from '../labels'
@@ -152,7 +152,7 @@ async function review(action: 'approve' | 'return') {
     return
   }
   try {
-    await client.post(`/api/cases/${current.value.id}/${action}`, { comment: reviewComment.value })
+    await client.post(`/api/cases/${current.value.id}/${action}`, { comment: reviewComment.value }, { headers: { 'X-Expected-Updated-At': current.value.updated_at } })
     ElMessage.success(action === 'approve' ? '已通过' : '已退回')
     detailVisible.value = false
     await load()
@@ -177,21 +177,33 @@ async function generateSop() {
 
 // 退回案例的三项人工确认字段均可修改(后端只允许 returned 状态编辑)
 type ConfirmField = 'confirmed_root_cause' | 'handling_steps' | 'recovery_verification'
+const caseEditVisible = ref(false)
+const caseEditSaving = ref(false)
+const caseEditError = ref('')
+const caseEdit = reactive({ id: 0, expected: '', field: 'confirmed_root_cause' as ConfirmField, label: '', value: '' })
 
-async function editField(field: ConfirmField, label: string) {
+function editField(field: ConfirmField, label: string) {
   if (!current.value) return
-  const { value } = await ElMessageBox.prompt(`修改${label}`, '编辑案例', {
-    inputValue: current.value[field],
-    inputType: 'textarea',
-  }).catch(() => ({ value: null }))
-  if (value === null) return
+  Object.assign(caseEdit, { id: current.value.id, expected: current.value.updated_at, field, label, value: current.value[field] })
+  caseEditError.value = ''
+  caseEditVisible.value = true
+}
+
+async function saveCaseField() {
+  if (caseEditSaving.value) return
+  const caseId = caseEdit.id
+  caseEditSaving.value = true
+  caseEditError.value = ''
   try {
-    await client.patch(`/api/cases/${current.value.id}`, { [field]: value })
+    await client.patch(`/api/cases/${caseId}`, { [caseEdit.field]: caseEdit.value }, { headers: { 'X-Expected-Updated-At': caseEdit.expected } })
+    caseEditVisible.value = false
     ElMessage.success('已更新')
     await load()
-    current.value = cases.value.find((c) => c.id === current.value?.id) ?? current.value
+    if (current.value?.id === caseId) current.value = cases.value.find((c) => c.id === caseId) ?? current.value
   } catch (e) {
-    ElMessage.error(errMsg(e))
+    caseEditError.value = errMsg(e)
+  } finally {
+    caseEditSaving.value = false
   }
 }
 
@@ -207,7 +219,7 @@ const canEditCurrent = computed(
 async function resubmit() {
   if (!current.value) return
   try {
-    await client.post(`/api/cases/${current.value.id}/submit`)
+    await client.post(`/api/cases/${current.value.id}/submit`, undefined, { headers: { 'X-Expected-Updated-At': current.value.updated_at } })
     ElMessage.success('已重新提交审核')
     detailVisible.value = false
     await load()
@@ -406,6 +418,12 @@ onMounted(async () => {
         </div>
       </template>
     </el-drawer>
+    <el-dialog v-model="caseEditVisible" :title="`修改${caseEdit.label}`" width="min(540px, 94vw)" :close-on-click-modal="!caseEditSaving">
+      <el-alert v-if="caseEditError" :description="caseEditError" type="error" :closable="false" show-icon />
+      <p v-if="caseEditError" class="ops-page-description">当前输入仍保留；如记录已变化，可复制内容后刷新页面。</p>
+      <el-input v-model="caseEdit.value" type="textarea" :rows="6" :disabled="caseEditSaving" />
+      <template #footer><el-button :disabled="caseEditSaving" @click="caseEditVisible = false">取消</el-button><el-button type="primary" :loading="caseEditSaving" @click="saveCaseField">保存</el-button></template>
+    </el-dialog>
   </div>
 </template>
 

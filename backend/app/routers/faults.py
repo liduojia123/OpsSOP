@@ -5,6 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
+from app.concurrency import advance_version
 from app.deps import get_current_user, record_audit, require_operator
 from app.models import Case, CaseStatus, Fault, FaultRecord, FaultStatus, RecordKind, Role, User, utcnow
 from app.schemas import (
@@ -34,7 +35,7 @@ def _can_view_fault(user: User, fault: Fault) -> bool:
 
 
 def _get_writable_fault(db: Session, fault_id: int, user: User) -> Fault:
-    fault = db.get(Fault, fault_id)
+    fault = db.scalar(select(Fault).where(Fault.id == fault_id).with_for_update().execution_options(populate_existing=True))
     if fault is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "故障不存在")
     if user.role == Role.operator and fault.created_by != user.id:
@@ -176,7 +177,7 @@ def resolve_fault(
     fault.recovery_verification = body.recovery_verification
     fault.resolved_at = utcnow()
 
-    existing_case = db.scalar(select(Case).where(Case.fault_id == fault.id))
+    existing_case = db.scalar(select(Case).where(Case.fault_id == fault.id).with_for_update().execution_options(populate_existing=True))
     if existing_case is not None:
         # 原地更新既有案例:内容变更后需重新审核,案例 ID 不变
         existing_case.title = fault.title
@@ -190,6 +191,7 @@ def resolve_fault(
         existing_case.handling_steps = body.handling_steps
         existing_case.recovery_verification = body.recovery_verification
         existing_case.status = CaseStatus.pending_review
+        advance_version(existing_case)
         existing_case.review_comment = ""
         existing_case.reviewed_by = None
         existing_case.reviewed_at = None

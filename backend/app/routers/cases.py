@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.concurrency import advance_version, require_current_version
 from app.database import get_db
 from app.deps import get_current_user, record_audit, require_operator, require_reviewer
 from app.models import Case, CaseStatus, Role, Sop, SopAiGenerationRun, SopStatus, User, utcnow
@@ -32,13 +33,19 @@ def _can_view_case(user: User, case: Case) -> bool:
     return True
 
 
-def _get_editable_case(db: Session, case_id: int, user: User) -> Case:
-    """仅退回(returned)状态可编辑:待审核内容是审核快照,不能无声变更。"""
-    case = db.get(Case, case_id)
+def _lock_case(db: Session, case_id: int) -> Case:
+    case = db.scalar(select(Case).where(Case.id == case_id).with_for_update().execution_options(populate_existing=True))
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    return case
+
+
+def _get_editable_case(db: Session, case_id: int, user: User, expected: str | None) -> Case:
+    """仅退回(returned)状态可编辑:待审核内容是审核快照,不能无声变更。"""
+    case = _lock_case(db, case_id)
     if user.role == Role.operator and case.created_by != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能修改自己创建的案例")
+    require_current_version(expected, case.updated_at)
     if case.status == CaseStatus.approved:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "已通过的案例不可修改")
     if case.status == CaseStatus.pending_review:
@@ -104,13 +111,15 @@ def get_case(
 def update_case(
     case_id: int,
     body: CaseUpdate,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     user: User = Depends(require_operator),
 ) -> CaseOut:
-    case = _get_editable_case(db, case_id, user)
+    case = _get_editable_case(db, case_id, user, expected)
     data = body.model_dump(exclude_unset=True)
     for key, value in data.items():
         setattr(case, key, value)
+    advance_version(case)
     record_audit(db, user, "case.update", "case", case.id, {"fields": list(data.keys())})
     db.commit()
     return CaseOut.model_validate(case)
@@ -119,17 +128,19 @@ def update_case(
 @router.post("/{case_id}/submit", response_model=CaseOut)
 def submit_case(
     case_id: int,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     user: User = Depends(require_operator),
 ) -> CaseOut:
     """退回后修改完成,重新提交审核。"""
-    case = _get_editable_case(db, case_id, user)
+    case = _get_editable_case(db, case_id, user, expected)
     if case.status != CaseStatus.returned:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有退回状态可重新提交审核")
     missing = _missing_case_fields(case)
     if missing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"缺少人工确认内容: {', '.join(missing)}")
     case.status = CaseStatus.pending_review
+    advance_version(case)
     record_audit(db, user, "case.submit", "case", case.id)
     db.commit()
     return CaseOut.model_validate(case)
@@ -139,12 +150,12 @@ def submit_case(
 def approve_case(
     case_id: int,
     body: ReviewRequest,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     reviewer: User = Depends(require_reviewer),
 ) -> CaseOut:
-    case = db.get(Case, case_id)
-    if case is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    case = _lock_case(db, case_id)
+    require_current_version(expected, case.updated_at)
     if case.status != CaseStatus.pending_review:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有待审核案例可通过审核")
     # 审批时复核全部人工确认字段
@@ -152,6 +163,7 @@ def approve_case(
     if missing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"人工确认内容不完整,不能通过: {', '.join(missing)}")
     case.status = CaseStatus.approved
+    advance_version(case)
     case.review_comment = body.comment
     case.reviewed_by = reviewer.id
     case.reviewed_at = utcnow()
@@ -164,17 +176,18 @@ def approve_case(
 def return_case(
     case_id: int,
     body: ReviewRequest,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
     db: Session = Depends(get_db),
     reviewer: User = Depends(require_reviewer),
 ) -> CaseOut:
-    case = db.get(Case, case_id)
-    if case is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    case = _lock_case(db, case_id)
+    require_current_version(expected, case.updated_at)
     if case.status != CaseStatus.pending_review:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有待审核案例可退回")
     if not body.comment.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "退回必须填写审核意见")
     case.status = CaseStatus.returned
+    advance_version(case)
     case.review_comment = body.comment
     case.reviewed_by = reviewer.id
     case.reviewed_at = utcnow()
