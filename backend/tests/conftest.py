@@ -94,6 +94,17 @@ def clean_tables():
             conn.execute(table.delete())
 
 
+@pytest.fixture(autouse=True)
+def reset_login_rate_limits():
+    from app.routers.auth import _login_attempts, _login_lock
+
+    with _login_lock:
+        _login_attempts.clear()
+    yield
+    with _login_lock:
+        _login_attempts.clear()
+
+
 @pytest.fixture
 def db():
     session = TestingSessionLocal()

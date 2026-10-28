@@ -1,4 +1,4 @@
-# OpsSOP 1.1.1 部署指南
+# OpsSOP 1.1.2 部署指南
 
 OpsSOP 采用 Vue 前端、FastAPI 后端与 PostgreSQL / pgvector 数据库，通过 Docker Compose 部署。应用与模型服务独立配置；关闭模型时，故障录入、案例审核、SOP 管理和关键词检索仍可使用。
 
@@ -98,15 +98,15 @@ docker compose -p opssop-prod --env-file .env.production `
 ## 升级与回退
 
 1. 安排维护窗口，暂停业务写入，按[备份与恢复](backup-restore.md)保存归档及元信息，记录当前应用版本、镜像标识和环境配置。
-2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v1.1.1`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
+2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v1.1.2`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
 3. 在不覆盖私有环境文件的情况下更新源码。沿用生产项目名和数据卷，执行上述 `up -d --build`；后端按发行迁移自动升级数据库。
 4. 确认健康状态、登录、权限、检索和关键业务操作后恢复流量，保留升级前备份。
 
-固定发行版本的操作示例，升级时将 `v1.1.1` 替换为选定的目标标签：
+固定发行版本的操作示例，升级时将 `v1.1.2` 替换为选定的目标标签：
 
 ```powershell
 git fetch --tags origin
-git checkout --detach v1.1.1
+git checkout --detach v1.1.2
 docker compose -p opssop-prod --env-file .env.production `
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
@@ -120,3 +120,5 @@ docker compose -p opssop-prod --env-file .env.production `
 ## 运行边界
 
 当前部署方式面向单实例应用；模型限流与并发计数位于进程内。多实例、统一限流、自动异地容灾、备份调度与保留策略由部署方案补充。模型接入、数据库持久化、目标服务器网络与 HTTPS 应分别管理，各自的可用状态互不替代。
+
+登录限流同样位于后端进程内，进程重启后计数清空，多进程之间不共享；反向代理可能使多个用户共用来源额度。公网部署需在可信代理或网关另设入口限流，并仅在受控配置下处理客户端地址。升级到启用密码绑定会话的版本时，旧令牌不再可用，用户需重新登录。

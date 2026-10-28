@@ -29,7 +29,7 @@ def _check_not_blank(v: str) -> str:
 # ===== 认证与用户 =====
 
 class LoginRequest(BaseModel):
-    username: str
+    username: str = Field(min_length=1, max_length=64)
     password: str
 
 

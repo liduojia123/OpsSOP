@@ -1,12 +1,13 @@
 """依赖注入:当前用户、角色校验、审计写入。"""
 
 from fastapi import Depends, HTTPException, status
+from hmac import compare_digest
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AuditEvent, Role, User
-from app.security import decode_session_token
+from app.security import decode_session_token, password_session_tag
 
 bearer_scheme = HTTPBearer(auto_error=True)
 
@@ -20,9 +21,16 @@ def get_current_user(
     payload = decode_session_token(credentials.credentials)
     if payload is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录会话无效或已过期")
-    user = db.get(User, int(payload["sub"]))
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录会话无效或已过期")
+    user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "账号不存在或已停用")
+    tag = payload.get("password_tag")
+    if not isinstance(tag, str) or not tag.isascii() or not compare_digest(tag, password_session_tag(user.password_hash)):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录会话无效或已过期")
     return user
 
 

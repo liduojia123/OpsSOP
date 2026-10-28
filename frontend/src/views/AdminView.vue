@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import { fmtTime, roleMap } from '../labels'
@@ -8,6 +9,7 @@ import { useAuthStore } from '../stores/auth'
 import type { AuditEvent, Category, Role, User } from '../types'
 
 const auth = useAuthStore()
+const router = useRouter()
 const users = ref<User[]>([])
 const categories = ref<Category[]>([])
 const tab = ref('users')
@@ -124,7 +126,13 @@ async function resetPassword(u: User) {
   if (!value) return
   try {
     await client.patch(`/api/users/${u.id}`, { password: value })
-    ElMessage.success('密码已重置')
+    if (u.id === auth.user?.id) {
+      auth.logout()
+      ElMessage.success('密码已重置，请重新登录')
+      await router.replace({ name: 'login' })
+    } else {
+      ElMessage.success('密码已重置，原会话已失效')
+    }
   } catch (e) {
     ElMessage.error(errMsg(e))
   }

@@ -1,6 +1,8 @@
 """密码哈希与会话令牌。密钥只从环境变量读取,不进入日志。"""
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
 
 import bcrypt
 import jwt
@@ -32,13 +34,20 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_session_token(user_id: int, username: str, role: str) -> tuple[str, datetime]:
+def password_session_tag(password_hash: str) -> str:
+    """令牌不包含密码哈希；密码重置后其绑定值自动变化。"""
+    key = get_settings().secret_key.encode("utf-8")
+    return hmac.new(key, password_hash.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def create_session_token(user_id: int, username: str, role: str, password_hash: str) -> tuple[str, datetime]:
     settings = get_settings()
     expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.session_expire_hours)
     payload = {
         "sub": str(user_id),
         "username": username,
         "role": role,
+        "password_tag": password_session_tag(password_hash),
         "exp": expires_at,
         "iat": datetime.now(timezone.utc),
     }
