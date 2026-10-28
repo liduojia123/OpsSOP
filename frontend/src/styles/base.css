@@ -1,0 +1,302 @@
+/* 基础层：文档、排版、焦点与跨页复用的文字/标记工具类。
+ * 页面级的构图与间距放在各视图的 scoped 样式中，这里只放公共约定。 */
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ops-canvas);
+  color: var(--ops-text);
+  font-family: var(--ops-font-body);
+  font-size: var(--ops-text-base);
+  line-height: var(--ops-leading-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  overflow-wrap: break-word;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--ops-text);
+  font-weight: var(--ops-weight-semibold);
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+code,
+pre {
+  font-family: var(--ops-font-mono);
+}
+
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+::selection {
+  background: #f3d9cd;
+  color: var(--ops-text);
+}
+
+/* 键盘焦点始终可见；鼠标点击不额外描边 */
+:focus-visible {
+  outline: 2px solid var(--ops-brand);
+  outline-offset: 2px;
+}
+
+.ops-layout :focus-visible {
+  outline-color: var(--ops-brand-mark);
+}
+
+/* 细滚动条：纸面感，避免默认灰色宽条打断布局 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ops-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--ops-border-strong);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ops-muted);
+  background-clip: content-box;
+}
+
+/* ===== 文字与标记工具类（替代散落的十六进制色值工具类）===== */
+.ops-text-ink {
+  color: var(--ops-text);
+}
+
+.ops-text-soft {
+  color: var(--ops-text-soft);
+}
+
+.ops-text-muted {
+  color: var(--ops-muted);
+}
+
+.ops-text-faint {
+  color: var(--ops-faint);
+}
+
+.ops-link {
+  color: var(--ops-brand);
+  text-decoration: none;
+  transition: color var(--ops-duration-fast) var(--ops-ease-standard);
+}
+
+.ops-link:hover {
+  color: var(--ops-brand-hover);
+  text-decoration: underline;
+}
+
+.ops-entity-link {
+  color: var(--ops-text);
+  font-weight: var(--ops-weight-semibold);
+  text-decoration: none;
+  transition: color var(--ops-duration-fast) var(--ops-ease-standard);
+}
+
+.ops-entity-link:hover {
+  color: var(--ops-brand);
+}
+
+.ops-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-control);
+  background: var(--ops-surface);
+  color: var(--ops-muted);
+  font-size: var(--ops-text-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.ops-chip.is-compact {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 7px;
+  text-overflow: ellipsis;
+  color: var(--ops-text-soft);
+  font-family: var(--ops-font-mono);
+  font-size: 10px;
+}
+
+.ops-id {
+  color: var(--ops-faint);
+  font-family: var(--ops-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  line-height: 1.6;
+}
+
+.ops-result-count {  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid var(--ops-border-light);
+  border-radius: 4px;
+  background: var(--ops-surface-warm);
+  color: var(--ops-muted);
+  font-family: var(--ops-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.ops-icon-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--ops-border-light);
+  border-radius: var(--ops-radius-panel);
+  background: var(--ops-brand-soft);
+  color: var(--ops-brand);
+}
+
+.ops-icon-tile.is-warm {
+  background: var(--ops-surface-warm);
+  color: var(--ops-warning);
+}
+
+.ops-icon-tile.is-ink {
+  background: var(--ops-sidebar-raised);
+  color: var(--ops-brand-mark);
+}
+
+.ops-initial {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--ops-border);
+  border-radius: 5px;
+  background: var(--ops-surface-warm);
+  color: var(--ops-text-soft);
+  font-size: var(--ops-text-xs);
+  font-weight: var(--ops-weight-semibold);
+  text-transform: uppercase;
+}
+
+/* ===== 状态说明块：演示、失败、过期、用量未知等必须清晰可见 ===== */
+.ops-note {
+  padding: 8px 11px;
+  border: 1px solid var(--ops-border-light);
+  border-left: 2px solid var(--ops-border-strong);
+  border-radius: 4px;
+  background: var(--ops-surface-muted);
+  color: var(--ops-text-soft);
+  font-size: 11px;
+  line-height: 1.75;
+}
+
+.ops-note strong,
+.ops-note .ops-note-title {
+  font-weight: var(--ops-weight-semibold);
+}
+
+.ops-note.is-warning {
+  border-color: var(--ops-warning-line);
+  border-left-color: var(--ops-warning);
+  background: var(--ops-warning-soft);
+  color: #7a5410;
+}
+
+.ops-note.is-demo {
+  border-color: #eed6c6;
+  border-left-color: var(--ops-brand-mark);
+  background: #fdf1e7;
+  color: #8b4423;
+}
+
+.ops-note.is-danger {
+  border-color: var(--ops-danger-line);
+  border-left-color: var(--ops-danger);
+  background: var(--ops-danger-soft);
+  color: #8f3531;
+}
+
+.ops-note.is-success {
+  border-color: var(--ops-success-line);
+  border-left-color: var(--ops-success);
+  background: var(--ops-success-soft);
+  color: #0a5c49;
+}
+
+.ops-note.is-info {
+  border-color: var(--ops-info-line);
+  border-left-color: var(--ops-info);
+  background: var(--ops-info-soft);
+  color: #31547d;
+}
+
+.ops-note.is-muted {
+  border-color: var(--ops-border-light);
+  border-left-color: var(--ops-border-strong);
+  background: var(--ops-surface-muted);
+  color: var(--ops-muted);
+}
+
+.ops-note-detail {
+  color: inherit;
+  opacity: 0.72;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ops-muted);
+  font-size: var(--ops-text-xs);
+  font-weight: var(--ops-weight-medium);
+  line-height: 1.5;
+}
+

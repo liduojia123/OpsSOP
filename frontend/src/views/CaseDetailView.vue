@@ -11,6 +11,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import client, { errMsg } from '../api'
+import AppIcon from '../components/AppIcon.vue'
 import { caseStatusMap, fmtTime } from '../labels'
 import type { Case, CaseStatus } from '../types'
 
@@ -114,72 +115,129 @@ const canRetry = computed(
 </script>
 
 <template>
-  <div class="p-6 max-w-5xl">
-    <div class="flex items-center gap-3 mb-4">
-      <el-button text @click="goBack">← 返回</el-button>
-      <h1 class="text-xl font-bold text-slate-800">案例详情</h1>
+  <div class="ops-page case-detail-page">
+    <div class="ops-page-header">
+      <div>
+        <el-button text class="ops-back-link" @click="goBack">← 返回</el-button>
+        <div class="ops-eyebrow">CASE FILE <span v-if="item">/ #{{ item.id }}</span></div>
+        <h1>案例详情</h1>
+        <p class="ops-page-description">从一次真实的处理过程，找到下一次排查的依据。</p>
+      </div>
       <el-tag v-if="item" size="small" :type="(caseStatusMap[item.status as CaseStatus].type as any)">
         {{ caseStatusMap[item.status as CaseStatus].label }}
       </el-tag>
     </div>
 
-    <div v-if="loading" class="page-card text-gray-500">加载中…</div>
-
-    <div v-else-if="error" class="page-card" data-testid="case-detail-error">
-      <el-alert
-        :type="error.kind === 'forbidden' || error.kind === 'not-found' || error.kind === 'invalid' ? 'warning' : 'error'"
-        :closable="false"
-        show-icon
-        :title="error.message"
-      />
+    <div v-if="loading" class="ops-panel case-loading"><AppIcon name="files" :size="24" /><span>加载中…</span></div>
+    <div v-else-if="error" class="ops-panel case-error" data-testid="case-detail-error">
+      <el-alert :type="error.kind === 'forbidden' || error.kind === 'not-found' || error.kind === 'invalid' ? 'warning' : 'error'" :closable="false" show-icon :title="error.message" />
       <div class="mt-4 flex gap-2">
         <el-button v-if="canRetry" type="primary" plain @click="load">重试</el-button>
         <el-button @click="router.push('/cases')">返回案例库</el-button>
       </div>
     </div>
 
-    <div v-else-if="item" class="space-y-4">
-      <el-alert
-        v-if="statusInfo"
-        :type="statusInfo.type"
-        :closable="false"
-        :title="statusInfo.title"
-        :description="statusInfo.desc"
-      />
-
-      <div class="page-card space-y-3 text-sm">
-        <div>
-          <div class="text-gray-500 mb-1">标题</div>
-          <div class="font-medium text-slate-800">{{ item.title }}</div>
-        </div>
-        <div>
-          <div class="text-gray-500 mb-1">现象(案例记录)</div>
-          <div class="p-2 bg-slate-50 rounded whitespace-pre-wrap">{{ item.symptom || '-' }}</div>
-        </div>
-        <div>
-          <div class="text-gray-500 mb-1">人工确认根因</div>
-          <div class="p-2 bg-emerald-50 rounded whitespace-pre-wrap">{{ item.confirmed_root_cause || '-' }}</div>
-        </div>
-        <div>
-          <div class="text-gray-500 mb-1">处理步骤</div>
-          <div class="p-2 bg-emerald-50 rounded whitespace-pre-wrap">{{ item.handling_steps || '-' }}</div>
-        </div>
-        <div>
-          <div class="text-gray-500 mb-1">恢复验证</div>
-          <div class="p-2 bg-emerald-50 rounded whitespace-pre-wrap">{{ item.recovery_verification || '-' }}</div>
-        </div>
-        <div class="text-xs text-gray-400">
-          环境:{{ item.environment || '-' }} · 服务:{{ item.service || '-' }} ·
-          版本:{{ item.component_version || '-' }}
-        </div>
-        <div v-if="item.tags?.length" class="text-xs text-gray-400">
-          标签:{{ item.tags.join('、') }}
-        </div>
-        <div class="text-xs text-gray-400 border-t border-slate-100 pt-2">
-          审核时间:{{ fmtTime(item.reviewed_at) }} · 更新时间:{{ fmtTime(item.updated_at) }}
-          <span v-if="item.review_comment"> · 审核意见:{{ item.review_comment }}</span>
-        </div>
+    <template v-else-if="item">
+      <el-alert v-if="statusInfo" class="case-status-note" :type="statusInfo.type" :closable="false" :title="statusInfo.title" :description="statusInfo.desc" show-icon />
+      <div class="case-reading-layout">
+        <article class="ops-panel case-paper">
+          <header class="case-paper-header">
+            <span class="case-document-icon"><AppIcon name="book" :size="23" /></span>
+            <div class="ops-eyebrow">KNOWLEDGE / INCIDENT CASE</div>
+            <h2>{{ item.title }}</h2>
+            <div v-if="item.tags?.length" class="case-tags"><el-tag v-for="tag in item.tags" :key="tag" size="small" type="info" effect="plain">{{ tag }}</el-tag></div>
+          </header>
+          <section class="case-document-section">
+            <div class="case-section-label"><span>01</span><h3>现象(案例记录)</h3></div>
+            <div class="case-prose">{{ item.symptom || '-' }}</div>
+          </section>
+          <section class="case-document-section case-confirmed-section">
+            <div class="case-section-label"><span>02</span><h3>人工确认根因</h3><AppIcon name="check-circle" :size="17" /></div>
+            <div class="case-prose">{{ item.confirmed_root_cause || '-' }}</div>
+          </section>
+          <section class="case-document-section">
+            <div class="case-section-label"><span>03</span><h3>处理步骤</h3></div>
+            <div class="case-prose">{{ item.handling_steps || '-' }}</div>
+          </section>
+          <section class="case-document-section">
+            <div class="case-section-label"><span>04</span><h3>恢复验证</h3></div>
+            <div class="case-prose">{{ item.recovery_verification || '-' }}</div>
+          </section>
+        </article>
+        <aside class="case-metadata-column">
+          <section class="ops-panel case-metadata-panel">
+            <div class="ops-section-header"><h2>案例信息</h2><AppIcon name="files" :size="17" /></div>
+            <dl class="case-metadata">
+              <div><dt>环境</dt><dd>{{ item.environment || '-' }}</dd></div>
+              <div><dt>服务</dt><dd>{{ item.service || '-' }}</dd></div>
+              <div><dt>组件版本</dt><dd>{{ item.component_version || '-' }}</dd></div>
+              <div><dt>更新时间</dt><dd>{{ fmtTime(item.updated_at) }}</dd></div>
+              <div><dt>审核时间</dt><dd>{{ fmtTime(item.reviewed_at) }}</dd></div>
+            </dl>
+          </section>
+          <section v-if="item.review_comment" class="ops-panel case-metadata-panel">
+            <div class="ops-section-header"><h2>审核意见</h2><AppIcon name="shield" :size="17" /></div>
+            <p class="case-review-comment">{{ item.review_comment }}</p>
+          </section>
+          <div class="case-reading-note"><AppIcon name="lock" :size="18" /><p>只读知识来源<br /><span>审核和内容维护请从案例库进入。原始故障的私有日志不在此页展示。</span></p></div>
+        </aside>
       </div>
-    </div>
+    </template>
   </div>
 </template>
+
+<style scoped>
+.case-detail-page { max-width: 1380px; margin: 0 auto; }
+.case-detail-page .ops-page-header { align-items: flex-end; }
+.case-detail-page .ops-back-link { margin-bottom: 12px; }
+.case-detail-page h1 { margin-top: 6px; }
+.case-status-note { margin: 0 0 22px; }
+.case-reading-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; }
+.case-paper { padding: 32px 36px; }
+.case-paper-header { padding-bottom: 24px; border-bottom: 1px solid var(--ops-border); }
+.case-document-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 22px; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
+.case-paper-header .ops-eyebrow { font-size: 10px; letter-spacing: 1.4px; }
+.case-paper-header h2 { margin: 9px 0 0; color: var(--ops-text); font-size: 25px; font-weight: 650; line-height: 1.55; letter-spacing: -0.02em; }
+.case-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 17px; }
+.case-document-section { padding: 26px 0 0; }
+.case-section-label { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.case-section-label > span { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 11px; font-weight: 500; }
+.case-section-label h3 { margin: 0; color: var(--ops-text); font-size: 14px; font-weight: 650; }
+.case-section-label > svg { color: var(--ops-brand); }
+.case-prose { color: var(--ops-text-soft); font-size: 14px; line-height: var(--ops-leading-reading); white-space: pre-wrap; overflow-wrap: anywhere; }
+.case-confirmed-section { margin: 25px -17px 0; padding: 18px; border: 1px solid var(--ops-warm-line); border-radius: var(--ops-radius-panel); background: var(--ops-surface-warm); }
+.case-confirmed-section .case-section-label > svg { color: var(--ops-success); }
+.case-metadata-column { display: grid; gap: 18px; }
+.case-metadata-panel { padding: 0; }
+.case-metadata-panel h2 { margin: 0; font-size: 14px; font-weight: 650; }
+
+.case-metadata-panel svg { color: var(--ops-faint); }
+.case-metadata { margin: 0; padding: 20px 22px; }
+.case-metadata > div { margin-bottom: 20px; }
+.case-metadata > div:last-child { margin-bottom: 0; }
+.case-metadata dt { margin-bottom: 6px; color: var(--ops-muted); font-size: 11px; }
+.case-metadata dd { margin: 0; color: var(--ops-text); font-size: 13px; overflow-wrap: anywhere; }
+.case-review-comment { margin: 0; padding: 18px 22px 22px; color: var(--ops-text-soft); font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
+.case-reading-note { display: flex; gap: 10px; padding: 4px 6px; color: var(--ops-muted); }
+.case-reading-note > svg { flex-shrink: 0; margin-top: 3px; }
+.case-reading-note p { margin: 0; color: var(--ops-text-soft); font-size: 12px; line-height: 1.8; }
+.case-reading-note span { color: var(--ops-muted); }
+.case-loading { display: flex; align-items: center; gap: 12px; padding: 32px; color: var(--ops-muted); }
+.case-error { padding: 24px; }
+@media (max-width: 1100px) {
+  .case-reading-layout { grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; }
+  .case-paper { padding: 28px; }
+}
+@media (max-width: 900px) {
+  .case-reading-layout { grid-template-columns: minmax(0, 1fr); }
+  .case-metadata-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .case-paper { padding: 22px; }
+  .case-paper-header h2 { font-size: 21px; }
+  .case-metadata-column { grid-template-columns: minmax(0, 1fr); }
+  .case-detail-page .ops-page-header { align-items: flex-start; }
+}
+</style>
+
+

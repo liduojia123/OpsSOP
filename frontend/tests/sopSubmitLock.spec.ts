@@ -211,4 +211,29 @@ describe('SopDetailView 提交锁定(第二阶段审查 P2 #6)', () => {
     await flushPromises()
     expect((findButton(wrapper, '提交审核').element as HTMLButtonElement).disabled).toBe(false)
   })
+
+  it('保存请求在途时重复点击只提交一次', async () => {
+    client.get.mockImplementation((url: string) => {
+      if (url === '/api/sops/5') return Promise.resolve({ data: { ...sopData } })
+      return Promise.resolve({ data: [] })
+    })
+    client.patch.mockClear()
+    let resolvePatch!: (v: unknown) => void
+    const patchInFlight = new Promise((r) => {
+      resolvePatch = r
+    })
+    client.patch.mockReturnValueOnce(patchInFlight)
+
+    const wrapper = mount(SopDetailView, { global: globalCfg })
+    await flushPromises()
+    await flushPromises()
+
+    const saveBtn = findButton(wrapper, '保存')
+    await saveBtn.trigger('click')
+    await saveBtn.trigger('click') // 请求在途时的第二次点击(动效/连点场景)
+    expect(client.patch).toHaveBeenCalledTimes(1)
+
+    resolvePatch({ data: { ...sopData, updated_at: '2026-10-14T00:00:03Z' } })
+    await flushPromises()
+  })
 })

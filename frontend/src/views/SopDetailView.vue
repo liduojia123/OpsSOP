@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client, { errMsg } from '../api'
+import AppIcon from '../components/AppIcon.vue'
 import { fmtTime, sopStatusMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import type { Category, FeedbackKind, Sop, SopFeedback, SopStatus, UserOption } from '../types'
@@ -135,6 +136,7 @@ function currentSopId(): number | null {
 }
 
 async function save() {
+  if (saving.value) return false
   const id = currentSopId()
   if (id == null) return false
   saving.value = true
@@ -157,6 +159,7 @@ async function save() {
 
 // 提交审核前先保存表单并等待成功,确保审核针对当前编辑内容;失败保留编辑
 async function submitForReview() {
+  if (submitting.value) return
   const id = currentSopId()
   if (id == null) return
   submitting.value = true
@@ -272,8 +275,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-if="!sop" class="p-6">
-    <div v-if="loading" class="text-gray-500">加载中…</div>
+  <div v-if="!sop" class="ops-page sop-detail-page">
+    <div v-if="loading" class="ops-text-muted">加载中…</div>
     <div v-else class="page-card max-w-3xl" data-testid="sop-detail-error">
       <el-alert
         :type="loadError?.kind === 'forbidden' || loadError?.kind === 'not-found' || loadError?.kind === 'invalid' ? 'warning' : 'error'"
@@ -294,17 +297,21 @@ onMounted(async () => {
       </div>
     </div>
   </div>
-  <div class="p-6" v-else>
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
-        <el-button text @click="router.push('/sops')">← 返回</el-button>
-        <h1 class="text-xl font-bold text-slate-800">{{ sop.title }}</h1>
+  <div class="ops-page sop-detail-page" v-else>
+    <div class="ops-page-header sop-page-header">
+      <div class="sop-page-heading">
+        <el-button text class="ops-back-link" @click="router.push('/sops')">← 返回 SOP 列表</el-button>
+        <div class="ops-eyebrow">STANDARD OPERATING PROCEDURE</div>
+        <h1>{{ sop.title }}</h1>
+        <div class="sop-title-tags">
         <el-tag size="small" effect="plain">v{{ sop.version }}</el-tag>
         <el-tag size="small" :type="(sopStatusMap[sop.status as SopStatus].type as any)">
           {{ sopStatusMap[sop.status as SopStatus].label }}
         </el-tag>
+        <span class="sop-title-mode">{{ canEdit ? '编辑草稿 · 提交后进入审核流程' : '只读文档 · 保留完整版本记录' }}</span>
+        </div>
       </div>
-      <div class="flex gap-2">
+      <div class="ops-page-actions sop-page-actions">
         <el-button v-if="canEdit" type="primary" :loading="saving" :disabled="submitting" @click="save">保存</el-button>
         <el-button v-if="canEdit" :loading="submitting" :disabled="saving" @click="submitForReview">提交审核</el-button>
         <el-button v-if="canReview && sop.status === 'submitted'" type="success" @click="approve">
@@ -364,14 +371,15 @@ onMounted(async () => {
       class="mb-4"
     />
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div class="lg:col-span-2 page-card">
+    <div class="sop-workspace ops-result-in">
+      <div class="ops-panel sop-document-panel">
         <!-- 保存/提交期间锁定编辑(审查 P2 #6):防止请求期间的新输入被提交后的旧快照覆盖 -->
-        <el-form label-width="100px" :disabled="!canEdit || saving || submitting">
+        <el-form v-show="canEdit" label-position="top" class="sop-edit-form" :disabled="!canEdit || saving || submitting">
+          <div class="sop-editor-heading"><span class="section-icon"><AppIcon name="edit" :size="18" /></span><div><h2>编写 SOP</h2><p>补全适用范围与操作步骤，再提交审核。</p></div></div>
           <el-form-item label="标题">
             <el-input v-model="form.title" />
           </el-form-item>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="sop-properties-grid">
             <el-form-item label="分类">
               <el-select v-model="form.category_id" clearable class="w-full">
                 <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
@@ -426,17 +434,39 @@ onMounted(async () => {
             <el-input v-model="form.notes" type="textarea" :rows="2" />
           </el-form-item>
         </el-form>
+        <article v-if="!canEdit" class="sop-reading-document">
+          <header class="sop-document-intro"><span class="sop-document-mark"><AppIcon name="book" :size="23" /></span><div class="ops-eyebrow">OPERATIONS KNOWLEDGE</div><h2>{{ sop.title }}</h2><p>版本 v{{ sop.version }} <span>·</span> 维护人 {{ maintainerLabel(sop.maintainer_id) }}</p></header>
+          <section v-for="(section, index) in [
+            { title: '适用环境及版本', content: sop.applicable_env },
+            { title: '现象', content: sop.symptom },
+            { title: '前置条件', content: sop.preconditions },
+            { title: '排查步骤', content: sop.check_steps },
+            { title: '处理方法', content: sop.handling_steps },
+            { title: '恢复验证', content: sop.recovery_verification },
+            { title: '回滚方式', content: sop.rollback_steps },
+            { title: '注意事项', content: sop.notes },
+          ]" :key="section.title" class="sop-document-section">
+            <div class="sop-section-heading"><span>{{ String(index + 1).padStart(2, '0') }}</span><h3>{{ section.title }}</h3></div>
+            <div class="sop-document-text">{{ section.content || '未填写' }}</div>
+          </section>
+        </article>
       </div>
 
-      <div class="space-y-4">
-        <div class="page-card">
-          <h2 class="font-semibold text-slate-700 mb-3">版本历史</h2>
+      <aside class="sop-metadata-column">
+        <section v-if="canReview && sop.status === 'submitted'" class="ops-panel sop-review-panel">
+          <div class="ops-section-header"><h2>审核意见</h2><AppIcon name="shield" :size="17" /></div>
+          <p>核对内容后发布；退回时请填写修改建议。</p>
+          <label class="form-label">审核意见(退回时必填)</label>
+          <el-input v-model="reviewComment" type="textarea" :rows="3" placeholder="填写审核意见…" />
+        </section>
+        <div class="ops-panel sop-metadata-panel">
+          <div class="ops-section-header"><h2>版本历史</h2><AppIcon name="history" :size="17" /></div>
           <div class="space-y-2">
             <div
               v-for="h in history"
               :key="h.id"
-              class="p-2 rounded border text-sm cursor-pointer hover:border-blue-300"
-              :class="h.id === sop.id ? 'border-blue-400 bg-blue-50/40' : 'border-gray-100'"
+              class="sop-version-card"
+              :class="{ 'is-active': h.id === sop.id }"
               @click="router.push({ name: 'sop-detail', params: { id: h.id } })"
             >
               <div class="flex items-center justify-between">
@@ -445,14 +475,14 @@ onMounted(async () => {
                   {{ sopStatusMap[h.status as SopStatus].label }}
                 </el-tag>
               </div>
-              <div class="text-xs text-gray-400 mt-1">{{ fmtTime(h.updated_at) }}</div>
+              <div class="ops-text-faint mt-1 sop-version-time">{{ fmtTime(h.updated_at) }}</div>
             </div>
           </div>
         </div>
 
-        <div class="page-card">
-          <h2 class="font-semibold text-slate-700 mb-3">审核信息</h2>
-          <div class="text-sm space-y-2 text-gray-600">
+        <div class="ops-panel sop-metadata-panel">
+          <div class="ops-section-header"><h2>审核信息</h2><AppIcon name="shield" :size="17" /></div>
+          <div class="sop-meta-body">
             <div>审核意见: {{ sop.review_comment || '-' }}</div>
             <div>审核时间: {{ fmtTime(sop.reviewed_at) }}</div>
             <div>发布时间: {{ fmtTime(sop.published_at) }}</div>
@@ -462,21 +492,21 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="page-card" v-if="feedbacks.length">
-          <h2 class="font-semibold text-slate-700 mb-3">使用反馈</h2>
+        <div class="ops-panel sop-metadata-panel" v-if="feedbacks.length">
+          <div class="ops-section-header"><h2>使用反馈</h2><AppIcon name="check-circle" :size="17" /></div>
           <div class="space-y-2">
-            <div v-for="f in feedbacks" :key="f.id" class="p-2 rounded bg-slate-50 text-sm">
+            <div v-for="f in feedbacks" :key="f.id" class="feedback-item">
               <el-tag size="small" effect="plain">{{ feedbackKindMap[f.kind] }}</el-tag>
-              <span class="ml-2 text-gray-600">{{ f.comment || '-' }}</span>
-              <div class="text-xs text-gray-400 mt-1">{{ fmtTime(f.created_at) }}</div>
+              <span class="feedback-comment">{{ f.comment || '-' }}</span>
+              <div class="ops-text-faint mt-1 sop-version-time">{{ fmtTime(f.created_at) }}</div>
             </div>
           </div>
         </div>
-      </div>
+      </aside>
     </div>
 
     <el-dialog v-model="feedbackDialog" title="SOP 使用反馈" width="420px">
-      <el-form label-width="80px">
+      <el-form label-position="top">
         <el-form-item label="反馈类型">
           <el-radio-group v-model="feedbackForm.kind">
             <el-radio value="effective">有效</el-radio>
@@ -494,13 +524,73 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 审核意见条 -->
-    <div
-      v-if="canReview && sop.status === 'submitted'"
-      class="fixed bottom-6 right-6 w-96 page-card shadow-lg"
-    >
-      <label class="form-label">审核意见(退回时必填)</label>
-      <el-input v-model="reviewComment" type="textarea" :rows="2" placeholder="填写审核意见…" />
-    </div>
   </div>
 </template>
+
+
+<style scoped>
+.sop-detail-page { max-width: 1480px; margin: 0 auto; }
+.sop-page-header { align-items: flex-end; flex-wrap: wrap; }
+.sop-page-heading { min-width: 0; flex: 1 1 400px; }
+.sop-page-heading .ops-back-link { margin-bottom: 10px; }
+.sop-page-heading h1 { margin: 7px 0 12px; font-size: 26px; line-height: 1.5; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.sop-title-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sop-title-mode { margin-left: 4px; color: var(--ops-muted); font-size: 12px; }
+.sop-page-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-bottom: 2px; }
+.sop-page-actions :deep(.el-button) { margin-left: 0; }
+.sop-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; align-items: start; margin-top: 22px; }
+.sop-document-panel { min-width: 0; padding: 30px 34px; }
+.sop-editor-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 23px; padding-bottom: 22px; border-bottom: 1px solid var(--ops-border); }
+.section-icon { display: grid; place-items: center; width: 37px; height: 37px; flex-shrink: 0; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
+.sop-editor-heading h2 { margin: 0; color: var(--ops-text); font-size: 15px; font-weight: 650; }
+.sop-editor-heading p { margin: 5px 0 0; color: var(--ops-muted); font-size: 12px; }
+.sop-edit-form :deep(.el-form-item) { margin-bottom: 22px; }
+.sop-edit-form :deep(.el-form-item__label) { margin-bottom: 8px; color: var(--ops-text); font-size: 12px; font-weight: 600; }
+.sop-edit-form :deep(textarea) { font-size: 13px; line-height: 1.85; }
+.sop-properties-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.sop-document-intro { padding-bottom: 26px; border-bottom: 1px solid var(--ops-border); }
+.sop-document-mark { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 22px; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
+.sop-document-intro .ops-eyebrow { font-size: 10px; letter-spacing: 1.5px; }
+.sop-document-intro h2 { margin: 9px 0 13px; color: var(--ops-text); font-size: 25px; font-weight: 650; line-height: 1.6; letter-spacing: -0.02em; }
+.sop-document-intro p { margin: 0; color: var(--ops-muted); font-size: 12px; }
+.sop-document-intro p span { margin: 0 9px; color: var(--ops-border-strong); }
+.sop-document-section { padding: 25px 0 0; }
+.sop-section-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.sop-section-heading > span { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 11px; }
+.sop-section-heading h3 { margin: 0; color: var(--ops-text); font-size: 14px; font-weight: 650; }
+.sop-document-text { color: var(--ops-text-soft); font-size: 14px; line-height: var(--ops-leading-reading); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sop-metadata-column { display: grid; gap: 18px; }
+.sop-metadata-panel, .sop-review-panel { padding: 22px; }
+.sop-metadata-panel h2, .sop-review-panel h2 { margin: 0; font-size: 14px; font-weight: 650; }
+.sop-metadata-panel .ops-section-header, .sop-review-panel .ops-section-header { margin: -22px -22px 18px; }
+.sop-metadata-panel .ops-section-header svg, .sop-review-panel .ops-section-header svg { color: var(--ops-faint); }
+.sop-meta-body { display: flex; flex-direction: column; gap: 8px; color: var(--ops-text-soft); font-size: 12px; line-height: 1.9; }
+.sop-version-time { font-family: var(--ops-font-mono); font-size: 10px; }
+.sop-version-card { padding: 14px; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); font-size: 13px; cursor: pointer; transition: background-color var(--ops-duration-fast) var(--ops-ease-standard), border-color var(--ops-duration-fast) var(--ops-ease-standard); }
+.sop-version-card:hover { border-color: var(--ops-border-strong); background: var(--ops-surface-muted); }
+.sop-version-card.is-active { border-color: var(--ops-brand); background: var(--ops-brand-soft); box-shadow: inset 2px 0 var(--ops-brand); }
+.sop-review-panel { border-color: #eadcbb; background: #fffcf4; }
+.sop-review-panel p { margin: 0 0 18px; color: #7a5410; font-size: 12px; line-height: 1.8; }
+.feedback-item { padding: 10px; border: 1px solid var(--ops-border-light); border-radius: var(--ops-radius-control); background: var(--ops-surface-muted); font-size: 12px; }
+.feedback-comment { margin-left: 8px; color: var(--ops-text-soft); }
+@media (max-width: 1180px) {
+  .sop-workspace { grid-template-columns: minmax(0, 1fr) 250px; gap: 18px; }
+  .sop-document-panel { padding: 26px; }
+  .sop-page-actions { justify-content: flex-start; }
+}
+@media (max-width: 900px) {
+  .sop-workspace { grid-template-columns: minmax(0, 1fr); }
+  .sop-metadata-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .sop-properties-grid, .sop-metadata-column { grid-template-columns: minmax(0, 1fr); }
+  .sop-document-panel { padding: 22px; }
+  .sop-page-heading h1 { font-size: 22px; }
+  .sop-document-intro h2 { font-size: 21px; }
+  .sop-title-mode { flex-basis: 100%; margin: 2px 0 0; }
+}
+</style>
+
+
+
+

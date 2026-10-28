@@ -6,6 +6,8 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [模型配置](docs/ai-configuration.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
+当前版本 **1.1.0**：采用 Signal Archive / 信号档案界面，统一全部业务页面、响应式布局与交互动效。升级说明见[版本记录](CHANGELOG.md)，视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+
 ## 产品能力
 
 | 能力 | 说明 |
@@ -33,7 +35,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v1.0.0
+git checkout v1.1.0
 ```
 
 复制环境变量示例：
@@ -96,6 +98,7 @@ docker compose -p opssop-prod --env-file .env.production -f docker-compose.yml -
 | [运维手册](docs/operations.md) | 日常巡检、隔离演练、日志与故障处理 |
 | [备份恢复](docs/backup-restore.md) | 备份、恢复到新库、数据切换与保留 |
 | [质量与评测](docs/evaluation.md) | 自动化工具、指标定义、既有结果及适用范围 |
+| [界面与动效](docs/ui-redesign.md) | 视觉分层、交互动效、状态覆盖与本次检查结果 |
 | [版本交付](docs/releasing.md) | 发行、部署交接与维护流程 |
 
 ## 技术栈与源码

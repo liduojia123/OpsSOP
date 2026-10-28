@@ -14,6 +14,7 @@ import axios from 'axios'
 import client, { errMsg } from '../api'
 import { fmtTime } from '../labels'
 import { renderSafeMd } from '../safeMd'
+import AppIcon from '../components/AppIcon.vue'
 import { sourcePath, sourceTagLabel, sourceVersionText, sourceViewLabel } from '../sourceLinks'
 import type {
   AiAnalysis,
@@ -480,11 +481,11 @@ function triggerLabel(t: string): string {
 </script>
 
 <template>
-  <aside class="w-96 flex flex-col min-h-0">
-    <div class="page-card flex-1 flex flex-col min-h-0 overflow-hidden">
+  <aside class="assistant-panel" aria-label="AI 排查助手">
+    <div class="ops-panel assistant-shell">
       <!-- 头部:标题 + 模式 -->
-      <div class="flex items-center justify-between mb-2">
-        <h2 class="font-semibold text-slate-700">AI 排查助手</h2>
+      <div class="assistant-heading">
+        <div class="assistant-heading-label"><span class="assistant-brand-icon"><AppIcon name="bot" :size="21" /></span><div><h2>AI 排查助手</h2><p>证据驱动的排查建议</p></div></div>
         <el-tag v-if="aiStatus" size="small" :type="aiDisabled ? 'info' : aiStatus.ai_mode === 'demo' ? 'warning' : 'primary'">
           {{ aiStatus.ai_mode === 'demo' ? '演示模式' : aiDisabled ? '未启用' : aiStatus.ai_mode === 'local' ? '本地模型' : '云端模型' }}
         </el-tag>
@@ -493,15 +494,15 @@ function triggerLabel(t: string): string {
       <!-- 模式与出网提示 -->
       <div
         v-if="aiStatus"
-        class="text-xs leading-5 p-2 rounded mb-2"
-        :class="aiDisabled ? 'bg-slate-50 text-slate-500' : 'bg-amber-50 text-amber-800 border border-amber-200'"
+        class="assistant-mode-note ops-note"
+        :class="aiDisabled ? 'is-muted' : 'is-warning'"
       >
         {{ aiStatus.message }}
       </div>
       <!-- 状态未知:暂停模型调用并提供重试 -->
       <div
         v-else
-        class="text-xs leading-5 p-2 rounded mb-2 bg-amber-50 text-amber-800 border border-amber-200"
+        class="assistant-mode-note ops-note is-warning"
       >
         AI 状态未知:已暂停自动分析与模型调用(未确认模式与出网提示前不发送);知识检索仅走关键词路径,不外发查询文本。
         <el-button size="small" type="warning" plain class="ml-1" @click="emit('retry-status')">
@@ -510,7 +511,7 @@ function triggerLabel(t: string): string {
       </div>
 
       <!-- 操作栏 -->
-      <div class="flex items-center gap-2 mb-2">
+      <div class="assistant-toolbar">
         <el-button
           type="primary"
           size="small"
@@ -521,12 +522,12 @@ function triggerLabel(t: string): string {
           立即分析
         </el-button>
         <el-switch v-model="autoAnalyze" size="small" active-text="自动分析" :disabled="aiDisabled" />
-        <span class="text-xs text-gray-400 ml-auto">输入停顿 2 秒后触发</span>
+        <span class="assistant-trigger-hint">输入停顿 2 秒后触发</span>
       </div>
 
       <!-- 状态与提示区 -->
-      <div class="space-y-1.5 mb-2">
-        <div v-if="analyzing" class="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1.5">
+      <div class="assistant-request-status space-y-1.5">
+        <div v-if="analyzing" class="ops-note is-info">
           分析中(检索知识 → 生成报告)…
         </div>
         <el-alert
@@ -546,23 +547,23 @@ function triggerLabel(t: string): string {
         />
         <div
           v-if="error"
-          class="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5"
+          class="ops-note is-danger"
         >
           <div class="font-medium mb-1">分析失败:{{ error.message }}</div>
           <div class="flex items-center gap-2">
             <el-button size="small" type="danger" plain @click="retry">重试</el-button>
-            <span v-if="rateLimited" class="text-red-400">已暂停自动分析,请稍后手动重试</span>
-            <span v-else class="text-red-400">输入与记录不受影响,可继续编辑后重试</span>
+            <span v-if="rateLimited" class="ops-note-detail">已暂停自动分析,请稍后手动重试</span>
+            <span v-else class="ops-note-detail">输入与记录不受影响,可继续编辑后重试</span>
           </div>
         </div>
       </div>
 
       <!-- 报告主体(独立滚动) -->
-      <div class="flex-1 overflow-auto space-y-3 pr-1">
+      <div class="assistant-report">
         <!-- 演示数据标注 -->
         <div
           v-if="analysis && isDemo"
-          class="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1.5"
+          class="ops-note is-demo"
         >
           <b>演示数据 / 模拟分析</b>:以下结果由演示适配器模拟生成,不代表真实模型能力。
         </div>
@@ -570,33 +571,33 @@ function triggerLabel(t: string): string {
         <!-- 分析失败(业务 failed:新结果与历史统一,持久显示原因与人工重试入口) -->
         <div
           v-if="analysisFailed"
-          class="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5"
+          class="ops-note is-danger"
         >
           <div class="font-medium mb-1">分析失败:{{ failureReason }}</div>
-          <div v-if="analysis?.error_code" class="mb-1 text-red-400">
+          <div v-if="analysis?.error_code" class="ops-note-detail mb-1">
             失败类型:{{ analysis.error_code }}
           </div>
           <div class="flex items-center gap-2">
             <el-button size="small" type="danger" plain @click="retry">重试</el-button>
-            <span class="text-red-400">输入与记录不受影响,可继续编辑后重试</span>
+            <span class="ops-note-detail">输入与记录不受影响,可继续编辑后重试</span>
           </div>
         </div>
 
-        <template v-if="analysis && report">
+        <div v-if="analysis && report" class="assistant-report-body ops-result-in" :key="analysis.id">
           <!-- 摘要 -->
           <section>
             <div class="flex items-center gap-2 mb-1">
-              <h3 class="text-sm font-semibold text-slate-700">摘要</h3>
+              <h3 class="assistant-section-title">摘要</h3>
               <el-tag v-if="isDemo" size="small" type="warning" effect="plain">演示数据 / 模拟分析</el-tag>
             </div>
-            <div class="text-sm text-slate-700 leading-6 md-body" v-html="md(report.summary)"></div>
+            <div class="assistant-body md-body" v-html="md(report.summary)"></div>
           </section>
 
           <!-- 已知事实 -->
           <section v-if="report.observed_facts.length">
-            <h3 class="text-sm font-semibold text-slate-700 mb-1">已知事实</h3>
+            <h3 class="assistant-section-title mb-1">已知事实</h3>
             <ul class="space-y-1.5">
-              <li v-for="(f, i) in report.observed_facts" :key="i" class="text-sm text-slate-600 leading-6">
+              <li v-for="(f, i) in report.observed_facts" :key="i" class="observed-fact">
                 <div class="md-body" v-html="md(f.fact)"></div>
                 <div v-if="f.evidence_ids?.length" class="flex flex-wrap gap-1 mt-0.5">
                   <el-tag v-for="eid in f.evidence_ids" :key="eid" size="small" type="info" effect="plain">
@@ -609,40 +610,40 @@ function triggerLabel(t: string): string {
 
           <!-- 建议分类/标签(人工确认后才生效) -->
           <section v-if="report.suggested_category || report.suggested_tags.length">
-            <h3 class="text-sm font-semibold text-slate-700 mb-1">建议分类与标签</h3>
+            <h3 class="assistant-section-title mb-1">建议分类与标签</h3>
             <div class="flex flex-wrap items-center gap-1.5">
               <el-tag v-if="report.suggested_category" size="small">分类:{{ report.suggested_category }}</el-tag>
               <el-tag v-for="t in report.suggested_tags" :key="t" size="small" type="info">{{ t }}</el-tag>
               <el-button v-if="canEdit" size="small" plain @click="applySuggestion">采纳到表单</el-button>
             </div>
-            <div class="text-xs text-gray-400 mt-1">采纳后仍可人工修改;AI 不会自动保存或改写表单。</div>
+            <div class="assistant-hint mt-1">采纳后仍可人工修改;AI 不会自动保存或改写表单。</div>
           </section>
 
           <!-- 优先排查方向 / 候选原因 -->
           <section v-if="report.hypotheses.length">
             <div class="flex items-center gap-2 mb-1">
-              <h3 class="text-sm font-semibold text-slate-700">候选原因与排查方向</h3>
+              <h3 class="assistant-section-title">候选原因与排查方向</h3>
               <el-tag v-if="isDemo" size="small" type="warning" effect="plain">演示数据 / 模拟分析</el-tag>
             </div>
             <div class="space-y-2">
               <div
                 v-for="(h, i) in report.hypotheses"
                 :key="i"
-                class="p-2.5 rounded border border-slate-100 bg-slate-50"
+                class="hypothesis-card"
               >
                 <div class="flex items-start justify-between gap-2 mb-1">
-                  <div class="text-sm font-medium text-slate-800 md-body" v-html="md(h.title)"></div>
+                  <div class="hypothesis-title"><span class="hypothesis-number">{{ String(i + 1).padStart(2, '0') }}</span><div class="hypothesis-title-text md-body" v-html="md(h.title)"></div></div>
                   <el-tag size="small" :type="priorityTag(h.priority).type" effect="plain">
                     {{ priorityTag(h.priority).label }}
                   </el-tag>
                 </div>
-                <div class="text-xs text-slate-600 leading-5">
-                  <div><span class="text-gray-400">依据:</span><span class="md-body" v-html="md(h.rationale)"></span></div>
+                <div class="hypothesis-body">
+                  <div><span class="hypothesis-label">依据:</span><span class="md-body" v-html="md(h.rationale)"></span></div>
                   <div v-if="h.missing_information?.length">
-                    <span class="text-gray-400">待补信息:</span>{{ h.missing_information.join('；') }}
+                    <span class="hypothesis-label">待补信息:</span>{{ h.missing_information.join('；') }}
                   </div>
                   <div v-if="h.verification">
-                    <span class="text-gray-400">验证方法:</span><span class="md-body" v-html="md(h.verification)"></span>
+                    <span class="hypothesis-label">验证方法:</span><span class="md-body" v-html="md(h.verification)"></span>
                   </div>
                   <div v-if="h.evidence_ids?.length || h.reference_ids?.length" class="flex flex-wrap gap-1 mt-1">
                     <el-tag v-for="eid in h.evidence_ids" :key="'e' + eid" size="small" type="info" effect="plain">{{ eid }}</el-tag>
@@ -655,39 +656,39 @@ function triggerLabel(t: string): string {
 
           <!-- 待补信息 -->
           <section v-if="report.missing_information.length">
-            <h3 class="text-sm font-semibold text-slate-700 mb-1">待补信息</h3>
-            <ul class="list-disc pl-5 text-sm text-slate-600 leading-6">
+            <h3 class="assistant-section-title mb-1">待补信息</h3>
+            <ul class="assistant-hint list-disc pl-5">
               <li v-for="(m, i) in report.missing_information" :key="i" class="md-body" v-html="md(m)"></li>
             </ul>
           </section>
 
           <!-- 下一步检查(仅展示与复制) -->
           <section v-if="report.next_checks.length">
-            <h3 class="text-sm font-semibold text-slate-700 mb-1">下一步检查</h3>
+            <h3 class="assistant-section-title mb-1">下一步检查</h3>
             <div class="space-y-2">
-              <div v-for="(c, i) in report.next_checks" :key="i" class="p-2 rounded border border-slate-100">
-                <div class="text-xs text-slate-700 leading-5 md-body" v-html="md(c.description)"></div>
+              <div v-for="(c, i) in report.next_checks" :key="i" class="next-check-card">
+                <div class="assistant-hint md-body" v-html="md(c.description)"></div>
                 <div v-if="c.command" class="mt-1 flex items-start gap-1.5">
-                  <code class="flex-1 text-xs bg-slate-800 text-slate-100 rounded px-2 py-1.5 break-all whitespace-pre-wrap">{{ c.command }}</code>
+                  <code class="assistant-command">{{ c.command }}</code>
                   <el-button size="small" plain @click="copyCommand(c.command)">复制</el-button>
                 </div>
-                <div v-if="c.related_hypothesis" class="text-xs text-gray-400 mt-1">
+                <div v-if="c.related_hypothesis" class="assistant-hint mt-1">
                   关联:{{ c.related_hypothesis }}
                 </div>
               </div>
             </div>
-            <div class="text-xs text-gray-400 mt-1">命令仅展示与复制,系统不会自动执行;执行前请自行确认适用前提与影响。</div>
+            <div class="assistant-hint mt-1">命令仅展示与复制,系统不会自动执行;执行前请自行确认适用前提与影响。</div>
           </section>
 
           <!-- 相关案例和 SOP -->
           <section v-if="report.references.length">
-            <h3 class="text-sm font-semibold text-slate-700 mb-1">相关案例和 SOP</h3>
+            <h3 class="assistant-section-title mb-1">相关案例和 SOP</h3>
             <ul class="space-y-1">
-              <li v-for="r in report.references" :key="r.ref_id" class="text-xs text-slate-600 leading-5">
+              <li v-for="r in report.references" :key="r.ref_id" class="reference-card">
                 <el-tag size="small" :type="r.source_type === 'sop' ? 'primary' : 'success'" effect="plain">
                   {{ refLabel(r.ref_id) }}
                 </el-tag>
-                <span v-if="sourceVersionText(r.version)" class="text-gray-400 ml-1">
+                <span v-if="sourceVersionText(r.version)" class="assistant-hint ml-1">
                   {{ sourceVersionText(r.version) }}
                 </span>
                 <span class="ml-1 md-body" v-html="md(r.relevance)"></span>
@@ -697,13 +698,13 @@ function triggerLabel(t: string): string {
                   :href="sourcePath(r.source_type, r.source_id) || undefined"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="ml-1.5 text-blue-600 hover:underline whitespace-nowrap"
+                  class="ops-link ml-1.5 whitespace-nowrap"
                   :title="`${sourceViewLabel(r.source_type)}(在新标签页打开,不影响当前未保存输入)`"
                   data-testid="reference-source-link"
                 >
                   {{ sourceViewLabel(r.source_type) }} ↗
                 </a>
-                <span v-else class="ml-1.5 text-gray-400">来源无效</span>
+                <span v-else class="assistant-hint ml-1.5">来源无效</span>
               </li>
             </ul>
           </section>
@@ -716,19 +717,19 @@ function triggerLabel(t: string): string {
             show-icon
             title="证据不足:以上方向仅供参考,请先补充检查结果"
           />
-          <div v-if="analysis.incomplete_reasons?.length" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+          <div v-if="analysis.incomplete_reasons?.length" class="ops-note is-warning">
             <div class="font-medium mb-0.5">结果不完整:</div>
             <ul class="list-disc pl-4">
               <li v-for="(r, i) in analysis.incomplete_reasons" :key="i">{{ r }}</li>
             </ul>
           </div>
 
-        </template>
+        </div>
 
         <!-- 分析元信息:独立于报告展示(失败/report=null 时同样可见;无 usage 显示未知) -->
         <section
           v-if="analysis"
-          class="text-xs text-gray-400 space-y-0.5 border-t border-slate-100 pt-2"
+          class="assistant-meta"
         >
           <div>分析时间:{{ fmtTime(analysis.created_at) }}</div>
           <div>
@@ -744,12 +745,15 @@ function triggerLabel(t: string): string {
         </section>
 
         <!-- 请求层失败且无分析记录 -->
-        <div v-else-if="error" class="text-sm text-gray-400 leading-6">
+        <div v-else-if="error" class="assistant-hint">
           本次分析失败,上方可重试。左侧输入不会丢失。
         </div>
 
         <!-- 空状态 -->
-        <div v-else class="text-sm text-gray-400 leading-6">
+        <div v-else class="assistant-empty">
+          <span class="assistant-empty-icon"><AppIcon name="files" :size="27" /></span>
+          <div class="assistant-empty-eyebrow">START WITH EVIDENCE</div>
+          <h3>从现场证据开始</h3>
           <p class="mb-2">尚无分析结果。在左侧补充问题描述、报错日志后:</p>
           <ul class="list-disc pl-5 space-y-1">
             <li>输入停顿约 2 秒自动分析(可在上方关闭)</li>
@@ -759,39 +763,42 @@ function triggerLabel(t: string): string {
         </div>
 
         <!-- 分析历史 -->
-        <section v-if="history.length" class="border-t border-slate-100 pt-2">
+        <section v-if="history.length" class="assistant-section">
           <div
             class="flex items-center justify-between cursor-pointer select-none"
+            role="button"
+            tabindex="0"
+            @keydown.enter="historyOpen = !historyOpen"
             @click="historyOpen = !historyOpen"
           >
-            <h3 class="text-sm font-semibold text-slate-700">分析历史({{ history.length }})</h3>
-            <span class="text-xs text-gray-400">{{ historyOpen ? '收起' : '展开' }}</span>
+            <h3 class="assistant-section-title">分析历史({{ history.length }})</h3>
+            <span class="assistant-hint">{{ historyOpen ? '收起' : '展开' }}</span>
           </div>
           <div v-if="historyOpen" class="mt-1.5 space-y-1">
             <div
               v-for="h in history"
               :key="h.id"
-              class="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-xs"
-              :class="analysis?.id === h.id ? 'bg-blue-50' : ''"
+              class="history-row"
+              :class="{ 'is-active': analysis?.id === h.id }"
               @click="viewHistoryItem(h)"
             >
-              <div class="text-slate-600">
+              <div class="history-row-meta">
                 {{ fmtTime(h.created_at) }}
                 <el-tag size="small" :type="h.status === 'success' ? 'success' : h.status === 'incomplete' ? 'warning' : 'danger'" effect="plain">
                   {{ statusLabel(h) }}
                 </el-tag>
                 <el-tag v-if="h.is_demo" size="small" type="warning" effect="plain">演示</el-tag>
               </div>
-              <span class="text-gray-400">{{ triggerLabel(h.trigger_type) }}</span>
+              <span class="history-row-trigger">{{ triggerLabel(h.trigger_type) }}</span>
             </div>
-            <div class="text-xs text-gray-400">历史按时间倒序返回;点击可查看,历史报告可能对应较早输入。</div>
+            <div class="assistant-hint">历史按时间倒序返回;点击可查看,历史报告可能对应较早输入。</div>
           </div>
         </section>
 
         <!-- 知识检索(关键词 + 可用时向量混合;实际方式与降级如实标注) -->
-        <section class="border-t border-slate-100 pt-2">
+        <section class="assistant-section">
           <div class="flex items-center gap-2 mb-1.5">
-            <h3 class="text-sm font-semibold text-slate-700">知识检索</h3>
+            <h3 class="assistant-section-title">知识检索</h3>
             <el-tag v-if="searchDone" size="small" :type="searchMode === 'hybrid' ? 'primary' : 'info'" effect="plain">
               {{ searchMode === 'hybrid' ? '混合检索(关键词+向量)' : '关键词检索' }}
             </el-tag>
@@ -806,34 +813,34 @@ function triggerLabel(t: string): string {
             />
             <el-button size="small" :loading="searching" @click="runSearch">检索</el-button>
           </div>
-          <div v-if="searchDone && searchDegraded" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1.5">
+          <div v-if="searchDone && searchDegraded" class="ops-note is-warning mt-1.5">
             已降级为关键词检索:{{ searchDegradeReason || '向量路径不可用' }}
           </div>
-          <div v-if="searchDone && aiStatusMissing" class="text-xs text-amber-700 leading-5 mt-1">
+          <div v-if="searchDone && aiStatusMissing" class="assistant-hint is-warning mt-1">
             AI 状态未知:本次仅关键词检索(纯关键词路径,查询文本未发送至 embedding 服务);状态恢复后可用混合检索。
           </div>
-          <div v-else-if="aiStatus?.embedding_mode === 'cloud'" class="text-xs text-amber-700 leading-5 mt-1">
+          <div v-else-if="aiStatus?.embedding_mode === 'cloud'" class="assistant-hint is-warning mt-1">
             说明:查询文本(脱敏后)与索引构建时的脱敏知识内容会发送至已配置的 embedding 服务。
           </div>
-          <div v-else-if="aiStatus?.embedding_mode === 'local'" class="text-xs text-gray-400 leading-5 mt-1">
+          <div v-else-if="aiStatus?.embedding_mode === 'local'" class="assistant-hint mt-1">
             向量检索使用本地/内网 embedding 服务(不外发云端)。
           </div>
-          <div v-if="searchError" class="text-xs text-red-500 mt-1">检索失败:{{ searchError }}</div>
-          <div v-else-if="searchDone && !hits.length" class="text-xs text-gray-400 mt-1">
+          <div v-if="searchError" class="assistant-hint is-danger mt-1">检索失败:{{ searchError }}</div>
+          <div v-else-if="searchDone && !hits.length" class="assistant-hint mt-1">
             无匹配的正式知识(已审核案例与有效已发布 SOP);检索仅作推荐,不自动确认根因。
           </div>
           <div v-else-if="hits.length" class="mt-1.5 space-y-1.5">
             <div
               v-for="h in hits"
               :key="h.ref_id"
-              class="p-2 rounded border border-slate-100 hover:border-slate-200"
+              class="knowledge-hit"
             >
               <div class="flex items-center gap-1.5">
                 <el-tag size="small" :type="h.source_type === 'sop' ? 'primary' : 'success'" effect="plain">
                   {{ sourceTagLabel(h.source_type) }}
                 </el-tag>
-                <span class="text-xs text-slate-700 font-medium">{{ h.title }}</span>
-                <span v-if="sourceVersionText(h.version)" class="text-xs text-gray-400">
+                <span class="knowledge-hit-title">{{ h.title }}</span>
+                <span v-if="sourceVersionText(h.version)" class="assistant-hint">
                   {{ sourceVersionText(h.version) }}
                 </span>
                 <!-- 案例与 SOP 均提供明确入口;新标签页打开,保留左侧未保存输入 -->
@@ -842,17 +849,17 @@ function triggerLabel(t: string): string {
                   :href="sourcePath(h.source_type, h.source_id) || undefined"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="ml-auto text-xs text-blue-600 hover:underline whitespace-nowrap"
+                  class="ops-link ml-auto whitespace-nowrap"
                   :title="`${sourceViewLabel(h.source_type)}(在新标签页打开,不影响当前未保存输入)`"
                   data-testid="search-hit-source-link"
                 >
                   {{ sourceViewLabel(h.source_type) }} ↗
                 </a>
-                <span v-else class="ml-auto text-xs text-gray-400">来源无效</span>
+                <span v-else class="assistant-hint ml-auto">来源无效</span>
               </div>
-              <div class="text-xs text-gray-500 leading-5 mt-0.5">{{ h.snippet }}</div>
+              <div class="knowledge-hit-snippet mt-0.5">{{ h.snippet }}</div>
             </div>
-            <div class="text-xs text-gray-400">
+            <div class="assistant-hint">
               仅检索已审核案例与当前有效已发布 SOP;查看来源会在新标签页打开,不影响当前未保存输入。
             </div>
           </div>
@@ -863,26 +870,79 @@ function triggerLabel(t: string): string {
 </template>
 
 <style scoped>
-.md-body :deep(code.md-inline) {
-  background: #f1f5f9;
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 0.92em;
+.assistant-panel { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.assistant-shell { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 20px; overflow: hidden; border-color: var(--ops-border); background: var(--ops-surface); }
+.assistant-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 1px 0 15px; }
+.assistant-heading-label { display: flex; align-items: center; gap: 10px; }
+.assistant-brand-icon { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
+.assistant-heading h2 { margin: 0; color: var(--ops-text); font-size: 15px; font-weight: 650; }
+.assistant-heading p { margin: 3px 0 0; color: var(--ops-muted); font-size: 11px; }
+.assistant-heading :deep(.el-tag) { flex-shrink: 0; font-size: 10px; }
+.assistant-mode-note { flex-shrink: 0; margin-bottom: 14px; font-size: 11px; line-height: 1.8; }
+.assistant-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 8px; align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--ops-border-light); flex-shrink: 0; }
+.assistant-toolbar > :deep(.el-button) { justify-self: start; min-width: 106px; height: 32px; font-weight: 600; }
+.assistant-toolbar > :deep(.el-switch) { justify-self: end; }
+.assistant-toolbar :deep(.el-switch__label) { color: var(--ops-muted); font-size: 11px; }
+.assistant-trigger-hint { grid-column: 1 / -1; color: var(--ops-faint); font-size: 10px; letter-spacing: 0.1px; }
+.assistant-request-status { flex-shrink: 0; }
+.assistant-request-status > :first-child { margin-top: 12px; }
+.assistant-report { flex: 1; min-height: 0; margin-right: -5px; padding-right: 5px; overflow: auto; }
+.assistant-report-body > div:first-child { margin-top: 14px; }
+.assistant-report-body > section, .assistant-report > section { padding: 18px 0; border-bottom: 1px solid var(--ops-border-light); }
+.assistant-report-body > section:last-child, .assistant-report > section:last-child { padding-bottom: 4px; border-bottom: 0; }
+.assistant-section { margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--ops-border-light); }
+.assistant-section-title { margin: 0 0 10px; color: var(--ops-text); font-size: 12px; font-weight: 650; letter-spacing: 0.01em; }
+.assistant-body { color: var(--ops-text-soft); font-size: 12px; line-height: 1.9; }
+.assistant-hint { color: var(--ops-muted); font-size: 11px; line-height: 1.8; }
+.assistant-hint.is-warning { color: #7a5410; }
+.assistant-hint.is-danger { color: var(--ops-danger); }
+.assistant-meta { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--ops-border-light); color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 10px; line-height: 1.9; }
+.assistant-report :deep(.el-tag) { font-size: 10px; }
+.assistant-report .md-body { overflow-wrap: anywhere; }
+.observed-fact { padding: 9px 11px; border-left: 2px solid var(--ops-border-strong); border-radius: 3px; background: var(--ops-surface-muted); }
+.observed-fact + .observed-fact { margin-top: 8px; }
+.hypothesis-card { padding: 13px; border: 1px solid var(--ops-border-light); border-radius: var(--ops-radius-panel); background: var(--ops-surface); }
+.hypothesis-title { display: flex; align-items: flex-start; gap: 8px; }
+.hypothesis-title-text { color: var(--ops-text); font-size: 12px; font-weight: 600; line-height: 1.7; }
+.hypothesis-number { display: grid; place-items: center; width: 22px; height: 22px; flex-shrink: 0; border-radius: 4px; background: var(--ops-brand-soft); color: var(--ops-brand); font-family: var(--ops-font-mono); font-size: 10px; }
+.hypothesis-card > div:last-child { margin-top: 9px; }
+.hypothesis-body { color: var(--ops-text-soft); font-size: 11px; line-height: 1.85; }
+.hypothesis-label { color: var(--ops-muted); }
+.next-check-card { padding: 12px; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); }
+.assistant-command { flex: 1; min-width: 0; padding: 10px; border-radius: var(--ops-radius-control); background: var(--ops-code-surface); color: var(--ops-code-text); font-family: var(--ops-font-mono); font-size: 10px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reference-card { padding: 11px; border: 1px solid var(--ops-border-light); border-radius: var(--ops-radius-panel); background: var(--ops-surface-muted); font-size: 11px; line-height: 1.8; }
+.reference-card + .reference-card { margin-top: 8px; }
+.assistant-empty { padding: 30px 6px 26px; }
+.assistant-empty-icon { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 17px; border: 1px solid var(--ops-border-light); border-radius: var(--ops-radius-panel); background: var(--ops-surface-warm); color: var(--ops-brand); }
+.assistant-empty-eyebrow { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 9px; font-weight: 600; letter-spacing: 1.6px; text-align: center; }
+.assistant-empty h3 { margin: 7px 0 18px; color: var(--ops-text); font-size: 15px; font-weight: 600; text-align: center; }
+.assistant-empty p, .assistant-empty li { color: var(--ops-muted); font-size: 11px; line-height: 1.9; }
+.knowledge-hit { padding: 12px; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); transition: border-color var(--ops-duration-fast) var(--ops-ease-standard), background-color var(--ops-duration-fast) var(--ops-ease-standard); }
+.knowledge-hit:hover { border-color: var(--ops-border-strong); background: var(--ops-surface-muted); }
+.knowledge-hit > div:first-child { flex-wrap: wrap; }
+.knowledge-hit-title { color: var(--ops-text); font-size: 12px; font-weight: 600; }
+.knowledge-hit-snippet { color: var(--ops-muted); font-size: 11px; line-height: 1.8; }
+.history-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; border-radius: var(--ops-radius-control); font-size: 11px; cursor: pointer; transition: background-color var(--ops-duration-fast) var(--ops-ease-standard); }
+.history-row:hover { background: var(--ops-surface-muted); }
+.history-row.is-active { background: var(--ops-brand-soft); }
+.history-row-meta { color: var(--ops-text-soft); font-family: var(--ops-font-mono); font-size: 10px; }
+.history-row-trigger { color: var(--ops-muted); font-size: 10px; }
+.md-body :deep(code.md-inline) { padding: 1px 4px; border-radius: 3px; background: var(--ops-surface-warm); color: #7a4a22; font-family: var(--ops-font-mono); font-size: 0.92em; }
+.md-body :deep(pre.md-code) { margin: 8px 0; padding: 11px 12px; overflow-x: auto; border-radius: var(--ops-radius-control); background: var(--ops-code-surface); color: var(--ops-code-text); font-size: 11px; line-height: 1.8; }
+.md-body :deep(pre.md-code code) { padding: 0; background: transparent; color: inherit; }
+.md-body :deep(strong) { color: var(--ops-text); }
+@media (max-width: 1180px) {
+  .assistant-shell { padding: 17px; }
+  .assistant-heading-label { gap: 8px; }
+  .assistant-brand-icon { width: 33px; height: 33px; }
+  .assistant-heading h2 { font-size: 14px; }
+  .assistant-toolbar { column-gap: 8px; }
+  .assistant-toolbar > :deep(.el-button) { min-width: 95px; }
 }
-.md-body :deep(pre.md-code) {
-  background: #0f172a;
-  color: #e2e8f0;
-  border-radius: 6px;
-  padding: 8px 10px;
-  overflow-x: auto;
-  margin: 4px 0;
-}
-.md-body :deep(pre.md-code code) {
-  background: transparent;
-  padding: 0;
-  color: inherit;
-}
-.md-body :deep(strong) {
-  color: #334155;
+@media (max-width: 1020px) {
+  .assistant-panel { height: auto; min-height: 640px; }
+  .assistant-report { max-height: 820px; }
 }
 </style>
+
+

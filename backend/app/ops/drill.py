@@ -45,7 +45,7 @@ from .httpclient import HttpClient
 from .restore import run_restore
 from .snapshot import compare_snapshots, take_snapshot
 
-DEFAULT_BACKEND_IMAGE = "opssop-backend:1.0.0"
+DEFAULT_BACKEND_IMAGE = "opssop-backend:1.1.0"
 DB_IMAGE = "pgvector/pgvector:pg16"
 NGINX_IMAGE = "nginx:1.27-alpine"
 

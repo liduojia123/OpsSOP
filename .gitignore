@@ -31,7 +31,10 @@ Thumbs.db
 backups/
 *.sql
 
-# local E2E artifacts
+# local UI screenshots / recordings
+scripts/ui-artifacts/
+
+# local e2e artifacts
 scripts/e2e-artifacts/
 
 # local eval artifacts
