@@ -20,6 +20,16 @@ export interface User {
   created_at: string
 }
 
+export interface AuditEvent {
+  id: number
+  actor_id: number | null
+  action: string
+  target_type: string
+  target_id: string
+  detail: Record<string, unknown>
+  created_at: string
+}
+
 /** 下拉选择用的最小用户信息(如 SOP 维护人) */
 export interface UserOption {
   id: number

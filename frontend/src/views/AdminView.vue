@@ -4,11 +4,18 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import { fmtTime, roleMap } from '../labels'
-import type { Category, Role, User } from '../types'
+import { useAuthStore } from '../stores/auth'
+import type { AuditEvent, Category, Role, User } from '../types'
 
+const auth = useAuthStore()
 const users = ref<User[]>([])
 const categories = ref<Category[]>([])
 const tab = ref('users')
+const savingUser = ref(false)
+const auditEvents = ref<AuditEvent[]>([])
+const auditAction = ref('')
+const auditLoading = ref(false)
+const auditError = ref('')
 
 const userDialog = ref(false)
 const userForm = reactive({
@@ -39,17 +46,50 @@ function openUserCreate() {
   userDialog.value = true
 }
 
+function openUserEdit(user: User) {
+  Object.assign(userForm, { id: user.id, username: user.username, display_name: user.display_name, password: '', role: user.role })
+  userDialog.value = true
+}
+
+async function loadAudit() {
+  if (auditLoading.value) return
+  auditLoading.value = true
+  auditError.value = ''
+  try {
+    const { data } = await client.get('/api/audit', { params: { limit: 100, ...(auditAction.value.trim() ? { action: auditAction.value.trim() } : {}) } })
+    auditEvents.value = data
+  } catch (e) {
+    auditEvents.value = []
+    auditError.value = errMsg(e)
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+function actorName(id: number | null) {
+  if (id === null) return '系统'
+  const user = users.value.find((item) => item.id === id)
+  return user ? `${user.display_name} (${user.username})` : `用户 #${id}`
+}
+
 async function saveUser() {
-  if (!userForm.username.trim() || !userForm.password.trim()) {
+  if (savingUser.value) return
+  if (!userForm.username.trim() || (!userForm.id && !userForm.password.trim())) {
     ElMessage.warning('请填写用户名和密码')
     return
   }
+  if (userForm.id && !userForm.display_name.trim()) {
+    ElMessage.warning('请填写显示名')
+    return
+  }
+  savingUser.value = true
   try {
     if (userForm.id) {
-      await client.patch(`/api/users/${userForm.id}`, {
-        display_name: userForm.display_name,
+      const { data } = await client.patch(`/api/users/${userForm.id}`, {
+        display_name: userForm.display_name.trim(),
         role: userForm.role,
       })
+      if (auth.user?.id === data.id) auth.setSession(auth.token, data)
     } else {
       await client.post('/api/users', {
         username: userForm.username,
@@ -63,6 +103,8 @@ async function saveUser() {
     await loadAll()
   } catch (e) {
     ElMessage.error(errMsg(e))
+  } finally {
+    savingUser.value = false
   }
 }
 
@@ -179,7 +221,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-tabs v-model="tab">
+    <el-tabs v-model="tab" @tab-change="(name: string | number) => { if (name === 'audit') loadAudit() }">
       <el-tab-pane label="账号管理" name="users">
         <section class="ops-panel ops-table-panel">
           <div class="ops-section-header">
@@ -198,12 +240,32 @@ onMounted(async () => {
             <el-table-column label="角色" width="150"><template #default="{ row }"><el-tag size="small" :type="row.role === 'admin' ? 'warning' : row.role === 'reviewer' ? 'info' : 'success'" effect="plain">{{ roleMap[row.role as Role] }}</el-tag></template></el-table-column>
             <el-table-column label="状态" width="130"><template #default="{ row }"><el-tag size="small" :type="row.is_active ? 'success' : 'danger'">{{ row.is_active ? '启用' : '停用' }}</el-tag></template></el-table-column>
             <el-table-column label="创建时间" width="180"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
-            <el-table-column label="操作" width="210" align="right">
+            <el-table-column label="操作" width="270" align="right">
               <template #default="{ row }">
+                <el-button size="small" @click="openUserEdit(row)">编辑</el-button>
                 <el-button size="small" @click="resetPassword(row)">重置密码</el-button>
                 <el-button size="small" :type="row.is_active ? 'danger' : 'success'" plain @click="toggleActive(row)">{{ row.is_active ? '停用' : '启用' }}</el-button>
               </template>
             </el-table-column>
+          </el-table>
+        </section>
+      </el-tab-pane>
+      <el-tab-pane label="审计记录" name="audit">
+        <section class="ops-panel ops-table-panel">
+          <div class="ops-section-header">
+            <div><h2>操作记录</h2><p class="ops-section-caption mt-1">显示最近 100 条记录，可按事件名称精确筛选。</p></div>
+            <div class="admin-audit-filter">
+              <el-input v-model="auditAction" placeholder="事件名称，如 user.update" clearable @keyup.enter="loadAudit" />
+              <el-button :loading="auditLoading" @click="loadAudit">查询</el-button>
+            </div>
+          </div>
+          <el-alert v-if="auditError" title="审计记录加载失败" :description="auditError" type="error" :closable="false" show-icon />
+          <el-table v-else v-loading="auditLoading" :data="auditEvents" empty-text="暂无审计记录">
+            <el-table-column label="时间" width="180"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
+            <el-table-column label="操作人" min-width="150"><template #default="{ row }">{{ actorName(row.actor_id) }}</template></el-table-column>
+            <el-table-column prop="action" label="事件" min-width="160" />
+            <el-table-column label="对象" min-width="120"><template #default="{ row }">{{ row.target_type }} #{{ row.target_id }}</template></el-table-column>
+            <el-table-column label="详情" min-width="220"><template #default="{ row }"><span class="admin-audit-detail">{{ JSON.stringify(row.detail) }}</span></template></el-table-column>
           </el-table>
         </section>
       </el-tab-pane>
@@ -230,9 +292,9 @@ onMounted(async () => {
         <el-form-item label="用户名"><el-input v-model="userForm.username" :disabled="!!userForm.id" placeholder="用于登录的账号名称" /></el-form-item>
         <el-form-item label="显示名"><el-input v-model="userForm.display_name" placeholder="成员在工作区中的名称" /></el-form-item>
         <el-form-item v-if="!userForm.id" label="密码"><el-input v-model="userForm.password" type="password" show-password placeholder="设置初始密码" /></el-form-item>
-        <el-form-item label="角色"><el-select v-model="userForm.role" class="w-full"><el-option label="运维人员" value="operator" /><el-option label="审核人员" value="reviewer" /><el-option label="管理员" value="admin" /></el-select></el-form-item>
+        <el-form-item label="角色"><el-select v-model="userForm.role" class="w-full" :disabled="userForm.id === auth.user?.id"><el-option label="运维人员" value="operator" /><el-option label="审核人员" value="reviewer" /><el-option label="管理员" value="admin" /></el-select></el-form-item>
       </el-form>
-      <template #footer><el-button @click="userDialog = false">取消</el-button><el-button type="primary" @click="saveUser">保存</el-button></template>
+      <template #footer><el-button :disabled="savingUser" @click="userDialog = false">取消</el-button><el-button type="primary" :loading="savingUser" @click="saveUser">保存</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="catDialog" :title="catForm.id ? '编辑分类' : '新建分类'" width="min(480px, 94vw)" class="ops-dialog">
@@ -256,4 +318,6 @@ onMounted(async () => {
 .admin-member-name { color: var(--ops-text); font-weight: 600; }
 .admin-category-name { display: flex; align-items: center; gap: 10px; padding: 4px 0; color: var(--ops-text); font-weight: 550; }
 .admin-category-name > svg { color: var(--ops-brand); }
+.admin-audit-filter { display: flex; gap: 8px; width: min(100%, 350px); }
+.admin-audit-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

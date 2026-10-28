@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user, record_audit, require_admin
-from app.models import User
+from app.models import Role, User
 from app.schemas import UserCreate, UserOptionOut, UserOut, UserUpdate
 from app.security import hash_password
 
@@ -64,8 +64,13 @@ def update_user(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
+    if user.id == admin.id and body.role is not None and body.role != Role.admin:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能修改自己的管理员角色")
+    if user.id == admin.id and body.is_active is False:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能停用自己的账号")
     changes: dict = {}
-    if body.display_name is not None:
+    if body.display_name is not None and body.display_name != user.display_name:
+        changes["display_name"] = {"from": user.display_name, "to": body.display_name}
         user.display_name = body.display_name
     if body.role is not None and body.role != user.role:
         changes["role"] = {"from": user.role.value, "to": body.role.value}
@@ -76,8 +81,6 @@ def update_user(
     if body.password:
         user.password_hash = hash_password(body.password)
         changes["password"] = "reset"
-    if user.id == admin.id and body.is_active is not None and not body.is_active:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能停用自己的账号")
     record_audit(db, admin, "user.update", "user", user.id, changes)
     db.commit()
     return UserOut.model_validate(user)

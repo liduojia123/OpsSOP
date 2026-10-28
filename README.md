@@ -6,7 +6,7 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [模型配置](docs/ai-configuration.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **1.1.0**：采用 Signal Archive / 信号档案界面，统一全部业务页面、响应式布局与交互动效。升级说明见[版本记录](CHANGELOG.md)，视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **1.1.1**：支持管理已有账号的显示名与角色，并在系统管理中查看审计记录。升级说明见[版本记录](CHANGELOG.md)，视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -35,7 +35,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v1.1.0
+git checkout v1.1.1
 ```
 
 复制环境变量示例：

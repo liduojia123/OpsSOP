@@ -70,10 +70,15 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    display_name: str | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
     role: Role | None = None
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("display_name")
+    @classmethod
+    def _display_name_not_blank(cls, v: str | None) -> str | None:
+        return _check_not_blank(v) if v is not None else v
 
     @field_validator("password")
     @classmethod
