@@ -1,6 +1,7 @@
-"""AI 只读工具:Prometheus 查询与 SSH 只读命令。
+"""AI 只读工具:本系统业务数据、Prometheus 查询与 SSH 只读命令。
 
 - 工具数量固定、参数强校验;AI 不能执行任意命令;
+- 业务数据工具沿用页面权限:运维只看到自己的故障,审核/管理员可见全部;
 - 每次调用记录审计明细(不保存私钥/凭据);
 - 结果截断并脱敏,以 `[evidence: tool:N]` 前缀作为可引用证据;
 - 单次分析最多 5 次调用,每用户每分钟 12 次。
@@ -14,12 +15,24 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.sanitize import sanitize_text
 from app.config import Settings
-from app.models import AiToolInvocation, MonitoredServer, User
+from app.models import (
+    AiToolInvocation,
+    Case,
+    CaseStatus,
+    Category,
+    Fault,
+    FaultStatus,
+    MonitoredServer,
+    Role,
+    Sop,
+    SopStatus,
+    User,
+)
 from app.monitoring.defaults import resolve_client
 from app.monitoring.prometheus import MonitoringError
 from app.monitoring.service import execute_server_template
@@ -90,7 +103,76 @@ TOOL_SPECS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_faults",
+            "description": (
+                "查询 OpsSOP 本系统内的故障记录(只读,仅返回当前用户有权访问的数据)。"
+                "用户询问“有哪些待解决的问题/未解决故障/我的故障/某个服务的故障”时使用。"
+                "默认 status=unresolved(草稿与处理中,不含已解决);可按关键词筛选。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["unresolved", "draft", "open", "resolved", "all"],
+                        "description": "故障状态,默认 unresolved",
+                    },
+                    "keyword": {
+                        "type": "string",
+                        "description": "可选关键词,匹配标题或服务名",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "description": "最多返回条数,默认 10",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_todos",
+            "description": (
+                "查询当前用户的待办汇总:本人未解决故障、被退回的案例/SOP;"
+                "审核人员与管理员还包括待审核案例与待审核 SOP。"
+                "用户询问“我的待办/有什么要我处理/待审核什么”时使用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "description": "每类最多返回条数,默认 10",
+                    }
+                },
+            },
+        },
+    },
 ]
+
+
+def _text(value) -> str:
+    return value.value if hasattr(value, "value") else str(value or "")
+
+
+def _fmt_time(value) -> str:
+    return value.strftime("%Y-%m-%d %H:%M") if value else ""
+
+
+def _limit(raw, *, default: int, maximum: int) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(value, maximum))
 
 
 class ToolDenied(Exception):
@@ -129,6 +211,22 @@ class ToolExecutor:
         )
         return server is not None
 
+    def specs(self) -> list[dict]:
+        """按上下文返回可用工具:业务数据仅对话;监控工具需已配置数据源或服务器。"""
+        names: set[str] = set()
+        if self.conversation_id is not None:
+            names.update({"list_faults", "list_todos"})
+        if self.available():
+            names.update({"prometheus_query", "ssh_run"})
+        return [spec for spec in TOOL_SPECS if spec["function"]["name"] in names]
+
+    def _allowed(self) -> set[str]:
+        """后端实际允许调用的工具:监控工具在分析和对话中都允许(未配置时由工具自身报错)。"""
+        names = {"prometheus_query", "ssh_run"}
+        if self.conversation_id is not None:
+            names.update({"list_faults", "list_todos"})
+        return names
+
     def _check_rate(self) -> None:
         now = time.monotonic()
         with _rate_lock:
@@ -162,10 +260,16 @@ class ToolExecutor:
         started = time.monotonic()
         try:
             self._check_rate()
+            if name not in self._allowed():
+                raise ToolDenied(f"未知工具或当前场景不可用: {name}")
             if name == "prometheus_query":
                 text = self._prometheus(arguments)
             elif name == "ssh_run":
                 text = self._ssh(arguments)
+            elif name == "list_faults":
+                text = self._list_faults(arguments)
+            elif name == "list_todos":
+                text = self._list_todos(arguments)
             else:
                 raise ToolDenied(f"未知工具: {name}")
         except ToolDenied as exc:
@@ -237,6 +341,158 @@ class ToolExecutor:
         output = result["stdout"].strip() or "(无输出)"
         return f"{header}\n{output}"
 
+    def _list_faults(self, arguments: dict) -> str:
+        """故障清单:权限与故障列表页一致(运维只看本人,审核/管理看全部)。"""
+        status = str(arguments.get("status") or "unresolved").strip().lower()
+        if status not in {"unresolved", "draft", "open", "resolved", "all"}:
+            raise ToolDenied("status 只支持 unresolved/draft/open/resolved/all")
+        keyword = str(arguments.get("keyword") or "").strip()[:80]
+        limit = _limit(arguments.get("limit"), default=10, maximum=20)
+
+        with self.db.begin_nested():
+            stmt = select(Fault)
+            if self.user.role == Role.operator:
+                stmt = stmt.where(Fault.created_by == self.user.id)
+            if status == "unresolved":
+                stmt = stmt.where(Fault.status != FaultStatus.resolved)
+            elif status != "all":
+                stmt = stmt.where(Fault.status == FaultStatus(status))
+            if keyword:
+                like = f"%{keyword}%"
+                stmt = stmt.where(or_(Fault.title.ilike(like), Fault.service.ilike(like)))
+            total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+            rows = list(self.db.scalars(stmt.order_by(Fault.updated_at.desc()).limit(limit)))
+            categories = {row.id: row.name for row in self.db.scalars(select(Category))}
+
+        if total == 0:
+            return "当前没有符合条件且有权访问的故障。"
+        scope = "本人" if self.user.role == Role.operator else "全部用户"
+        lines = [
+            f"故障清单(状态={status},范围={scope},共 {total} 条,显示最近 {len(rows)} 条):"
+        ]
+        for row in rows:
+            parts = [f"#{row.id}", f"[{_text(row.status)}]", (row.title or "")[:80]]
+            if row.service:
+                parts.append(f"服务={row.service}")
+            if row.environment:
+                parts.append(f"环境={row.environment}")
+            if row.category_id in categories:
+                parts.append(f"分类={categories[row.category_id]}")
+            parts.append(f"更新={_fmt_time(row.updated_at)}")
+            lines.append(" · ".join(parts))
+        return "\n".join(lines)
+
+    def _list_todos(self, arguments: dict) -> str:
+        """待办汇总:与工作台一致(本人未解决故障 + 被退回;审核/管理含待审核)。"""
+        limit = _limit(arguments.get("limit"), default=10, maximum=20)
+        reviewer = self.user.role in (Role.reviewer, Role.admin)
+
+        with self.db.begin_nested():
+            my_fault_total = self.db.scalar(
+                select(func.count(Fault.id)).where(
+                    Fault.created_by == self.user.id,
+                    Fault.status != FaultStatus.resolved,
+                )
+            ) or 0
+            my_faults = list(
+                self.db.scalars(
+                    select(Fault)
+                    .where(
+                        Fault.created_by == self.user.id,
+                        Fault.status != FaultStatus.resolved,
+                    )
+                    .order_by(Fault.updated_at.desc())
+                    .limit(limit)
+                )
+            )
+            returned_case_total = self.db.scalar(
+                select(func.count(Case.id)).where(
+                    Case.created_by == self.user.id,
+                    Case.status == CaseStatus.returned,
+                )
+            ) or 0
+            returned_cases = list(
+                self.db.scalars(
+                    select(Case)
+                    .where(
+                        Case.created_by == self.user.id,
+                        Case.status == CaseStatus.returned,
+                    )
+                    .order_by(Case.updated_at.desc())
+                    .limit(limit)
+                )
+            )
+            returned_sop_total = self.db.scalar(
+                select(func.count(Sop.id)).where(
+                    Sop.created_by == self.user.id,
+                    Sop.status == SopStatus.returned,
+                )
+            ) or 0
+            returned_sops = list(
+                self.db.scalars(
+                    select(Sop)
+                    .where(
+                        Sop.created_by == self.user.id,
+                        Sop.status == SopStatus.returned,
+                    )
+                    .order_by(Sop.updated_at.desc())
+                    .limit(limit)
+                )
+            )
+            pending_case_total = 0
+            pending_cases: list[Case] = []
+            pending_sop_total = 0
+            pending_sops: list[Sop] = []
+            if reviewer:
+                pending_case_total = self.db.scalar(
+                    select(func.count(Case.id)).where(Case.status == CaseStatus.pending_review)
+                ) or 0
+                pending_cases = list(
+                    self.db.scalars(
+                        select(Case)
+                        .where(Case.status == CaseStatus.pending_review)
+                        .order_by(Case.updated_at)
+                        .limit(limit)
+                    )
+                )
+                pending_sop_total = self.db.scalar(
+                    select(func.count(Sop.id)).where(Sop.status == SopStatus.submitted)
+                ) or 0
+                pending_sops = list(
+                    self.db.scalars(
+                        select(Sop)
+                        .where(Sop.status == SopStatus.submitted)
+                        .order_by(Sop.updated_at)
+                        .limit(limit)
+                    )
+                )
+
+        lines = ["待办汇总:", f"我的未解决故障: {my_fault_total} 条"]
+        for row in my_faults:
+            lines.append(
+                f"  #{row.id} [{_text(row.status)}] {(row.title or '')[:80]}"
+                f" · 更新={_fmt_time(row.updated_at)}"
+            )
+        if reviewer:
+            lines.append(f"待我审核的案例: {pending_case_total} 条")
+            for row in pending_cases:
+                lines.append(
+                    f"  案例 #{row.id} {row.title[:80]} · 更新={_fmt_time(row.updated_at)}"
+                )
+            lines.append(f"待我审核的 SOP: {pending_sop_total} 条")
+            for row in pending_sops:
+                lines.append(
+                    f"  SOP #{row.id} v{row.version} {row.title[:80]}"
+                    f" · 更新={_fmt_time(row.updated_at)}"
+                )
+        lines.append(f"被退回给我的案例: {returned_case_total} 条")
+        for row in returned_cases:
+            lines.append(f"  案例 #{row.id} {row.title[:80]}")
+        lines.append(f"被退回给我的 SOP: {returned_sop_total} 条")
+        for row in returned_sops:
+            lines.append(f"  SOP #{row.id} v{row.version} {row.title[:80]}")
+        return "\n".join(lines)
+
     def _record(
         self,
         name: str,
@@ -294,8 +550,6 @@ def build_executor(
     enabled: bool,
     conversation_id: int | None = None,
 ) -> ToolExecutor | None:
-    if not enabled:
-        return None
     executor = ToolExecutor(
         db=db,
         user=user,
@@ -303,4 +557,9 @@ def build_executor(
         fault_id=fault_id,
         conversation_id=conversation_id,
     )
+    if conversation_id is not None:
+        # 对话:本系统业务数据工具始终可用;监控工具由 specs() 按配置过滤
+        return executor
+    if not enabled:
+        return None
     return executor if executor.available() else None

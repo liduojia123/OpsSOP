@@ -15,6 +15,12 @@ from app.ai.tools import TOOL_SPECS, ToolExecutor
 MAX_TOOL_ROUNDS = 3
 
 
+def _tool_specs(executor: ToolExecutor) -> list[dict]:
+    """工具清单由执行器按上下文决定:分析只有监控工具,对话还有业务数据工具。"""
+    getter = getattr(executor, "specs", None)
+    return getter() if callable(getter) else TOOL_SPECS
+
+
 def iter_chat_stream(adapter, request: LLMRequest):
     """统一的逐段调用:支持 chat_stream 的适配器边生成边返回,否则整段返回一次。
 
@@ -65,7 +71,7 @@ def run_tool_loop(
                 LLMRequest(
                     messages=working,
                     max_output_tokens=max_output_tokens,
-                    tools=TOOL_SPECS,
+                    tools=_tool_specs(executor),
                     tool_choice="auto",
                 )
             )
@@ -129,7 +135,7 @@ def run_tool_loop(
         LLMRequest(
             messages=working,
             max_output_tokens=max_output_tokens,
-            tools=TOOL_SPECS,
+            tools=_tool_specs(executor),
             tool_choice="none",
         )
     )
@@ -172,7 +178,7 @@ def run_tool_loop_stream(
         request = LLMRequest(
             messages=working,
             max_output_tokens=max_output_tokens,
-            tools=TOOL_SPECS,
+            tools=_tool_specs(executor),
             tool_choice="auto",
         )
         text_parts: list[str] = []
@@ -270,7 +276,7 @@ def run_tool_loop_stream(
     request = LLMRequest(
         messages=working,
         max_output_tokens=max_output_tokens,
-        tools=TOOL_SPECS,
+        tools=_tool_specs(executor),
         tool_choice="none",
     )
     text_parts = []

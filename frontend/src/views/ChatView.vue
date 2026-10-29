@@ -347,12 +347,20 @@ function onKeydown(event: KeyboardEvent) {
 function toolLabel(tool: string): string {
   if (tool === 'prometheus_query') return 'Prometheus 查询'
   if (tool === 'ssh_run') return 'SSH 只读命令'
+  if (tool === 'list_faults') return '故障清单'
+  if (tool === 'list_todos') return '待办汇总'
   return tool
 }
 
 function toolSummary(call: { tool: string; arguments: Record<string, unknown> }): string {
   if (call.tool === 'prometheus_query') return String(call.arguments.query || '').slice(0, 70)
   if (call.tool === 'ssh_run') return `${call.arguments.server || ''} · ${call.arguments.template || ''}`
+  if (call.tool === 'list_faults') {
+    const status = String(call.arguments.status || 'unresolved')
+    const keyword = call.arguments.keyword ? ` · ${call.arguments.keyword}` : ''
+    return `${status}${keyword}`
+  }
+  if (call.tool === 'list_todos') return '本人待办与待审核'
   return ''
 }
 
@@ -490,7 +498,7 @@ onMounted(async () => {
           <div v-if="!messages.length" class="chat-empty">
             <span class="ops-icon-tile"><AppIcon name="bot" :size="20" /></span>
             <h3>从运维问题开始</h3>
-            <p>可以问：本系统相关案例/SOP、通用运维知识、日志含义、排查步骤、当前监控指标。</p>
+            <p>可以问：有哪些待解决问题、我的故障与待办、本系统案例/SOP、通用运维知识、日志含义、排查步骤、当前监控指标。</p>
             <p class="chat-boundary">不会执行命令或变更；不回答非运维问题；引用只来自你有权查看的已审核知识。</p>
           </div>
 
@@ -532,7 +540,7 @@ onMounted(async () => {
 
               <details v-if="message.tool_calls?.length" class="chat-tools">
                 <summary>
-                  <span>实时查询 {{ message.tool_calls.length }} 次</span>
+                  <span>只读查询 {{ message.tool_calls.length }} 次</span>
                   <span class="ops-section-caption">不使用缓存</span>
                 </summary>
                 <div v-for="(call, index) in message.tool_calls" :key="index" class="chat-tool-row">
@@ -575,7 +583,7 @@ onMounted(async () => {
 
               <details v-if="stream.tools.length" class="chat-tools" open>
                 <summary>
-                  <span>实时查询 {{ stream.tools.length }} 次</span>
+                  <span>只读查询 {{ stream.tools.length }} 次</span>
                   <span class="ops-section-caption">不使用缓存</span>
                 </summary>
                 <div v-for="(call, index) in stream.tools" :key="index" class="chat-tool-row">

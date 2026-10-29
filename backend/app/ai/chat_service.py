@@ -217,6 +217,83 @@ def _completion_from_loop(adapter, loop, settings: Settings) -> JsonCompletion:
     return repair
 
 
+def _tool_hint(executor: ToolExecutor | None) -> str:
+    """按执行器实际可用的工具生成提示,避免向模型宣传未配置的能力。"""
+    if executor is None:
+        return ""
+    names = [spec["function"]["name"] for spec in executor.specs()]
+    if not names:
+        return ""
+    labels = {
+        "list_faults": "list_faults(本系统故障清单,可按状态/关键词)",
+        "list_todos": "list_todos(我的待办与待审核汇总)",
+        "prometheus_query": "prometheus_query(实时指标)",
+        "ssh_run": "ssh_run(服务器只读命令)",
+    }
+    return (
+        "\n\n【只读工具】可用:"
+        + "、".join(labels.get(name, name) for name in names)
+        + "。用户询问待解决的问题、我的故障、待办或待审核时,先调用 list_faults 或 list_todos 查询本系统业务数据,"
+        "不要回答“无法读取本系统数据”或只给监控指标;需要当前状态时再调用监控工具。"
+        "工具结果是事实依据,引用时使用其 evidence_id;最多调用 5 次。"
+    )
+
+
+def _stream_plain(
+    adapter,
+    messages: list[LLMMessage],
+    settings: Settings,
+    extractor: AnswerStreamExtractor,
+):
+    """无工具的流式 JSON 请求:逐段 yield delta 事件,返回 JsonCompletion。
+
+    解析失败时走一次有限修复(非流式),以最终消息为准。
+    """
+    request = LLMRequest(
+        messages=messages,
+        max_output_tokens=settings.ai_max_output_tokens,
+        json_mode=True,
+    )
+    generator = iter_chat_stream(adapter, request)
+    text_parts: list[str] = []
+    result = None
+    while True:
+        try:
+            piece = next(generator)
+        except StopIteration as stop:
+            result = stop.value
+            break
+        if not piece:
+            continue
+        text_parts.append(piece)
+        decoded = extractor.feed(piece)
+        if decoded:
+            yield {"type": "delta", "text": decoded}
+    text = "".join(text_parts)
+    data = extract_json(text)
+    value = None
+    if data is not None:
+        try:
+            value = ChatAnswer.model_validate(data)
+        except ValidationError:
+            value = None
+    if value is not None:
+        return JsonCompletion(
+            value=value,
+            usages=[result.usage if result else None],
+            call_count=1,
+            latency_ms=result.latency_ms if result else 0,
+        )
+    return complete_json(
+        adapter,
+        messages,
+        max_output_tokens=settings.ai_max_output_tokens,
+        validate=ChatAnswer.model_validate,
+        json_mode=True,
+        subject="回答",
+    )
+
+
 def ask(
     db: Session,
     user: User,
@@ -285,10 +362,7 @@ def ask(
         history_block=history_block,
     )
     if executor is not None:
-        user_prompt += (
-            "\n\n【实时查询】若需要确认当前指标或服务器状态,可调用只读工具 "
-            "prometheus_query 或 ssh_run;结果会作为事实依据返回。最多调用 5 次。"
-        )
+        user_prompt += _tool_hint(executor)
     messages = [
         LLMMessage(role="system", content=CHAT_SYSTEM_PROMPT),
         LLMMessage(role="user", content=user_prompt),
@@ -486,10 +560,7 @@ def ask_stream(
             history_block=history_block,
         )
         if executor is not None:
-            user_prompt += (
-                "\n\n【实时查询】若需要确认当前指标或服务器状态,可调用只读工具 "
-                "prometheus_query 或 ssh_run;结果会作为事实依据返回。最多调用 5 次。"
-            )
+            user_prompt += _tool_hint(executor)
         messages = [
             LLMMessage(role="system", content=CHAT_SYSTEM_PROMPT),
             LLMMessage(role="user", content=user_prompt),
@@ -520,7 +591,7 @@ def ask_stream(
                             yield {"type": "reset"}
                         yield {
                             "type": "status",
-                            "text": f"正在执行实时查询({event.get('count', 0)} 项)…",
+                            "text": f"正在执行只读查询({event.get('count', 0)} 项)…",
                         }
                     elif kind == "tool":
                         yield {"type": "tool", "call": event.get("call") or {}}
@@ -528,54 +599,35 @@ def ask_stream(
                         loop = event.get("result")
                 if loop is None:
                     raise LLMError("bad_response", "模型未返回最终回答")
-                completion = _completion_from_loop(adapter, loop, effective)
+                if loop.unsupported:
+                    # 厂商不支持 tools:退回普通流式请求(不携带 tools)
+                    yield {
+                        "type": "status",
+                        "text": "模型不支持工具调用,正在直接生成回答…",
+                    }
+                    plain = _stream_plain(adapter, messages, effective, extractor)
+                    while True:
+                        try:
+                            item = next(plain)
+                        except StopIteration as stop:
+                            completion = stop.value
+                            break
+                        if item.get("type") == "delta":
+                            streamed = True
+                        yield item
+                else:
+                    completion = _completion_from_loop(adapter, loop, effective)
             else:
-                request = LLMRequest(
-                    messages=messages,
-                    max_output_tokens=effective.ai_max_output_tokens,
-                    json_mode=True,
-                )
-                generator = iter_chat_stream(adapter, request)
-                text_parts: list[str] = []
-                result = None
+                plain = _stream_plain(adapter, messages, effective, extractor)
                 while True:
                     try:
-                        piece = next(generator)
+                        item = next(plain)
                     except StopIteration as stop:
-                        result = stop.value
+                        completion = stop.value
                         break
-                    if not piece:
-                        continue
-                    text_parts.append(piece)
-                    decoded = extractor.feed(piece)
-                    if decoded:
+                    if item.get("type") == "delta":
                         streamed = True
-                        yield {"type": "delta", "text": decoded}
-                text = "".join(text_parts)
-                data = extract_json(text)
-                value = None
-                if data is not None:
-                    try:
-                        value = ChatAnswer.model_validate(data)
-                    except ValidationError:
-                        value = None
-                if value is not None:
-                    completion = JsonCompletion(
-                        value=value,
-                        usages=[result.usage if result else None],
-                        call_count=1,
-                        latency_ms=result.latency_ms if result else 0,
-                    )
-                else:
-                    # 流式输出未形成合法回答:走一次有限修复,以最终消息为准
-                    completion = complete_json(
-                        adapter,
-                        messages,
-                        max_output_tokens=effective.ai_max_output_tokens,
-                        validate=ChatAnswer.model_validate,
-                        json_mode=True,
-                        subject="回答",
-                    )
+                    yield item
         except LLMError as exc:
             completion = JsonCompletion(
                 value=None, error_code=exc.code, error_message=exc.message
