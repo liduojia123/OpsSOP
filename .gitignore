@@ -31,6 +31,9 @@ Thumbs.db
 backups/
 *.sql
 
+# test user credentials written by scripts/create_test_users.py
+test-users-credentials*.txt
+
 # local UI screenshots / recordings
 scripts/ui-artifacts/
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -45,6 +45,7 @@ def _get_writable_fault(db: Session, fault_id: int, user: User) -> Fault:
 
 @router.get("", response_model=list[FaultOut])
 def list_faults(
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     q: str | None = Query(default=None, description="标题/描述/日志关键词"),
@@ -54,6 +55,8 @@ def list_faults(
     environment: str | None = None,
     occurred_from: datetime | None = None,
     occurred_to: datetime | None = None,
+    limit: int = Query(default=500, ge=1, le=1000, description="最多返回条数"),
+    offset: int = Query(default=0, ge=0, description="跳过条数(配合 X-Total-Count 翻页)"),
 ) -> list[FaultOut]:
     stmt = select(Fault).where(_visible_faults(user))
     if q:
@@ -78,7 +81,10 @@ def list_faults(
         stmt = stmt.where(Fault.occurred_at >= occurred_from)
     if occurred_to is not None:
         stmt = stmt.where(Fault.occurred_at <= occurred_to)
-    stmt = stmt.order_by(Fault.updated_at.desc())
+    # X-Total-Count 为过滤后的总数;返回体仍是列表,超过 limit 的部分需按 offset 翻页
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    response.headers["X-Total-Count"] = str(total)
+    stmt = stmt.order_by(Fault.updated_at.desc()).offset(offset).limit(limit)
     return [FaultOut.model_validate(f) for f in db.scalars(stmt).all()]
 
 

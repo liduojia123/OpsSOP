@@ -6,7 +6,7 @@ import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import { fmtTime, roleMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
-import type { AuditEvent, Category, Role, User } from '../types'
+import type { AuditEvent, BackupConfig, BackupInfo, Category, Role, User } from '../types'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -40,6 +40,80 @@ const userForm = reactive({
 })
 const catDialog = ref(false)
 const catForm = reactive({ id: 0, name: '', description: '', sort_order: 0 })
+
+const backups = ref<BackupInfo[]>([])
+const backupConfig = ref<BackupConfig | null>(null)
+const backupLoading = ref(false)
+const backupError = ref('')
+const backupRunning = ref(false)
+
+function backupTriggerLabel(trigger: string) {
+  return trigger === 'scheduled' ? '每日自动' : trigger === 'manual' ? '手动触发' : trigger || '-'
+}
+
+// 最近失败晚于最近成功,或成功备份超过 26 小时,视为异常提醒管理员检查
+// (全新部署尚无任何备份记录时不告警,首次补跑备份约在启动后 60 秒)
+const BACKUP_STALE_HOURS = 26
+const backupStale = computed(() => {
+  const config = backupConfig.value
+  if (!config) return false
+  if (config.last_failure_at && (!config.last_success_at || config.last_failure_at > config.last_success_at)) return true
+  return (config.backup_age_hours ?? 0) > BACKUP_STALE_HOURS
+})
+
+function fmtSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+async function loadBackups() {
+  if (backupLoading.value) return
+  backupLoading.value = true
+  backupError.value = ''
+  try {
+    const [list, config] = await Promise.all([
+      client.get('/api/admin/backups'),
+      client.get('/api/admin/backups/config'),
+    ])
+    backups.value = list.data
+    backupConfig.value = config.data
+  } catch (e) {
+    backups.value = []
+    backupError.value = errMsg(e)
+  } finally {
+    backupLoading.value = false
+  }
+}
+
+async function runBackup() {
+  if (backupRunning.value) return
+  backupRunning.value = true
+  try {
+    const { data } = await client.post('/api/admin/backups')
+    ElMessage.success(`备份完成：${data.name}`)
+    await loadBackups()
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  } finally {
+    backupRunning.value = false
+  }
+}
+
+async function downloadBackup(item: BackupInfo) {
+  try {
+    const { data } = await client.get(`/api/admin/backups/${item.name}`, { responseType: 'blob' })
+    const url = URL.createObjectURL(data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${item.name}.dump`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  }
+}
 
 async function loadAll() {
   const [u, c] = await Promise.all([
@@ -255,7 +329,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <el-tabs v-model="tab" @tab-change="(name: string | number) => { if (name === 'audit') loadAudit() }">
+    <el-tabs v-model="tab" @tab-change="(name: string | number) => { if (name === 'audit') loadAudit(); if (name === 'backups') loadBackups() }">
       <el-tab-pane label="账号管理" name="users">
         <section class="ops-panel ops-table-panel">
           <div class="ops-section-header">
@@ -304,6 +378,41 @@ onMounted(async () => {
             <el-table-column label="详情" min-width="220"><template #default="{ row }"><span class="admin-audit-detail">{{ JSON.stringify(row.detail) }}</span></template></el-table-column>
           </el-table>
           <div class="admin-audit-pages"><el-button :disabled="auditLoading || auditHistory.length === 0" @click="loadAudit('previous')">上一页</el-button><el-button :disabled="auditLoading || !auditHasMore" @click="loadAudit('next')">下一页</el-button></div>
+        </section>
+      </el-tab-pane>
+      <el-tab-pane label="数据备份" name="backups">
+        <section class="ops-panel ops-table-panel">
+          <div class="ops-section-header">
+            <div><h2>平台备份</h2><p class="ops-section-caption mt-1">每日自动备份数据库，备份与审计日志均保留 {{ backupConfig?.retention_days ?? 30 }} / {{ backupConfig?.audit_retention_days ?? 30 }} 天；业务知识数据不自动删除。</p></div>
+            <el-button type="primary" :loading="backupRunning" @click="runBackup"><AppIcon name="history" :size="16" />立即备份</el-button>
+          </div>
+          <div v-if="backupConfig" class="admin-backup-summary">
+            <div><span>保存位置</span><code>{{ backupConfig.directory }}</code></div>
+            <div><span>每日执行</span><strong>{{ String(backupConfig.hour).padStart(2, '0') }}:00</strong></div>
+            <div><span>备份保留</span><strong>{{ backupConfig.retention_days }} 天</strong></div>
+            <div><span>审计日志保留</span><strong>{{ backupConfig.audit_retention_days }} 天</strong></div>
+            <div><span>下次执行</span><strong>{{ fmtTime(backupConfig.next_run) }}</strong></div>
+            <div><span>最近成功</span><strong>{{ backupConfig.last_success_at ? `${fmtTime(backupConfig.last_success_at)}（${backupConfig.backup_age_hours ?? '?'} 小时前）` : '无记录' }}</strong></div>
+            <div><span>最近失败</span><strong>{{ backupConfig.last_failure_at ? fmtTime(backupConfig.last_failure_at) : '无' }}</strong></div>
+          </div>
+          <el-alert
+            v-if="backupConfig && backupStale"
+            title="超过 26 小时没有成功备份，或最近一次备份失败"
+            :description="backupConfig.last_failure_reason || '请检查备份目录、数据库连接与磁盘空间，必要时手动触发备份。'"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="mt-2"
+          />
+          <el-alert v-if="backupError" title="备份信息加载失败" :description="backupError" type="error" :closable="false" show-icon />
+          <el-table v-else v-loading="backupLoading" :data="backups" empty-text="暂无备份，可点击「立即备份」创建">
+            <el-table-column label="备份文件" min-width="260"><template #default="{ row }"><span class="admin-backup-name">{{ row.name }}.dump</span></template></el-table-column>
+            <el-table-column label="创建时间" width="190"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
+            <el-table-column label="大小" width="120"><template #default="{ row }">{{ fmtSize(row.size_bytes) }}</template></el-table-column>
+            <el-table-column label="方式" width="120"><template #default="{ row }">{{ backupTriggerLabel(row.trigger) }}</template></el-table-column>
+            <el-table-column label="SHA-256" min-width="150"><template #default="{ row }"><span class="ops-id">{{ row.sha256.slice(0, 16) }}</span></template></el-table-column>
+            <el-table-column label="操作" width="120" align="right"><template #default="{ row }"><el-button size="small" @click="downloadBackup(row)">下载</el-button></template></el-table-column>
+          </el-table>
         </section>
       </el-tab-pane>
       <el-tab-pane label="分类管理" name="categories">
@@ -360,4 +469,9 @@ onMounted(async () => {
 .admin-audit-filter > .el-input, .admin-audit-filter > .el-select, .admin-user-tools > .el-input { width: 200px; }
 .admin-audit-pages { display: flex; justify-content: flex-end; margin-top: 16px; }
 .admin-audit-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
+.admin-backup-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 20px; padding: 16px 20px; border-bottom: 1px solid var(--ops-border-light); background: var(--ops-surface-muted); }
+.admin-backup-summary > div { min-width: 0; }
+.admin-backup-summary span { display: block; margin-bottom: 4px; color: var(--ops-muted); font-size: 11px; }
+.admin-backup-summary strong, .admin-backup-summary code { color: var(--ops-text-soft); font-family: var(--ops-font-mono); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.admin-backup-name { color: var(--ops-text); font-family: var(--ops-font-mono); font-size: 12px; overflow-wrap: anywhere; }
 </style>

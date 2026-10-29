@@ -305,6 +305,30 @@ export interface SopGenerationRun {
   updated_at: string
 }
 
+/** 管理员备份文件(平台内置定时备份)。 */
+export interface BackupInfo {
+  name: string
+  created_at: string | null
+  size_bytes: number
+  sha256: string
+  trigger: string
+  retention_days: number | null
+}
+
+export interface BackupConfig {
+  enabled: boolean
+  directory: string
+  hour: number
+  retention_days: number
+  audit_retention_days: number
+  next_run: string
+  /** 最近备份成功/失败状态；备份失败时 /health 仍是 ok，管理员从这里发现异常 */
+  last_success_at: string | null
+  last_failure_at: string | null
+  last_failure_reason: string | null
+  backup_age_hours: number | null
+}
+
 export interface SopGenerateAiResponse {
   run: SopGenerationRun
   sop: Sop | null

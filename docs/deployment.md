@@ -1,4 +1,4 @@
-# OpsSOP 2.0.0 部署指南
+# OpsSOP 2.3.0 部署指南
 
 OpsSOP 采用 Vue 前端、FastAPI 后端与 PostgreSQL / pgvector 数据库，通过 Docker Compose 部署。应用与模型服务独立配置；关闭模型时，故障录入、案例审核、SOP 管理和关键词检索仍可使用。
 
@@ -44,6 +44,14 @@ chmod 600 .env.production
 | `AI_MODE` / `EMBEDDING_MODE` | 默认 `disabled`，按实际服务单独配置 |
 | `LOCAL_ONLY` | 默认 `1`；使用云模型前显式改为 `0` |
 | `FRONTEND_PORT` | 默认 `8080`，生产入口绑定 `127.0.0.1` |
+| `TRUSTED_PROXY_CIDRS` | 可信反向代理网段，逗号分隔 CIDR；Docker 默认 `172.16.0.0/12`，留空则忽略转发头 |
+| `BACKUP_HOST_DIR` | 宿主机备份目录，默认 `/data/OpsSop/BackUp`，挂载到后端容器同路径 |
+| `BACKUP_ENABLED` / `BACKUP_HOUR` | 生产默认启用；`BACKUP_HOUR` 为容器本地时间（默认 `2`，即每天 02:00） |
+| `BACKUP_RETENTION_DAYS` | 备份保留天数，默认 `30` |
+| `AUDIT_RETENTION_DAYS` | 审计与登录尝试保留天数，默认 `30`；业务知识数据不自动删除 |
+| `EMAIL_MODE` | 默认 `disabled`；设为 `smtp` 可发送备份告警。`EMAIL_PORT=465` 时配 `EMAIL_USE_SSL=true`，587 用 `EMAIL_USE_TLS=true` |
+| `ALERT_EMAIL_TO` | 备份失败/超过 26 小时无成功备份时的告警收件人，逗号分隔；留空不发送 |
+| `LOG_FILE_ENABLED` | 默认 `false`（仅 stdout）。`true` 时应用日志按天轮转写入 `LOG_HOST_DIR`，保留 `LOG_RETENTION_DAYS` 天（默认 30） |
 
 管理员初始化配置不会自动轮换数据库中已有账号的口令；已有账号通过应用账号管理流程维护。修改 `POSTGRES_PASSWORD` 也不会修改既有数据卷中的 PostgreSQL 角色口令，应与数据库角色变更同步实施。
 
@@ -71,6 +79,7 @@ Linux 使用相同参数，将 PowerShell 续行符替换为 `\`，或将命令�
 - `db.ports` 与 `backend.ports` 为空；`backend.volumes` 不挂载测试目录。
 - `frontend.ports` 的宿主地址为 `127.0.0.1`。
 - 后端设置 `OPSSOP_ENV=production`、`OPSSOP_SEED_DEMO=0`，各服务保留健康检查。
+- 数据库、后端、前端设置 `restart: unless-stopped`；容器日志按 10MB × 5 轮转，避免磁盘被日志占满。
 
 后端启动顺序为配置预检、Alembic 迁移、幂等初始化、启动 API。配置不合规、迁移失败或检测到遗留不安全活动账号时，后端退出。新库只初始化管理员和系统分类，不自动导入演示内容。
 
@@ -95,18 +104,61 @@ docker compose -p opssop-prod --env-file .env.production `
 
 部署完成后可从宿主访问 `http://127.0.0.1:8080/api/system/health`，并通过配置的 HTTPS 域名进行登录及业务操作。应用健康检查只说明服务可响应，不代表目标环境的证书、备份或模型效果已确认。
 
+## 平台内置备份
+
+生产模式会启动平台内的每日维护任务：按容器本地时间 `BACKUP_HOUR` 执行 `pg_dump`，写入 `BACKUP_DIR`（生产挂载到宿主机 `BACKUP_HOST_DIR`，默认 `/data/OpsSop/BackUp`）。备份文件与元信息成对保存，权限为 `600`，默认保留 `BACKUP_RETENTION_DAYS=30` 天。
+
+管理员在「系统管理 → 数据备份」可以查看备份列表、手动触发和下载。手动触发与定时任务使用同一进程锁；单实例部署下不会并发写同一目录。首次启动若已过当天执行时间且当天没有备份，会在约 60 秒后补跑一次。
+
+```bash
+# 宿主机准备备份目录（不要放在数据卷内部，也不要提交到仓库）
+sudo install -d -m 700 -o root -g root /data/OpsSop/BackUp
+```
+
+备份目录包含业务数据与账号哈希，必须限制访问并按需加密后异地保存；平台下载入口只对管理员开放并写入审计。业务知识数据（故障、案例、SOP）**不会**因为 30 天保留策略被自动删除；30 天策略作用于备份文件和审计/登录记录。若后续需要清理业务数据，应单独实现归档与审批，不能在定时任务里直接删除。
+
+容器运行日志由 Docker 按 10MB × 5 轮转，不是按天保留；不能依赖容器 json-file 驱动满足 30 天留存。两种方式任选其一：
+
+- 平台内置文件日志（推荐，无需宿主配置）：设置 `LOG_FILE_ENABLED=true`，应用日志按天轮转写入挂载目录 `LOG_HOST_DIR`（默认 `/data/OpsSop/Logs`），自动清理超过 `LOG_RETENTION_DAYS`（默认 30）天的旧文件。
+- 宿主机 logrotate 或日志平台（Loki/Vector 等）采集容器 stdout。
+
+审计记录的 30 天清理由平台维护任务执行。
+
+## 反向代理与真实客户端地址
+
+登录限流按“账号 + 来源地址”计数，审计与排障也需要真实来源地址。后端默认忽略转发头，只有请求来自 `TRUSTED_PROXY_CIDRS` 中的代理时才采信 `X-Forwarded-For` / `X-Real-IP`，并从代理链右侧向左跳过可信代理，取第一个不可信地址。
+
+链路要求：
+
+1. 宿主反向代理把客户端地址写入 `X-Forwarded-For`（或至少 `X-Real-IP`），再转发到 `127.0.0.1:8080`。
+2. 容器内 Nginx 使用 `$proxy_add_x_forwarded_for` 追加地址；后端只信任容器网络与显式配置的网段。
+3. 如果宿主代理没有传递转发头，后端只能看到 Docker 网关地址，多个用户会共享同一来源限流额度。
+
+```nginx
+# 宿主 HTTPS 入口示例：在边缘覆盖客户端自带的 X-Forwarded-For，防止伪造
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+如果最外层还有 CDN 或负载均衡器，应只在确认其出口网段可信的层使用 `$proxy_add_x_forwarded_for`，并在 `TRUSTED_PROXY_CIDRS` 中加入该网段；不要在直接面向公网的入口盲目追加客户端提供的转发头。修改后可用登录限流记录或审计来源验证一次真实客户端地址。
+
+容器内 Nginx 已为页面设置 CSP、`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`，并让带哈希的静态资源长期缓存、`index.html` 不缓存。HSTS 与证书由宿主 TLS 入口负责；如果前端嵌入到其他站点（例如监控门户 iframe），需要按实际来源调整 CSP 的 `frame-ancestors`，默认不允许被嵌入。
+
+生产备份定时、监控告警与上线判定见[生产上线检查清单](production-checklist.md)；备份命令与恢复演练见[备份与恢复](backup-restore.md)。
+
 ## 升级与回退
 
 1. 安排维护窗口，暂停业务写入，按[备份与恢复](backup-restore.md)保存归档及元信息，记录当前应用版本、镜像标识和环境配置。
-2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v2.0.0`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
+2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v2.3.0`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
 3. 在不覆盖私有环境文件的情况下更新源码。沿用生产项目名和数据卷，执行上述 `up -d --build`；后端按发行迁移自动升级数据库。
 4. 确认健康状态、登录、权限、检索和关键业务操作后恢复流量，保留升级前备份。
 
-固定发行版本的操作示例，升级时将 `v2.0.0` 替换为选定的目标标签：
+固定发行版本的操作示例，升级时将 `v2.3.0` 替换为选定的目标标签：
 
 ```powershell
 git fetch --tags origin
-git checkout --detach v2.0.0
+git checkout --detach v2.3.0
 docker compose -p opssop-prod --env-file .env.production `
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```

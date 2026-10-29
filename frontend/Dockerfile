@@ -8,7 +8,7 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 LABEL org.opencontainers.image.title="OpsSOP Frontend" \
-      org.opencontainers.image.version="2.0.0" \
+      org.opencontainers.image.version="2.2.0" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/liduojia123/OpsSOP"
 COPY --from=build /build/dist /usr/share/nginx/html

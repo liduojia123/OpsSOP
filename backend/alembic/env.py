@@ -17,7 +17,9 @@ _url = _migration_url or get_settings().database_url
 config.set_main_option("sqlalchemy.url", _url.replace("%", "%%"))
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers 默认为 True:进程内执行迁移(eval 工具、测试)时
+    # 会把已创建的 app.* logger 全部禁用,之后日志静默丢失。显式关闭。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

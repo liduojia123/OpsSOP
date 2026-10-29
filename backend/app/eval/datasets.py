@@ -106,9 +106,6 @@ class Dataset:
     def samples_for(self, task: str) -> list[Sample]:
         return [s for s in self.samples if task in s.tasks]
 
-    def knowledge_map(self) -> dict[str, KnowledgeFixture]:
-        return {k.key: k for k in self.knowledge}
-
 
 def _read_json(path: Path):
     try:

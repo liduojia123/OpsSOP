@@ -1,7 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -86,12 +86,15 @@ def _missing_sop_content(sop: Sop) -> list[str]:
 
 @router.get("", response_model=list[SopOut])
 def list_sops(
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     q: str | None = Query(default=None, description="标题/现象/步骤关键词"),
     status_filter: SopStatus | None = Query(default=None, alias="status"),
     category_id: int | None = None,
     doc_id: str | None = None,
+    limit: int = Query(default=500, ge=1, le=1000, description="最多返回条数"),
+    offset: int = Query(default=0, ge=0, description="跳过条数(配合 X-Total-Count 翻页)"),
 ) -> list[SopOut]:
     stmt = select(Sop).where(_sop_visible(user))
     if q:
@@ -108,7 +111,10 @@ def list_sops(
         stmt = stmt.where(Sop.category_id == category_id)
     if doc_id is not None:
         stmt = stmt.where(Sop.doc_id == doc_id)
-    stmt = stmt.order_by(Sop.updated_at.desc())
+    # X-Total-Count 为过滤后的总数;返回体仍是列表,超过 limit 的部分需按 offset 翻页
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    response.headers["X-Total-Count"] = str(total)
+    stmt = stmt.order_by(Sop.updated_at.desc()).offset(offset).limit(limit)
     return [SopOut.model_validate(s) for s in db.scalars(stmt).all()]
 
 

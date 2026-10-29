@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import or_, select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -68,11 +68,14 @@ def _missing_case_fields(case: Case) -> list[str]:
 
 @router.get("", response_model=list[CaseOut])
 def list_cases(
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     q: str | None = Query(default=None, description="标题/现象/根因关键词"),
     status_filter: CaseStatus | None = Query(default=None, alias="status"),
     category_id: int | None = None,
+    limit: int = Query(default=500, ge=1, le=1000, description="最多返回条数"),
+    offset: int = Query(default=0, ge=0, description="跳过条数(配合 X-Total-Count 翻页)"),
 ) -> list[CaseOut]:
     stmt = select(Case).where(_case_visible(user))
     if q:
@@ -89,7 +92,10 @@ def list_cases(
         stmt = stmt.where(Case.status == status_filter)
     if category_id is not None:
         stmt = stmt.where(Case.category_id == category_id)
-    stmt = stmt.order_by(Case.updated_at.desc())
+    # X-Total-Count 为过滤后的总数;返回体仍是列表,超过 limit 的部分需按 offset 翻页
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    response.headers["X-Total-Count"] = str(total)
+    stmt = stmt.order_by(Case.updated_at.desc()).offset(offset).limit(limit)
     return [CaseOut.model_validate(c) for c in db.scalars(stmt).all()]
 
 

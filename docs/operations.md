@@ -1,4 +1,4 @@
-# OpsSOP 2.0.0 运维指南
+# OpsSOP 2.3.0 运维指南
 
 生产部署使用 Compose 项目 `opssop-prod`。日常操作沿用安装时的环境文件、项目名和数据卷；备份与演练产物保存在仓库外。
 
@@ -22,7 +22,26 @@ docker compose -p opssop-prod --env-file .env.production `
 
 查看日志时避免公开业务文本或私有配置。重启后检查登录、故障保存与正式知识检索。模型接口不可用时，人工业务与关键词检索仍可继续；索引需要重建时，由管理员主动执行构建，不在启动或登录时自动发起。
 
+容器默认 `restart: unless-stopped`，异常退出会自动重启；日志按 10MB × 5 轮转，避免磁盘被占满。需要长期留存访问日志时，应在宿主机或日志平台单独采集，而不是无限增大容器日志。管理员可在「系统管理 → 数据备份」查看每日备份、手动触发和下载；备份与保留策略见[备份与恢复](backup-restore.md)；上线前逐项核对[生产上线检查清单](production-checklist.md)。
+
 按实际恢复目标制定备份频率、维护窗口、离机副本及保留期限。升级前先备份，定期执行全新库恢复与业务续办。命名卷用于持久化，不能替代独立备份。
+
+预演或测试环境可用以下命令创建测试运维/审核账号。账号已存在时脚本会跳过，不覆盖口令：
+
+```bash
+docker exec -e TEST_OPERATOR_PASSWORD='<测试口令>' -e TEST_REVIEWER_PASSWORD='<测试口令>' \
+  opssop-prod-backend-1 python scripts/create_test_users.py
+```
+
+- 两个口令环境变量都缺省时，脚本生成强随机值并写入 `--credentials-out` 指定的文件（默认 `./test-users-credentials.txt`，权限 `600`）；stdout 不打印口令。
+- `OPSSOP_ENV=production` 时脚本默认拒绝创建，必须显式传 `--allow-test-users`；仅限生产预演使用。
+- **正式开放前必须停用测试账号**，避免已知口令后门：
+
+```bash
+docker exec opssop-prod-backend-1 python scripts/create_test_users.py --disable
+```
+
+停用后账号不可登录（`is_active=false`），历史审计引用保留；如需再次预演可重新创建。
 
 ## 资源与归属
 
@@ -47,7 +66,7 @@ docker compose -p opssop-prod --env-file .env.production `
 准备后端镜像和基础镜像：
 
 ```powershell
-docker build --tag opssop-backend:2.0.0 ./backend
+docker build --tag opssop-backend:2.3.0 ./backend
 docker pull pgvector/pgvector:pg16
 docker pull nginx:1.27-alpine
 
@@ -68,7 +87,7 @@ $work = Join-Path $env:TEMP "opssop-drill-$run"
 python backend/scripts/ops_cli.py drill `
   --work-dir $work `
   --run-id $run `
-  --backend-image opssop-backend:2.0.0 `
+  --backend-image opssop-backend:2.3.0 `
   --timeout 180
 ```
 
@@ -79,7 +98,7 @@ RUN_ID="drill$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
 python3 backend/scripts/ops_cli.py drill \
   --work-dir "/var/tmp/opssop-drill-$RUN_ID" \
   --run-id "$RUN_ID" \
-  --backend-image opssop-backend:2.0.0 \
+  --backend-image opssop-backend:2.3.0 \
   --timeout 180
 ```
 

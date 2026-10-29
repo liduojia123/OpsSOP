@@ -14,9 +14,7 @@ import json
 import os
 import re
 import secrets
-import shutil
 import subprocess
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -54,10 +52,6 @@ class OpsCancelled(OpsError):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def new_run_id(prefix: str = "ops") -> str:
-    return f"{prefix}{datetime.now().strftime('%m%d')}{secrets.token_hex(5)}"
 
 
 def validate_run_id(value: str) -> str:
@@ -224,10 +218,6 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def sha256_bytes(raw: bytes) -> str:
-    return hashlib.sha256(raw).hexdigest()
-
-
 def atomic_write_json(path: Path, data: Any) -> None:
     """先写同目录临时文件,再原子替换;不把半截 JSON 当结果。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -261,16 +251,6 @@ def read_json(path: Path) -> Any:
         raise OpsError(f"缺少文件: {path.name}", stage="read") from exc
     except json.JSONDecodeError as exc:
         raise OpsError(f"文件不是合法 JSON: {path.name}", stage="read") from exc
-
-
-def ensure_within(path: Path, parent: Path) -> Path:
-    resolved = path.resolve()
-    base = parent.resolve()
-    try:
-        resolved.relative_to(base)
-    except ValueError as exc:
-        raise OpsError(f"路径不在允许目录内: {path}", stage="validate") from exc
-    return resolved
 
 
 def workspace_fingerprint(repo_root: Path) -> dict:
@@ -356,20 +336,6 @@ def code_info(repo_root: Path) -> dict:
     return {**git_info(repo_root), **workspace_fingerprint(repo_root)}
 
 
-def wait_until(predicate, *, timeout: float, interval: float = 1.0, description: str = "条件"):
-    deadline = time.monotonic() + timeout
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        try:
-            if predicate():
-                return
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-        time.sleep(interval)
-    suffix = f";最后错误: {type(last_error).__name__}" if last_error else ""
-    raise OpsError(f"等待 {description} 超时{suffix}", stage="wait")
-
-
 def free_tcp_port() -> int:
     """由操作系统分配一个本机空闲端口,避免固定端口跨项目串用。"""
     import socket
@@ -377,16 +343,3 @@ def free_tcp_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
-
-
-def remove_file_exact(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
-def copy_tree_limited(src: Path, dst: Path) -> None:
-    if dst.exists():
-        raise OpsError(f"目标已存在,拒绝覆盖: {dst}", stage="copy")
-    shutil.copytree(src, dst)

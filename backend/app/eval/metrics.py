@@ -39,14 +39,6 @@ def metric(
     }
 
 
-def count_metric(count: int, *, definition: str) -> dict:
-    return {
-        "count": int(count),
-        "status": "available",
-        "definition": definition,
-    }
-
-
 def percentile(values: list[float], p: float, *, method: str = "nearest_rank") -> dict:
     values = [float(v) for v in values if v is not None]
     if not values:

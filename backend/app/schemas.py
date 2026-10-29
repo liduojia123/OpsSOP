@@ -360,6 +360,33 @@ class WorkbenchOut(BaseModel):
 
 # ===== 审计 =====
 
+class BackupOut(BaseModel):
+    name: str
+    created_at: str | None = None
+    size_bytes: int
+    sha256: str = ""
+    trigger: str = ""
+    retention_days: int | None = None
+
+
+class BackupRunOut(BackupOut):
+    pruned: list[str] = []
+
+
+class BackupConfigOut(BaseModel):
+    enabled: bool
+    directory: str
+    hour: int
+    retention_days: int
+    audit_retention_days: int
+    next_run: str
+    # 最近备份成功/失败状态:备份失败时 /health 仍为 ok,管理员与监控从这里发现异常
+    last_success_at: str | None = None
+    last_failure_at: str | None = None
+    last_failure_reason: str | None = None
+    backup_age_hours: float | None = None
+
+
 class AuditEventOut(ORMModel):
     id: int
     actor_id: int | None

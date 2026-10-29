@@ -4,9 +4,9 @@
 
 OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题记录、证据补充、人工确认、案例审核和 SOP 发布连接起来，并提供可选的 AI 排查助手与知识检索。
 
-[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [模型配置](docs/ai-configuration.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
+[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **2.0.0**：案例与 SOP 的编辑、提交和审核增加并发冲突保护。外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **2.3.0**：平台内置备份（每日自动、保留 30 天、管理员可下载、最近成功/失败状态可见）与生产加固（可信代理真实客户端地址、安全响应头、容器重启与日志轮转、CI）、维护任务异常韧性、可选应用日志 30 天轮转、列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -17,7 +17,8 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 | 案例沉淀 | 人工确认实际根因、处理方法与恢复结果，审核后进入正式案例库 |
 | SOP 管理 | 手工编写、模板生成或 AI 辅助起草，支持审核、发布、历史版本、废弃与反馈 |
 | 知识检索 | 中文关键词检索独立可用，可接入 embedding 与 pgvector 混合检索 |
-| 权限与审计 | 运维、审核、管理员三类角色，后端权限控制，关键状态变更留痕 |
+| 权限与审计 | 运维、审核、管理员三类角色，后端权限控制，关键状态变更留痕；审计记录默认保留 30 天 |
+| 平台备份 | 平台每日自动备份数据库到指定目录，保留 30 天；管理员可查看、手动触发和下载 |
 | 自托管交付 | Docker Compose 部署、数据卷持久化、数据库迁移、备份恢复及隔离运维演练 |
 
 ```text
@@ -37,7 +38,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v2.0.0
+git checkout v2.3.0
 ```
 
 复制环境变量示例：
@@ -72,7 +73,9 @@ docker compose -p opssop-local --env-file .env up --build -d
 docker compose -p opssop-prod --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
 
-`.env.production` 从 `.env.production.example` 复制并填写实际配置。生产配置禁用演示账号，数据库与后端不发布宿主端口；前端仅监听 `127.0.0.1`，通过宿主反向代理提供 HTTPS。完整步骤、账号初始化、升级与回退见[部署指南](docs/deployment.md)。
+`.env.production` 从 `.env.production.example` 复制并填写实际配置。生产配置禁用演示账号，数据库与后端不发布宿主端口；前端仅监听 `127.0.0.1`，通过宿主反向代理提供 HTTPS。完整步骤、账号初始化、升级与回退见[部署指南](docs/deployment.md)；逐项上线判定见[生产上线检查清单](docs/production-checklist.md)。
+
+反向代理部署时，`TRUSTED_PROXY_CIDRS` 只填写实际代理网段，宿主入口需传递 `X-Forwarded-For`，否则登录限流会按代理地址共享额度。定时备份与恢复演练见[备份与恢复](docs/backup-restore.md)。
 
 数据库保存在部署所在地的命名卷中。升级前备份，恢复到新库后再切换应用；不要删除正在使用的数据卷。[备份恢复手册](docs/backup-restore.md)提供操作流程。
 
@@ -97,6 +100,7 @@ docker compose -p opssop-prod --env-file .env.production -f docker-compose.yml -
 |---|---|
 | [产品使用](docs/product-guide.md) | 角色、工作台、故障处理、案例审核、SOP 发布与检索 |
 | [部署指南](docs/deployment.md) | 环境准备、生产配置、HTTPS 入口、升级与回退 |
+| [生产上线检查清单](docs/production-checklist.md) | 上线前的发布、安全、备份、监控与业务验收项 |
 | [模型配置](docs/ai-configuration.md) | 聊天、embedding、local-only、索引与故障处理 |
 | [系统架构](docs/architecture.md) | 组件、数据流、状态流转与安全边界 |
 | [运维手册](docs/operations.md) | 日常巡检、隔离演练、日志与故障处理 |

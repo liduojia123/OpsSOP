@@ -12,4 +12,4 @@ echo "[opssop] 种子初始化(幂等)..."
 python -c "from app.seed import ensure_seed; ensure_seed()"
 
 echo "[opssop] 启动 API 服务..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers

@@ -1,8 +1,38 @@
-# OpsSOP 2.0.0 备份与恢复
+# OpsSOP 2.3.0 备份与恢复
 
 运维入口为 `backend/scripts/ops_cli.py`，在 Docker 引擎所在宿主环境执行，只依赖 Python 3.10+ 标准库及 Docker CLI。本文生产示例使用项目 `opssop-prod`、`.env.production` 和生产 Compose 覆盖；操作已有安装时使用其实际项目名与配置。
 
 归档通过容器内 PostgreSQL 工具及二进制文件复制传递，不通过 PowerShell 文本管道处理。备份目录、元信息和恢复报告保存在仓库外。
+
+## 平台内置备份（日常）
+
+生产模式由平台自己执行每日备份，不依赖宿主 cron：容器内 `pg_dump` 写入 `BACKUP_DIR`，默认 `/data/OpsSop/BackUp`，按 `BACKUP_HOUR`（默认 02:00，容器 `TZ`）执行，保留 `BACKUP_RETENTION_DAYS`（默认 30）天。管理员在「系统管理 → 数据备份」可以查看、手动触发和下载；每次手动触发/下载都会写审计记录。
+
+- 目录由 Compose 挂载到宿主机 `BACKUP_HOST_DIR`；目录与文件权限收窄，归档包含账号哈希，必须限制访问。
+- 平台备份失败会写 `backup.failed` 审计并保持服务继续运行；管理员可在页面手动重试。配置 `EMAIL_MODE=smtp` 与 `ALERT_EMAIL_TO` 后，失败或超过 26 小时无成功备份会向管理员发邮件告警。
+- 首次启动若已过当天执行时间且当天没有备份，会补跑一次；单实例下使用进程锁避免并发。
+- 平台备份是**同机备份**，不能替代异机/加密归档；生产仍建议定期将备份复制到独立存储。
+
+平台生成的归档可以直接用本文的恢复流程：
+
+```bash
+python3 backend/scripts/ops_cli.py restore \
+  --project opssop-prod --env-file .env.production \
+  --compose-file docker-compose.yml --compose-file docker-compose.prod.yml \
+  --archive /data/OpsSop/BackUp/opssop-<时间>.dump \
+  --metadata /data/OpsSop/BackUp/opssop-<时间>.json \
+  --target-db opssop_restore_check --run-id restorecheck \
+  --out-dir /var/backups/opssop-restore-check
+```
+
+## 30 天保留口径
+
+30 天保留**只作用于备份文件、审计/登录记录和（可选的）应用运行日志**，不作用于知识库正文：
+
+- 备份：平台自动删除超过 30 天的 `.dump` / `.json` 对（含没有配对元信息的孤立归档）。
+- 审计与登录尝试：平台每日清理超过 30 天的记录。
+- 应用运行日志：设置 `LOG_FILE_ENABLED=true` 后按天轮转保留 `LOG_RETENTION_DAYS`（默认 30）天；未启用时由宿主 logrotate 或日志平台负责。
+- **业务知识数据（故障、案例、SOP）永久保留**：它们是知识资产，按 30 天字面清理会清空知识库、破坏长期检索价值。确需清理时实现"超过期限归档 + 管理员审批 + 可导出"，不做定时物理删除。
 
 ## 备份范围
 
@@ -68,6 +98,29 @@ python3 backend/scripts/ops_cli.py backup \
 归档和元信息必须成对保存。取消或失败返回非零；可捕获的用户取消返回 `130`。容器临时文件清理失败时，归档可能有效，但结果为 `cleanup_incomplete`、`core_success=true`、`cleanup_complete=false`，退出 `4`，应完成收尾后再关闭工单。
 
 若备份后继续运行原业务，使用相同项目、环境和 Compose 参数执行 `start backend frontend`，再检查服务状态。升级或灾难恢复期间按维护计划保持暂停写入。
+
+## 定时备份与保留
+
+定时任务使用 `backend/scripts/backup_scheduled.py` 包装上面的命令：同一时刻只允许一个实例，成功后保留最近 N 份（默认 14），并写入 `backup.log`。它只依赖标准库与 Docker CLI，失败返回非零，便于监控告警。
+
+Linux（cron，每天 02:30）：
+
+```cron
+30 2 * * * cd /opt/opssop && python3 backend/scripts/backup_scheduled.py \
+  --project opssop-prod --env-file .env.production \
+  --out-dir /var/backups/opssop --keep 14 >> /var/log/opssop-backup.log 2>&1
+```
+
+systemd timer 示例（`opssop-backup.service` + `opssop-backup.timer`）与 cron 等价，适合需要开机补跑和更清晰状态管理的服务器。Windows 生产预演可用任务计划程序调用同一命令；输出目录放在仓库之外。
+
+定时任务上线前至少验证一次：
+
+1. 手动执行同一条命令，确认退出码为 0 且生成 `.dump` 与元信息。
+2. 用[恢复到全新目标库](#恢复到全新目标库)恢复一份归档并核对业务数量。
+3. 模拟一次失败（例如错误项目名），确认日志与返回码能被监控捕获。
+
+保留策略建议至少 14 天，并在版本升级、月度节点额外归档；备份包含业务内容与账号哈希，必须限制访问。需要异地保存时，先加密再传输，不把归档提交到版本库或公共对象存储。
+
 
 ## 恢复到全新目标库
 

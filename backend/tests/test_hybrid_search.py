@@ -170,10 +170,17 @@ def _op_user(db):
 
 
 def _approve(client, db, case_id):
-    """用独立审核员通过案例(operator 不能自审)。"""
-    if not db.query(User).filter(User.username == "hy_rev").first():
-        make_user(db, "hy_rev", Role.reviewer)
-    rev = login(client, "hy_rev")
+    """用独立审核员通过案例(operator 不能自审)。
+
+    同一测试内复用审核员令牌：登录限流按账号 10 次/分钟，逐个案例重新登录
+    会触发 429，与被测的混合检索无关。
+    """
+    rev = getattr(client, "_hy_rev_headers", None)
+    if rev is None:
+        if not db.query(User).filter(User.username == "hy_rev").first():
+            make_user(db, "hy_rev", Role.reviewer)
+        rev = login(client, "hy_rev")
+        client._hy_rev_headers = rev
     resp = client.post(f"/api/cases/{case_id}/approve", json={"comment": "ok"}, headers=rev)
     assert resp.status_code == 200, resp.text
 

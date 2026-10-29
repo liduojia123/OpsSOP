@@ -290,17 +290,6 @@ def create_or_reuse_database(
     )
 
 
-def update_manifest(engine: Engine, run_id: str, data: dict) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE eval_run_manifest SET data = CAST(:data AS jsonb) "
-                "WHERE run_id = :run_id"
-            ),
-            {"data": json.dumps(data, ensure_ascii=False), "run_id": run_id},
-        )
-
-
 def drop_eval_database(settings: Settings, target_db: str, run_id: str) -> dict:
     """只删除 manifest 归属匹配的本轮评测库;不匹配则拒绝。"""
     name = validate_target_db(target_db, settings, run_id)

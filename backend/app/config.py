@@ -61,6 +61,37 @@ class Settings(BaseSettings):
     # 启用后禁止聊天与 embedding 使用 cloud 配置(应用级约束,不等于网络隔离)
     local_only: bool = False
 
+    # 反向代理:仅信任这些网段传来的 X-Forwarded-For / X-Real-IP(逗号分隔 CIDR)
+    # 留空表示无代理,忽略转发头;Docker 部署由 compose 传入容器网络网段
+    trusted_proxy_cidrs: str = ""
+
+    # 平台内置备份(单实例;生产环境启动每日任务)
+    backup_enabled: bool = True
+    backup_dir: str = "/data/OpsSop/BackUp"
+    backup_hour: int = 2  # 服务器本地时间(容器 TZ),0-23
+    backup_retention_days: int = 30
+
+    # 审计日志保留;业务知识数据不自动删除
+    audit_retention_days: int = 30
+
+    # 应用运行日志文件(可选;默认关闭,仅 stdout)。开启后按天轮转,
+    # 保留 LOG_RETENTION_DAYS 天,用于满足 30 天日志留存要求
+    log_file_enabled: bool = False
+    log_dir: str = "/data/OpsSop/Logs"
+    log_retention_days: int = 30
+
+    # 邮件发送接口(默认 disabled,只预留;启用 smtp 后才会外发)
+    email_mode: str = "disabled"  # disabled | smtp
+    email_host: str = ""
+    email_port: int = 587
+    email_username: str = ""
+    email_password: str = ""
+    email_from: str = ""
+    email_use_tls: bool = True  # 587 等端口使用 STARTTLS
+    email_use_ssl: bool = False  # 465 隐式 SSL;开启后忽略 STARTTLS
+    # 备份失败/过期告警收件人(逗号分隔);留空不发送
+    alert_email_to: str = ""
+
     def _build_url(self, database: str) -> str:
         """用 SQLAlchemy URL 对象拼连接串,特殊字符密码(如 p@ss/wo%rd)被正确转义。"""
         return URL.create(
@@ -104,11 +135,6 @@ class Settings(BaseSettings):
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
-    @property
-    def knowledge_version_seed(self) -> str:
-        """知识版本种子:与检索缓存键组合使用(实际版本由知识表状态计算)。"""
-        return self.ai_config_version
-
     def validate_production_config(self) -> None:
         """生产启动前的配置预检(在 Alembic 迁移之前执行)。
 
@@ -131,6 +157,23 @@ class Settings(BaseSettings):
             problems.append("OPSSOP_SEED_DEMO 必须为 0")
         if problems:
             raise ValueError("生产配置预检失败: " + "; ".join(problems))
+
+    def validate_backup_config(self) -> None:
+        """备份、保留与邮件接口的配置预检(不连接数据库、不访问文件系统)。"""
+        if not 0 <= self.backup_hour <= 23:
+            raise ValueError(f"BACKUP_HOUR 必须在 0-23 之间,当前: {self.backup_hour}")
+        if self.backup_retention_days < 1:
+            raise ValueError("BACKUP_RETENTION_DAYS 必须至少为 1")
+        if self.audit_retention_days < 1:
+            raise ValueError("AUDIT_RETENTION_DAYS 必须至少为 1")
+        if self.backup_enabled and not self.backup_dir.strip():
+            raise ValueError("BACKUP_ENABLED=1 时必须配置 BACKUP_DIR")
+        if self.email_mode not in ("disabled", "smtp"):
+            raise ValueError("EMAIL_MODE 必须是 disabled 或 smtp")
+        if self.email_mode == "smtp" and (not self.email_host.strip() or not self.email_from.strip()):
+            raise ValueError("EMAIL_MODE=smtp 时需要配置 EMAIL_HOST 和 EMAIL_FROM")
+        if self.alert_email_to.strip() and self.email_mode != "smtp":
+            raise ValueError("配置 ALERT_EMAIL_TO 时 EMAIL_MODE 必须为 smtp,否则告警不会发出")
 
     def validate_ai_config(self) -> None:
         """启动时校验 AI 配置冲突;LOCAL_ONLY 下禁止 cloud 模式。"""

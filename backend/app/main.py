@@ -1,15 +1,19 @@
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.logging_setup import setup_file_logging
+from app.net import TrustedProxyMiddleware, parse_trusted_cidrs
 from app.routers import (
     admin_embedding,
     ai,
     audit,
     auth,
+    backups,
     cases,
     categories,
     faults,
@@ -31,17 +35,30 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     try:
         settings.validate_ai_config()
+        settings.validate_backup_config()
     except ValueError as exc:
-        logger.error("AI 配置校验失败: %s", exc)
+        logger.error("配置校验失败: %s", exc)
         raise
+    setup_file_logging(settings)
     seed_fn()
-    yield
+    maintenance_task: asyncio.Task | None = None
+    if settings.is_production:
+        from app.maintenance import maintenance_loop
+
+        maintenance_task = asyncio.create_task(maintenance_loop(settings))
+    try:
+        yield
+    finally:
+        if maintenance_task is not None:
+            maintenance_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await maintenance_task
 
 
 app = FastAPI(
     title="OpsSOP",
     description="运维故障知识库与 SOP 管理系统",
-    version="2.0.0",
+    version="2.3.0",
     lifespan=lifespan,
 )
 
@@ -54,6 +71,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 可信代理必须显式配置;配置非法时在启动阶段直接失败
+app.add_middleware(
+    TrustedProxyMiddleware,
+    trusted_cidrs=parse_trusted_cidrs(get_settings().trusted_proxy_cidrs),
+)
+
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(categories.router)
@@ -62,6 +85,7 @@ app.include_router(cases.router)
 app.include_router(sops.router)
 app.include_router(workbench.router)
 app.include_router(audit.router)
+app.include_router(backups.router)
 app.include_router(system.router)
 app.include_router(ai.router)
 app.include_router(admin_embedding.router)
