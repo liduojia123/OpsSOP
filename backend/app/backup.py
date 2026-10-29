@@ -94,8 +94,8 @@ def _write_status(settings: Settings, update: dict) -> None:
         tmp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
         os.chmod(tmp, 0o600)
         os.replace(tmp, _status_path(directory))
-    except OSError:
-        # 状态记录失败只降级可见性,不影响备份/业务本身
+    except (BackupError, OSError):
+        # 状态记录失败只降级可见性,绝不影响备份/业务,也不能掩盖原始失败原因
         logger.warning("写入备份状态文件失败", exc_info=True)
 
 

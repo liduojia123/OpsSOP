@@ -142,6 +142,21 @@ def test_backup_status_records_success_and_failure(tmp_path):
     assert list_backups(settings) == []
 
 
+def test_backup_status_write_never_raises_when_dir_unusable(tmp_path):
+    """备份目录不可用时(CI 非 root 无法创建 /data/OpsSop/BackUp)状态写入只告警。
+
+    否则记录失败状态本身抛异常会掩盖原始备份失败,并中断维护任务。
+    """
+    blocked = tmp_path / "blocked"
+    blocked.write_text("占用为文件,不能作为目录", encoding="utf-8")
+    settings = settings_for(blocked)
+
+    record_backup_failure(settings, "pg_dump 失败")
+    record_backup_success(settings, "opssop-20261028T020000Z", "2026-10-28T02:00:00+00:00")
+
+    assert read_backup_status(settings) == {}
+
+
 def test_backup_config_api_reports_last_status(client, adm_headers, tmp_path, monkeypatch):
     """/api/admin/backups/config 暴露最近成功/失败与备份年龄,备份失败可被发现。"""
     settings = settings_for(tmp_path)

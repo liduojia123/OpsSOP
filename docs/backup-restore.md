@@ -1,4 +1,4 @@
-# OpsSOP 2.3.0 备份与恢复
+# OpsSOP 2.4.0 备份与恢复
 
 运维入口为 `backend/scripts/ops_cli.py`，在 Docker 引擎所在宿主环境执行，只依赖 Python 3.10+ 标准库及 Docker CLI。本文生产示例使用项目 `opssop-prod`、`.env.production` 和生产 Compose 覆盖；操作已有安装时使用其实际项目名与配置。
 
@@ -11,7 +11,34 @@
 - 目录由 Compose 挂载到宿主机 `BACKUP_HOST_DIR`；目录与文件权限收窄，归档包含账号哈希，必须限制访问。
 - 平台备份失败会写 `backup.failed` 审计并保持服务继续运行；管理员可在页面手动重试。配置 `EMAIL_MODE=smtp` 与 `ALERT_EMAIL_TO` 后，失败或超过 26 小时无成功备份会向管理员发邮件告警。
 - 首次启动若已过当天执行时间且当天没有备份，会补跑一次；单实例下使用进程锁避免并发。
-- 平台备份是**同机备份**，不能替代异机/加密归档；生产仍建议定期将备份复制到独立存储。
+- 平台备份是**同机备份**，不能替代异机归档；用下面的 `offsite` 子命令补齐（见「异地副本」）。
+
+## 异地副本
+
+平台备份与数据库同机同盘，整机或磁盘故障会同时丢数据与备份。`ops_cli.py offsite` 把成对的 `.dump`/`.json` 复制到另一台主机并在远端校验 SHA-256：
+
+```bash
+python3 backend/scripts/ops_cli.py offsite \
+  --archive /data/OpsSop/BackUp/opssop-<时间>.dump \
+  --metadata /data/OpsSop/BackUp/opssop-<时间>.json \
+  --host 192.168.1.30 --user backup --remote-dir /srv/opssop-offsite \
+  --identity ~/.ssh/opssop_offsite --keep 14 --out-dir /var/log/opssop-offsite
+```
+
+- 前置：目标主机可 SSH 登录，执行端有系统 `ssh`/`scp`，并使用免密公钥（`ssh-keygen` 生成、`ssh-copy-id` 安装）。工具不保存远端口令。
+- 远端目录权限 `700`、文件 `600`；远端按修改时间保留最近 `--keep` 份（默认 14，`0` 表示不清理），删除时成对删除 `.dump`/`.json`。
+- 成功输出 `success: true`、`sha256_verified: true`；失败返回非零，便于监控。传输经 SSH 加密；归档含账号哈希，静态加密建议使用加密盘，或先 gpg 加密再复制并单独保管私钥。
+- 每日自动：在宿主 cron 的平台备份之后追加同一命令，例如：
+
+```cron
+30 2 * * * cd /opt/opssop && python3 backend/scripts/ops_cli.py offsite \
+  --archive "$(ls -1t /data/OpsSop/BackUp/opssop-*.dump | head -1)" \
+  --metadata "$(ls -1t /data/OpsSop/BackUp/opssop-*.json | head -1)" \
+  --host 192.168.1.30 --user backup --remote-dir /srv/opssop-offsite \
+  --identity /root/.ssh/opssop_offsite --keep 14 >> /var/log/opssop-offsite.log 2>&1
+```
+
+从异地副本恢复前先复制回本地，再按「恢复到全新目标库」执行；恢复演练应至少覆盖一次异地副本。
 
 平台生成的归档可以直接用本文的恢复流程：
 

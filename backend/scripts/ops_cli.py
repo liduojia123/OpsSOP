@@ -12,6 +12,12 @@
 
   python backend/scripts/ops_cli.py drill \
     --work-dir D:/opssop-drill-20261022 --run-id drill20261022
+
+  python backend/scripts/ops_cli.py offsite \
+    --archive /data/OpsSop/BackUp/opssop-20261029T020000Z.dump \
+    --metadata /data/OpsSop/BackUp/opssop-20261029T020000Z.json \
+    --host 192.168.1.30 --user backup --remote-dir /srv/opssop-offsite \
+    --identity ~/.ssh/opssop_offsite --keep 14
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from app.ops.backup import run_backup  # noqa: E402
 from app.ops.common import OpsCancelled, OpsError, atomic_write_json  # noqa: E402
 from app.ops.dockerops import ComposeStack  # noqa: E402
 from app.ops.drill import DrillConfig, run_drill  # noqa: E402
+from app.ops.offsite import OffsiteTarget, run_offsite  # noqa: E402
 from app.ops.restore import run_restore  # noqa: E402
 
 
@@ -150,6 +157,25 @@ def _drill(args) -> int:
     return 0 if result.get("success") else 4
 
 
+def _offsite(args) -> int:
+    target = OffsiteTarget(
+        host=args.host,
+        user=args.user,
+        remote_dir=args.remote_dir,
+        port=args.port,
+        identity=args.identity,
+    )
+    report = run_offsite(
+        Path(args.archive),
+        Path(args.metadata),
+        target,
+        keep=args.keep,
+        out_dir=Path(args.out_dir) if args.out_dir else None,
+    )
+    _print(report)
+    return 0 if report.get("success") else 4
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OpsSOP 备份/恢复/演练 CLI")
     parser.add_argument("--repo-root", default=str(REPO_ROOT))
@@ -187,12 +213,24 @@ def build_parser() -> argparse.ArgumentParser:
     drill = sub.add_parser("drill", help="隔离备份/恢复/持久化/生产 smoke 演练")
     drill.add_argument("--work-dir", required=True)
     drill.add_argument("--run-id", required=True)
-    drill.add_argument("--backend-image", default="opssop-backend:2.3.0")
+    drill.add_argument("--backend-image", default="opssop-backend:2.4.0")
     drill.add_argument("--timeout", type=int, default=180)
     drill.add_argument("--keep-resources", action="store_true")
     drill.add_argument("--cleanup-on-failure", action="store_true")
     drill.add_argument("--skip-frontend-build", action="store_true")
     drill.set_defaults(func=_drill)
+
+    offsite = sub.add_parser("offsite", help="复制成对备份到另一台主机并校验 SHA-256")
+    offsite.add_argument("--archive", required=True, help="本地 opssop-<时间>.dump")
+    offsite.add_argument("--metadata", required=True, help="对应 opssop-<时间>.json")
+    offsite.add_argument("--host", required=True, help="远端主机(IP 或域名)")
+    offsite.add_argument("--user", required=True, help="远端 SSH 用户")
+    offsite.add_argument("--remote-dir", required=True, help="远端绝对路径目录")
+    offsite.add_argument("--port", type=int, default=22)
+    offsite.add_argument("--identity", default="", help="SSH 私钥路径(默认使用 ssh 配置)")
+    offsite.add_argument("--keep", type=int, default=14, help="远端保留份数;0 表示不清理")
+    offsite.add_argument("--out-dir", default="", help="可选:写入操作报告 JSON 的目录")
+    offsite.set_defaults(func=_offsite)
     return parser
 
 
@@ -208,7 +246,7 @@ def main() -> int:
         return 130
     except OpsError as exc:
         _print({"success": False, "error": str(exc), "stage": exc.stage})
-        return 4 if exc.stage in ("backup", "restore", "drill", "verify", "persistence", "cleanup") else 2
+        return 4 if exc.stage in ("backup", "restore", "drill", "verify", "persistence", "cleanup", "offsite") else 2
     except KeyboardInterrupt:
         _print({"success": False, "cancelled": True, "error": "用户取消"})
         return 130
