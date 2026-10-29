@@ -169,6 +169,8 @@ export interface AiStatus {
   user_ai_enabled: boolean
   /** 当前生效的用户厂商 ID(deepseek / minimax / mimo) */
   user_provider: string
+  /** 已保存 Key(即使被关闭):用于区分「未配置」与「已关闭」 */
+  user_ai_configured: boolean
 }
 
 /** 支持的模型厂商(后端注册表)。 */

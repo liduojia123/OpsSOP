@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.ai.keys import resolve_user_config
+from app.ai.keys import list_user_keys, resolve_user_config
 from app.ai.providers import get_provider
 from app.config import get_settings
 from app.database import get_db
@@ -33,12 +33,15 @@ def ai_status(
         "local": "本地模型模式:调用本机或内网模型接口。",
     }
     user_config = resolve_user_config(db, user, s)
+    configured = any(row.api_key_encrypted for row in list_user_keys(db, user.id))
     if user_config is not None:
         provider_name = get_provider(user_config.provider).name
         message = (
             f"已使用你自填的 {provider_name} 配置({user_config.model});"
             "问题描述与日志片段会发送到该厂商接口。"
         )
+    elif configured and not s.local_only:
+        message = "AI 已关闭:已保存厂商配置,可在左侧「AI 设置」中重新开启。"
     else:
         message = messages.get(s.ai_mode, "未知模式")
     return AiStatusOut(
@@ -49,4 +52,5 @@ def ai_status(
         model_config_version=s.ai_config_version,
         user_ai_enabled=user_config is not None,
         user_provider=user_config.provider if user_config else "",
+        user_ai_configured=configured,
     )

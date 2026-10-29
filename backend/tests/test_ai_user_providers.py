@@ -370,3 +370,51 @@ def test_ai_status_reports_user_provider(client, adm_headers):
     assert body["user_ai_enabled"] is True
     assert body["user_provider"] == "deepseek"
     assert "DeepSeek" in body["message"]
+
+
+# ===== AI 总开关 =====
+
+def test_toggle_requires_saved_key(client, adm_headers):
+    resp = client.put("/api/ai/enabled", json={"enabled": True}, headers=adm_headers)
+    assert resp.status_code == 400
+    assert "API Key" in resp.json()["detail"]
+
+
+def test_toggle_off_keeps_key_but_disables_use(client, db, adm_headers):
+    client.put(
+        "/api/ai/providers/deepseek/key",
+        json={"api_key": "sk-keep-me", "model": "deepseek-flash"},
+        headers=adm_headers,
+    )
+    off = client.put("/api/ai/enabled", json={"enabled": False}, headers=adm_headers)
+    assert off.status_code == 200
+    assert off.json() == {"enabled": False, "has_key": True}
+
+    status = client.get("/api/system/ai-status", headers=adm_headers).json()
+    assert status["user_ai_configured"] is True
+    assert status["user_ai_enabled"] is False
+    assert "已关闭" in status["message"]
+
+    # Key 仍在(只是禁用),重新开启无需重填
+    listed = client.get("/api/ai/keys", headers=adm_headers).json()
+    assert listed[0]["has_key"] is True
+    assert listed[0]["enabled"] is False
+
+    on = client.put("/api/ai/enabled", json={"enabled": True}, headers=adm_headers)
+    assert on.status_code == 200
+    assert on.json()["enabled"] is True
+    status = client.get("/api/system/ai-status", headers=adm_headers).json()
+    assert status["user_ai_enabled"] is True
+
+
+def test_disabled_user_config_is_not_used(db, operator):
+    settings = _settings()
+    save_user_key(db, operator, "deepseek", "sk-key", settings, model="deepseek-flash")
+    db.commit()
+    assert resolve_user_config(db, operator, settings) is not None
+
+    from app.ai.keys import set_user_ai_enabled
+
+    set_user_ai_enabled(db, operator.id, False)
+    db.commit()
+    assert resolve_user_config(db, operator, settings) is None

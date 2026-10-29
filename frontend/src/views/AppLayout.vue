@@ -66,6 +66,8 @@ const aiModeLabel = computed(() => {
     const names: Record<string, string> = { deepseek: 'DeepSeek', minimax: 'MiniMax', mimo: '小米 MiMo' }
     return `AI 已启用 · ${names[aiStatus.value.user_provider] || aiStatus.value.user_provider}`
   }
+  // 已保存 Key 但用户关闭了总开关
+  if (aiStatus.value.user_ai_configured) return 'AI 已关闭'
   const labels: Record<string, string> = {
     disabled: 'AI 未启用', demo: 'AI 演示模式 · 模拟数据',
     cloud: 'AI 云端模式', local: 'AI 本地模式',

@@ -23,6 +23,7 @@ from app.ai.keys import (
     list_user_keys,
     resolve_user_config,
     save_user_key,
+    set_user_ai_enabled,
 )
 from app.ai.providers import (
     ProviderError,
@@ -41,6 +42,8 @@ from app.schemas import (
     AiModelOut,
     AiModelsResponse,
     AiProviderOut,
+    AiToggleOut,
+    AiToggleRequest,
 )
 
 logger = logging.getLogger("opssop.ai.settings")
@@ -91,6 +94,22 @@ def list_available_providers(
     """支持的厂商清单 + 当前用户已配置状态(不含 Key)。"""
     rows = {row.provider: row for row in list_user_keys(db, user.id)}
     return [_provider_out(spec, rows.get(spec.id)) for spec in list_providers()]
+
+
+@router.put("/enabled", response_model=AiToggleOut)
+def toggle_ai(
+    body: AiToggleRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AiToggleOut:
+    """用户级 AI 总开关:关闭后保留 Key 但不调用模型;开启需已有 Key。"""
+    try:
+        enabled, has_key = set_user_ai_enabled(db, user.id, body.enabled)
+    except KeyError_ as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    record_audit(db, user, "ai.toggle", "ai", "", {"enabled": enabled})
+    db.commit()
+    return AiToggleOut(enabled=enabled, has_key=has_key)
 
 
 @router.get("/keys", response_model=list[AiKeyOut])

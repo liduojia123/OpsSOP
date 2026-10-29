@@ -135,6 +135,21 @@ def save_user_key(
     return row
 
 
+def set_user_ai_enabled(db: Session, user_id: int, enabled: bool) -> tuple[bool, bool]:
+    """用户级 AI 总开关;返回 (当前启用状态, 是否已保存 Key)。
+
+    关闭只改 enabled,不删除 Key;再次开启无需重新填写。
+    未保存任何 Key 时不允许开启(否则会产生"已启用但无法调用"的假象)。
+    """
+    rows = list_user_keys(db, user_id)
+    has_key = any(row.api_key_encrypted for row in rows)
+    if enabled and not has_key:
+        raise KeyError_("请先配置并保存一个厂商的 API Key,再开启 AI")
+    for row in rows:
+        row.enabled = enabled
+    return enabled, has_key
+
+
 def delete_user_key(db: Session, user_id: int, provider: str) -> bool:
     row = get_user_key(db, user_id, provider)
     if row is None:

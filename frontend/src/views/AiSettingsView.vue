@@ -8,6 +8,7 @@
  * - 配置表单:选厂商 → 填 Key → 拉取模型 → 保存。
  */
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import AiProviderSettings from '../components/AiProviderSettings.vue'
@@ -18,6 +19,10 @@ const providers = ref<AiProvider[]>([])
 const selected = ref('')
 const loading = ref(false)
 const loadError = ref('')
+const toggling = ref(false)
+const aiEnabled = ref(false)
+
+const configuredCount = computed(() => providers.value.filter((p) => p.has_key).length)
 
 const providerNames: Record<string, string> = {
   deepseek: 'DeepSeek',
@@ -34,18 +39,35 @@ const globalModeLabel = computed(() => {
   return '未知'
 })
 
+const configured = computed(() => status.value?.user_ai_configured ?? configuredCount.value > 0)
+
 const effectiveLabel = computed(() => {
-  if (!status.value?.user_ai_enabled) return '未配置 · 使用全局配置'
+  if (!status.value?.user_ai_enabled) {
+    return configured.value ? '已配置 · AI 已关闭' : '未配置 · 使用全局配置'
+  }
   return `${providerNames[status.value.user_provider] || status.value.user_provider} · 自填配置`
 })
-
-const configuredCount = computed(() => providers.value.filter((p) => p.has_key).length)
 
 const pageChip = computed(() => {
   if (!status.value) return '状态读取中'
   if (status.value.user_ai_enabled) return `AI 已启用 · ${providerNames[status.value.user_provider] || status.value.user_provider}`
+  if (configured.value) return 'AI 已关闭'
   return status.value.ai_mode === 'disabled' ? 'AI 未启用' : globalModeLabel.value
 })
+
+async function toggleAi(next: boolean) {
+  toggling.value = true
+  try {
+    await client.put('/api/ai/enabled', { enabled: next })
+    ElMessage.success(next ? 'AI 已开启' : 'AI 已关闭')
+    await load()
+  } catch (e) {
+    aiEnabled.value = !next // 失败回滚开关
+    ElMessage.error(errMsg(e))
+  } finally {
+    toggling.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -57,6 +79,7 @@ async function load() {
     ])
     status.value = statusResp.data
     providers.value = providersResp.data
+    aiEnabled.value = Boolean(statusResp.data.user_ai_enabled)
   } catch (e) {
     loadError.value = errMsg(e)
   } finally {
@@ -79,6 +102,15 @@ onMounted(load)
       </div>
       <div class="ops-page-actions">
         <span class="ops-chip"><AppIcon name="bot" :size="15" />{{ pageChip }}</span>
+        <label class="ai-toggle">
+          <span>启用 AI</span>
+          <el-switch
+            v-model="aiEnabled"
+            :loading="toggling"
+            :disabled="loading || toggling || (!configured && !aiEnabled)"
+            @change="(v: string | number | boolean) => toggleAi(Boolean(v))"
+          />
+        </label>
         <el-button :loading="loading" @click="load"><AppIcon name="refresh" :size="15" />刷新</el-button>
       </div>
     </header>
@@ -88,6 +120,15 @@ onMounted(load)
       class="mb-5"
       :title="loadError"
       type="error"
+      :closable="false"
+      show-icon
+    />
+    <el-alert
+      v-if="status && configured && !aiEnabled"
+      class="mb-5"
+      title="AI 当前已关闭"
+      description="已保存厂商配置，但分析与 SOP 生成不会调用模型；打开右上角「启用 AI」即可恢复。"
+      type="info"
       :closable="false"
       show-icon
     />
@@ -171,6 +212,14 @@ onMounted(load)
 </template>
 
 <style scoped>
+.ai-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ops-text-soft);
+  font-size: var(--ops-text-xs);
+  white-space: nowrap;
+}
 .ai-stat-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

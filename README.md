@@ -6,7 +6,7 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **2.6.3**：平台内置备份（每日自动、保留 30 天、管理员可下载、最近成功/失败状态可见、失败邮件告警、异地副本）与生产加固（可信代理真实客户端地址、安全响应头、容器重启与日志轮转、CI）、维护任务异常韧性、可选应用日志 30 天轮转、列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **2.7.0**：平台内置备份（每日自动、保留 30 天、管理员可下载、最近成功/失败状态可见、失败邮件告警、异地副本）与生产加固（可信代理真实客户端地址、安全响应头、容器重启与日志轮转、CI）、维护任务异常韧性、可选应用日志 30 天轮转、列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -38,7 +38,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v2.6.3
+git checkout v2.7.0
 ```
 
 复制环境变量示例：

@@ -411,6 +411,8 @@ class AiStatusOut(BaseModel):
     # 用户自填厂商配置:全局未启用时,该用户仍可用自己的 Key(前端据此放开调用)
     user_ai_enabled: bool = False
     user_provider: str = ""
+    # 已保存 Key 但被用户主动关闭时为 True(前端据此显示开关状态)
+    user_ai_configured: bool = False
 
 
 # ===== AI 厂商与用户自填 Key =====
@@ -457,6 +459,17 @@ class AiKeyRequest(BaseModel):
     base_url: str = Field(default="", max_length=300)
     model: str = Field(default="", max_length=128)
     enabled: bool = True
+
+
+class AiToggleRequest(BaseModel):
+    """用户级 AI 总开关:关闭后保留 Key,但不调用模型。"""
+
+    enabled: bool
+
+
+class AiToggleOut(BaseModel):
+    enabled: bool
+    has_key: bool
 
 
 class AiKeyOut(BaseModel):
