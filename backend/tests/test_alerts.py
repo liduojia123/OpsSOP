@@ -110,6 +110,11 @@ def test_maintenance_alerts_on_backup_failure(monkeypatch, caplog):
     monkeypatch.setattr(maintenance_mod, "prune_login_attempts", lambda *a, **k: 0)
     monkeypatch.setattr(
         maintenance_mod,
+        "prune_chat",
+        lambda *a, **k: {"messages_deleted": 0, "invocations_deleted": 0, "conversations_deleted": 0},
+    )
+    monkeypatch.setattr(
+        maintenance_mod,
         "notify_backup_failure",
         lambda settings, reason, trigger: calls.append((reason, trigger)) or True,
     )
@@ -137,6 +142,11 @@ def test_maintenance_stale_alert_when_backups_disabled(monkeypatch):
     monkeypatch.setattr(maintenance_mod, "record_audit", lambda *a, **k: None)
     monkeypatch.setattr(maintenance_mod, "prune_audit_events", lambda *a, **k: 0)
     monkeypatch.setattr(maintenance_mod, "prune_login_attempts", lambda *a, **k: 0)
+    monkeypatch.setattr(
+        maintenance_mod,
+        "prune_chat",
+        lambda *a, **k: {"messages_deleted": 0, "invocations_deleted": 0, "conversations_deleted": 0},
+    )
     monkeypatch.setattr(
         maintenance_mod,
         "backup_status",

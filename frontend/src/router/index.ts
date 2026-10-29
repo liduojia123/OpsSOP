@@ -22,6 +22,7 @@ const router = createRouter({
         { path: 'sops', name: 'sops', component: () => import('../views/SopListView.vue') },
         { path: 'ai-settings', name: 'ai-settings', component: () => import('../views/AiSettingsView.vue') },
         { path: 'monitoring', name: 'monitoring', component: () => import('../views/MonitoringView.vue') },
+        { path: 'chat', name: 'chat', component: () => import('../views/ChatView.vue') },
         { path: 'sops/:id', name: 'sop-detail', component: () => import('../views/SopDetailView.vue') },
         { path: 'admin', name: 'admin', component: () => import('../views/AdminView.vue') },
       ],

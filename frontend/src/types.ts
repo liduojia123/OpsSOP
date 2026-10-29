@@ -187,6 +187,55 @@ export interface AiToolCall {
   created_at: string
 }
 
+// ===== AI 对话 =====
+
+export interface ChatConversation {
+  id: number
+  user_id: number
+  title: string
+  created_at: string
+  updated_at: string
+  username?: string
+  message_count?: number
+}
+
+export interface ChatToolCall {
+  tool: string
+  arguments: Record<string, unknown>
+  status: string
+  result_excerpt: string
+  error: string
+  latency_ms: number
+}
+
+export interface ChatMessageItem {
+  id: number
+  conversation_id: number
+  role: 'user' | 'assistant'
+  content: string
+  citations: KnowledgeReference[]
+  tool_calls: ChatToolCall[]
+  notes: string[]
+  status: string
+  error_code: string
+  error_message: string
+  usage: Record<string, number> | null
+  model_config_version: string
+  knowledge_version: string
+  latency_ms: number
+  created_at: string
+}
+
+export interface ChatAskResponse {
+  user_message: ChatMessageItem
+  assistant_message: ChatMessageItem
+}
+
+export interface ChatDetail {
+  conversation: ChatConversation
+  messages: ChatMessageItem[]
+}
+
 // ===== 监控 =====
 
 export interface MonitoringConfig {

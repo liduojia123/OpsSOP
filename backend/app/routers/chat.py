@@ -1,0 +1,168 @@
+"""AI 运维对话接口。
+
+- 会话与消息按用户隔离;管理员可查看全部会话(90 天留存)。
+- 提问只触发只读检索与只读工具;不执行任何变更。
+- 助手回答可经人工确认沉淀为故障记录或 SOP 草稿。
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.ai.chat_service import (
+    ChatError,
+    ChatRateLimited,
+    ChatUnavailable,
+    ask,
+    create_conversation,
+    delete_conversation,
+    get_conversation,
+    get_messages,
+    list_conversations,
+    message_for_user,
+    to_fault_record,
+    to_sop_draft,
+)
+from app.config import get_settings
+from app.database import get_db
+from app.deps import get_current_user, record_audit, require_operator
+from app.models import ChatConversation, ChatMessage, User
+from app.schemas import (
+    ChatAskRequest,
+    ChatAskResponse,
+    ChatConversationDetailOut,
+    ChatConversationOut,
+    ChatCreateRequest,
+    ChatMessageOut,
+    ChatSedimentFaultRequest,
+    ChatSedimentSopRequest,
+    FaultRecordOut,
+    SopOut,
+)
+
+router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+@router.post("/conversations", response_model=ChatConversationOut, status_code=status.HTTP_201_CREATED)
+def create(
+    body: ChatCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ChatConversationOut:
+    row = create_conversation(db, user, body.title)
+    return ChatConversationOut.model_validate(row)
+
+
+@router.get("/conversations", response_model=list[ChatConversationOut])
+def list_mine(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[ChatConversationOut]:
+    return [ChatConversationOut.model_validate(row) for row in list_conversations(db, user)]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ChatConversationDetailOut)
+def detail(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ChatConversationDetailOut:
+    try:
+        conversation = get_conversation(db, user, conversation_id)
+    except ChatError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from exc
+    return ChatConversationDetailOut(
+        conversation=ChatConversationOut.model_validate(conversation),
+        messages=[ChatMessageOut.model_validate(row) for row in get_messages(db, conversation)],
+    )
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def remove(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    try:
+        delete_conversation(db, user, conversation_id)
+    except ChatError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    response_model=ChatAskResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def send_message(
+    conversation_id: int,
+    body: ChatAskRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ChatAskResponse:
+    try:
+        conversation = get_conversation(db, user, conversation_id)
+        user_row, assistant_row = ask(db, user, conversation, body.content, get_settings())
+    except ChatRateLimited as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, exc.message) from exc
+    except ChatUnavailable as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
+    except ChatError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
+
+    record_audit(
+        db,
+        user,
+        "chat.message",
+        "chat",
+        str(conversation.id),
+        {
+            "status": assistant_row.status,
+            "tools": len(assistant_row.tool_calls or []),
+            "citations": len(assistant_row.citations or []),
+        },
+    )
+    db.commit()
+    return ChatAskResponse(
+        user_message=ChatMessageOut.model_validate(user_row),
+        assistant_message=ChatMessageOut.model_validate(assistant_row),
+    )
+
+
+@router.post("/messages/{message_id}/to-fault-record", response_model=FaultRecordOut)
+def sediment_to_fault(
+    message_id: int,
+    body: ChatSedimentFaultRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+) -> FaultRecordOut:
+    try:
+        message_for_user(db, user, message_id)
+        record = to_fault_record(db, user, message_id, body.fault_id)
+    except ChatError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
+    record_audit(db, user, "chat.to_fault_record", "fault", record.fault_id, {"message_id": message_id})
+    db.commit()
+    return FaultRecordOut.model_validate(record)
+
+
+@router.post("/messages/{message_id}/to-sop-draft", response_model=SopOut)
+def sediment_to_sop(
+    message_id: int,
+    body: ChatSedimentSopRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+) -> SopOut:
+    try:
+        message_for_user(db, user, message_id)
+        sop = to_sop_draft(db, user, message_id, body.title)
+    except ChatError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
+    record_audit(db, user, "chat.to_sop_draft", "sop", sop.id, {"message_id": message_id})
+    db.commit()
+    return SopOut.model_validate(sop)

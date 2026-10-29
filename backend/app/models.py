@@ -87,6 +87,44 @@ class User(Base):
     )
 
 
+class ChatConversation(Base):
+    """AI 运维对话会话(按用户隔离;管理员可审计)。"""
+
+    __tablename__ = "chat_conversations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ChatMessage(Base):
+    """对话消息;assistant 消息保存引用、工具调用与失败原因。"""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(16))  # user | assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    citations: Mapped[list] = mapped_column(JSONB, default=list)
+    tool_calls: Mapped[list] = mapped_column(JSONB, default=list)
+    notes: Mapped[list] = mapped_column(JSONB, default=list)
+    status: Mapped[str] = mapped_column(String(16), default="ok")  # ok | failed
+    error_code: Mapped[str] = mapped_column(String(32), default="")
+    error_message: Mapped[str] = mapped_column(Text, default="")
+    usage: Mapped[dict | None] = mapped_column(JSONB)
+    model_config_version: Mapped[str] = mapped_column(String(16), default="")
+    knowledge_version: Mapped[str] = mapped_column(String(64), default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class MonitoringConfig(Base):
     """监控数据源配置(单行 id=1);管理员在界面维护。"""
 
@@ -163,7 +201,10 @@ class AiToolInvocation(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     analysis_id: Mapped[int | None] = mapped_column(ForeignKey("ai_analyses.id"), index=True)
-    fault_id: Mapped[int] = mapped_column(ForeignKey("faults.id"), index=True)
+    conversation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chat_conversations.id"), index=True
+    )
+    fault_id: Mapped[int | None] = mapped_column(ForeignKey("faults.id"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     tool: Mapped[str] = mapped_column(String(32))
     arguments: Mapped[dict] = mapped_column(JSONB, default=dict)

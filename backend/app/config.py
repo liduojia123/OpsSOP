@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # 审计日志保留;业务知识数据不自动删除
     audit_retention_days: int = 30
 
+    # AI 对话留存天数(与会话消息、对话工具调用一起清理)
+    chat_retention_days: int = 90
+
     # 应用运行日志文件(可选;默认关闭,仅 stdout)。开启后按天轮转,
     # 保留 LOG_RETENTION_DAYS 天,用于满足 30 天日志留存要求
     log_file_enabled: bool = False
@@ -166,6 +169,8 @@ class Settings(BaseSettings):
             raise ValueError("BACKUP_RETENTION_DAYS 必须至少为 1")
         if self.audit_retention_days < 1:
             raise ValueError("AUDIT_RETENTION_DAYS 必须至少为 1")
+        if self.chat_retention_days < 1:
+            raise ValueError("CHAT_RETENTION_DAYS 必须至少为 1")
         if self.backup_enabled and not self.backup_dir.strip():
             raise ValueError("BACKUP_ENABLED=1 时必须配置 BACKUP_DIR")
         if self.email_mode not in ("disabled", "smtp"):

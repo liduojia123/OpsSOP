@@ -417,7 +417,66 @@ class AiStatusOut(BaseModel):
     tools_available: bool = False
 
 
-# ===== 监控与 SSH 诊断 =====
+# ===== AI 对话 =====
+
+class ChatConversationOut(ORMModel):
+    id: int
+    user_id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatMessageOut(ORMModel):
+    id: int
+    conversation_id: int
+    role: str
+    content: str
+    citations: list = []
+    tool_calls: list = []
+    notes: list = []
+    status: str
+    error_code: str = ""
+    error_message: str = ""
+    usage: dict | None = None
+    model_config_version: str = ""
+    knowledge_version: str = ""
+    latency_ms: int = 0
+    created_at: datetime
+
+
+class ChatConversationDetailOut(BaseModel):
+    conversation: ChatConversationOut
+    messages: list[ChatMessageOut] = []
+
+
+class ChatCreateRequest(BaseModel):
+    title: str = Field(default="", max_length=128)
+
+
+class ChatAskRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class ChatAskResponse(BaseModel):
+    user_message: ChatMessageOut
+    assistant_message: ChatMessageOut
+
+
+class ChatSedimentFaultRequest(BaseModel):
+    fault_id: int
+
+
+class ChatSedimentSopRequest(BaseModel):
+    title: str = Field(default="", max_length=255)
+
+
+class AdminChatConversationOut(ChatConversationOut):
+    username: str = ""
+    message_count: int = 0
+
+
+# ===== 监控与 SSH 诊断 ====="
 
 class MonitoringConfigOut(BaseModel):
     enabled: bool

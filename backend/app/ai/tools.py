@@ -111,7 +111,8 @@ class ToolExecutor:
     db: Session
     user: User
     settings: Settings
-    fault_id: int
+    fault_id: int | None = None
+    conversation_id: int | None = None
     used: int = 0
     invocations: list[dict] = field(default_factory=list)
     _evidence: list[tuple[str, str, str]] = field(default_factory=list)
@@ -269,6 +270,7 @@ class ToolExecutor:
             self.db.add(
                 AiToolInvocation(
                     analysis_id=analysis_id,
+                    conversation_id=self.conversation_id,
                     fault_id=self.fault_id,
                     user_id=self.user.id,
                     tool=item["tool"],
@@ -287,11 +289,18 @@ def build_executor(
     db: Session,
     user: User,
     settings: Settings,
-    fault_id: int,
+    fault_id: int | None = None,
     *,
     enabled: bool,
+    conversation_id: int | None = None,
 ) -> ToolExecutor | None:
     if not enabled:
         return None
-    executor = ToolExecutor(db=db, user=user, settings=settings, fault_id=fault_id)
+    executor = ToolExecutor(
+        db=db,
+        user=user,
+        settings=settings,
+        fault_id=fault_id,
+        conversation_id=conversation_id,
+    )
     return executor if executor.available() else None

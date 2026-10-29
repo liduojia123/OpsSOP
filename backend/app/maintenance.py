@@ -22,6 +22,7 @@ from app.backup import (
 from app.config import Settings
 from app.database import SessionLocal
 from app.deps import record_audit
+from app.ai.chat_service import prune_chat
 from app.retention import prune_audit_events, prune_login_attempts
 
 logger = logging.getLogger("opssop.maintenance")
@@ -111,6 +112,7 @@ def run_daily_maintenance(settings: Settings) -> dict:
                 results["stale_alert"] = "sent"
         audit_deleted = prune_audit_events(db, settings.audit_retention_days)
         login_deleted = prune_login_attempts(db)
+        chat_pruned = prune_chat(db, settings.chat_retention_days)
         record_audit(
             db,
             None,
@@ -122,6 +124,7 @@ def run_daily_maintenance(settings: Settings) -> dict:
         db.commit()
         results["audit_deleted"] = audit_deleted
         results["login_attempts_deleted"] = login_deleted
+        results["chat_pruned"] = chat_pruned
         logger.info("每日维护完成: %s", results)
         return results
     finally:

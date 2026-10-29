@@ -4,9 +4,9 @@
 
 OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题记录、证据补充、人工确认、案例审核和 SOP 发布连接起来，并提供可选的 AI 排查助手与知识检索。
 
-[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
+[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [AI 对话](docs/chat.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **3.0.0**：新增 Prometheus 监控面板、SSH 只读诊断与 AI 实时工具调用（PromQL / 白名单命令，结果作为证据写回分析报告）；保留平台内置备份（每日自动、保留 30 天、管理员可下载、失败告警、异地副本）、生产加固、维护任务韧性、可选应用日志 30 天轮转与列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **3.1.0**：新增 Prometheus 监控面板、SSH 只读诊断与 AI 实时工具调用（PromQL / 白名单命令，结果作为证据写回分析报告）；保留平台内置备份（每日自动、保留 30 天、管理员可下载、失败告警、异地副本）、生产加固、维护任务韧性、可选应用日志 30 天轮转与列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -38,7 +38,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v3.0.0
+git checkout v3.1.0
 ```
 
 复制环境变量示例：
@@ -103,6 +103,7 @@ docker compose -p opssop-prod --env-file .env.production -f docker-compose.yml -
 | [生产上线检查清单](docs/production-checklist.md) | 上线前的发布、安全、备份、监控与业务验收项 |
 | [模型配置](docs/ai-configuration.md) | 聊天、embedding、local-only、索引与故障处理 |
 | [监控与只读诊断](docs/monitoring.md) | Prometheus 面板、node_exporter、SSH 只读模板与 AI 实时查询 |
+| [AI 对话](docs/chat.md) | 对话边界、引用校验、实时工具、留存与沉淀 |
 | [系统架构](docs/architecture.md) | 组件、数据流、状态流转与安全边界 |
 | [运维手册](docs/operations.md) | 日常巡检、隔离演练、日志与故障处理 |
 | [备份恢复](docs/backup-restore.md) | 备份、恢复到新库、数据切换与保留 |
