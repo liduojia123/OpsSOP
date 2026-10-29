@@ -1,4 +1,4 @@
-# OpsSOP 2.4.0 备份与恢复
+# OpsSOP 2.5.0 备份与恢复
 
 运维入口为 `backend/scripts/ops_cli.py`，在 Docker 引擎所在宿主环境执行，只依赖 Python 3.10+ 标准库及 Docker CLI。本文生产示例使用项目 `opssop-prod`、`.env.production` 和生产 Compose 覆盖；操作已有安装时使用其实际项目名与配置。
 
@@ -39,6 +39,42 @@ python3 backend/scripts/ops_cli.py offsite \
 ```
 
 从异地副本恢复前先复制回本地，再按「恢复到全新目标库」执行；恢复演练应至少覆盖一次异地副本。
+
+### 每日异地副本任务
+
+`backend/scripts/offsite_daily.py` 是上面命令的定时封装：在宿主执行，自动完成「取当天最新备份 → 异地复制 → 远端校验 → 记录状态」。
+
+```bash
+python3 backend/scripts/offsite_daily.py --env-file .env.production
+```
+
+- 取件方式：平台备份在容器内（`/data/OpsSop/BackUp`），脚本用 `docker exec` / `docker cp` 取件，不依赖宿主目录权限。
+- 幂等：状态文件（默认 `~/.opssop/offsite-state.json`）记录已复制的备份名，同一备份只复制一次，因此可以按小时调度而不产生重复流量。
+- 过期保护：备份超过 `OFFSITE_MAX_AGE_HOURS`（默认 30 小时）不复制，避免把陈旧备份当新备份上传。
+- 失败可观测：失败时按 `ALERT_EMAIL_TO` 发邮件告警，并以退出码 4 结束；日志追加到 `~/.opssop/offsite.log`，每次操作报告写入 `OFFSITE_REPORT_DIR`。
+- 依赖：宿主需要 `docker`、`ssh`、`scp` 与 Python 3.10+ 标准库；不需要安装任何第三方包。
+
+配置写在环境文件的 `OFFSITE_*` 键里（命令行与环境变量优先）：
+
+| 键 | 说明 |
+|---|---|
+| `OFFSITE_COMPOSE_PROJECT` | Compose 项目名，用于定位运行平台备份的后端容器 |
+| `OFFSITE_CONTAINER` / `OFFSITE_BACKUP_DIR` | 直接指定容器名与容器内备份目录 |
+| `OFFSITE_HOST` / `OFFSITE_USER` / `OFFSITE_REMOTE_DIR` | 异地主机、SSH 用户与远端绝对路径目录 |
+| `OFFSITE_PORT` / `OFFSITE_IDENTITY` | SSH 端口与私钥路径 |
+| `OFFSITE_KEEP` | 异地保留份数（默认 14） |
+| `OFFSITE_MAX_AGE_HOURS` | 备份年龄上限（默认 30 小时） |
+| `OFFSITE_STATE_FILE` / `OFFSITE_REPORT_DIR` | 幂等状态文件与报告目录 |
+
+调度示例（Docker 引擎所在宿主机；本项目为 WSL，用户级 crontab 即可，无需 root）：
+
+```bash
+crontab -e
+# 每小时 17 分检查一次：当天备份只复制一次，失败会自动重试并告警
+17 * * * * cd /opt/opssop && python3 backend/scripts/offsite_daily.py --env-file .env.production >> ~/.opssop/offsite.log 2>&1
+```
+
+宿主休眠或关机时会错过执行点，恢复后下一个整点会补上（同一天同一备份只复制一次）。
 
 平台生成的归档可以直接用本文的恢复流程：
 
