@@ -1,0 +1,243 @@
+/* 组件层：页面骨架、面板、筛选条、空状态等跨页面复用的结构。
+ * 具体页面的构图与响应式规则留在各视图的 scoped 样式中。 */
+
+.ops-page {
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 30px var(--ops-page-gutter) 40px;
+}
+
+.ops-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.ops-page-header h1 {
+  margin: 4px 0 6px;
+  color: var(--ops-text);
+  font-size: var(--ops-text-title);
+  font-weight: var(--ops-weight-bold);
+  letter-spacing: -0.03em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.ops-eyebrow {
+  color: var(--ops-brand);
+  font-family: var(--ops-font-mono);
+  font-size: 10px;
+  font-weight: var(--ops-weight-bold);
+  letter-spacing: 2px;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+.ops-page-description {
+  margin: 0;
+  color: var(--ops-muted);
+  font-size: var(--ops-text-sm);
+  line-height: 1.7;
+}
+
+.ops-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ops-panel {
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-panel);
+  background: var(--ops-surface);
+  box-shadow: var(--ops-shadow-panel);
+}
+
+.page-card {
+  padding: var(--ops-panel-padding);
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-panel);
+  background: var(--ops-surface);
+  box-shadow: var(--ops-shadow-panel);
+}
+
+.ops-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ops-border-light);
+}
+
+.ops-section-header h2,
+.ops-section-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--ops-text);
+  font-size: var(--ops-text-base);
+  font-weight: var(--ops-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.5;
+}
+
+.ops-section-header p {
+  margin: 3px 0 0;
+  color: var(--ops-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.ops-section-header > svg {
+  color: var(--ops-faint);
+  flex-shrink: 0;
+}
+
+.ops-section-caption {
+  color: var(--ops-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.ops-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ops-border-light);
+  background: var(--ops-surface-muted);
+}
+
+.ops-filter-bar > .el-button {
+  margin-bottom: 1px;
+}
+
+.ops-back-link.el-button {
+  gap: 4px;
+  margin: 0 0 10px -6px;
+  color: var(--ops-muted);
+  font-size: var(--ops-text-xs);
+}
+
+.ops-back-link.el-button:hover {
+  color: var(--ops-brand);
+}
+
+.ops-load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.ops-table-panel {
+  min-width: 0;
+}
+
+/* 列表里的紧凑空状态：不使用大插画，保持工程档案的密度 */
+.ops-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 24px 20px;
+  color: var(--ops-muted);
+}
+
+.ops-empty > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--ops-success);
+}
+
+.ops-empty.is-quiet > svg {
+  color: var(--ops-faint);
+}
+
+.ops-empty strong {
+  display: block;
+  color: var(--ops-text-soft);
+  font-size: var(--ops-text-xs);
+  font-weight: var(--ops-weight-semibold);
+  line-height: 1.6;
+}
+
+.ops-empty span {
+  display: block;
+  margin-top: 4px;
+  color: var(--ops-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+/* 阅读区的通用正文排版 */
+.ops-reading-text {
+  color: var(--ops-text-soft);
+  font-size: var(--ops-text-base);
+  line-height: var(--ops-leading-reading);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1100px) {
+  .ops-page {
+    padding: 24px;
+  }
+
+  .ops-page-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .ops-page {
+    padding: 20px 16px 32px;
+  }
+
+  .ops-page-header {
+    gap: 14px;
+  }
+
+  .ops-page-header h1 {
+    font-size: 24px;
+  }
+
+  .ops-section-header,
+  .ops-filter-bar {
+    padding: 14px 16px;
+  }
+
+  .ops-section-header {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .ops-section-header > .el-button {
+    margin-left: auto;
+  }
+
+  .ops-section-caption {
+    white-space: normal;
+  }
+
+  .ops-filter-bar > div {
+    flex: 1 1 100%;
+  }
+
+  .ops-filter-bar > .el-button {
+    margin-top: 2px;
+  }
+}
+
+

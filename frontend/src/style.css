@@ -1,0 +1,5 @@
+/* Tailwind 入口：只保留基础重置与工具类。
+ * 设计变量、基础排版、Element Plus 主题、组件与动效分层见 src/styles/。 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

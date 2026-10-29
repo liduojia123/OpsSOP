@@ -1,0 +1,325 @@
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.concurrency import advance_version, require_current_version
+from app.database import get_db
+from app.deps import get_current_user, record_audit, require_operator, require_reviewer
+from app.models import Case, CaseStatus, Role, Sop, SopAiGenerationRun, SopStatus, User, utcnow
+from app.schemas import (
+    CaseOut,
+    CaseUpdate,
+    ReviewRequest,
+    SopGenerateAiRequest,
+    SopGenerateAiResponse,
+    SopGenerationRunOut,
+    SopOut,
+)
+
+router = APIRouter(prefix="/api/cases", tags=["cases"])
+
+
+def _case_visible(user: User):
+    """查询过滤:已通过案例对所有登录用户可读;待审核/退回仅创建者与审核权限可见。"""
+    if user.role == Role.operator:
+        return or_(Case.created_by == user.id, Case.status == CaseStatus.approved)
+    return True
+
+
+def _can_view_case(user: User, case: Case) -> bool:
+    if user.role == Role.operator:
+        return case.created_by == user.id or case.status == CaseStatus.approved
+    return True
+
+
+def _lock_case(db: Session, case_id: int) -> Case:
+    case = db.scalar(select(Case).where(Case.id == case_id).with_for_update().execution_options(populate_existing=True))
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    return case
+
+
+def _get_editable_case(db: Session, case_id: int, user: User, expected: str | None) -> Case:
+    """仅退回(returned)状态可编辑:待审核内容是审核快照,不能无声变更。"""
+    case = _lock_case(db, case_id)
+    if user.role == Role.operator and case.created_by != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只能修改自己创建的案例")
+    require_current_version(expected, case.updated_at)
+    if case.status == CaseStatus.approved:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "已通过的案例不可修改")
+    if case.status == CaseStatus.pending_review:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "待审核案例已锁定审核快照,不可修改;如需修改请等待退回")
+    return case
+
+
+def _missing_case_fields(case: Case) -> list[str]:
+    """提交/审批共用:人工确认字段完整性校验。"""
+    return [
+        name
+        for name, value in [
+            ("人工确认根因", case.confirmed_root_cause),
+            ("处理步骤", case.handling_steps),
+            ("恢复验证", case.recovery_verification),
+        ]
+        if not value.strip()
+    ]
+
+
+@router.get("", response_model=list[CaseOut])
+def list_cases(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    q: str | None = Query(default=None, description="标题/现象/根因关键词"),
+    status_filter: CaseStatus | None = Query(default=None, alias="status"),
+    category_id: int | None = None,
+) -> list[CaseOut]:
+    stmt = select(Case).where(_case_visible(user))
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(
+            or_(
+                Case.title.ilike(like),
+                Case.symptom.ilike(like),
+                Case.confirmed_root_cause.ilike(like),
+                Case.service.ilike(like),
+            )
+        )
+    if status_filter is not None:
+        stmt = stmt.where(Case.status == status_filter)
+    if category_id is not None:
+        stmt = stmt.where(Case.category_id == category_id)
+    stmt = stmt.order_by(Case.updated_at.desc())
+    return [CaseOut.model_validate(c) for c in db.scalars(stmt).all()]
+
+
+@router.get("/{case_id}", response_model=CaseOut)
+def get_case(
+    case_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CaseOut:
+    case = db.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    if not _can_view_case(user, case):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该案例")
+    return CaseOut.model_validate(case)
+
+
+@router.patch("/{case_id}", response_model=CaseOut)
+def update_case(
+    case_id: int,
+    body: CaseUpdate,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+) -> CaseOut:
+    case = _get_editable_case(db, case_id, user, expected)
+    data = body.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        setattr(case, key, value)
+    advance_version(case)
+    record_audit(db, user, "case.update", "case", case.id, {"fields": list(data.keys())})
+    db.commit()
+    return CaseOut.model_validate(case)
+
+
+@router.post("/{case_id}/submit", response_model=CaseOut)
+def submit_case(
+    case_id: int,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+) -> CaseOut:
+    """退回后修改完成,重新提交审核。"""
+    case = _get_editable_case(db, case_id, user, expected)
+    if case.status != CaseStatus.returned:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有退回状态可重新提交审核")
+    missing = _missing_case_fields(case)
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"缺少人工确认内容: {', '.join(missing)}")
+    case.status = CaseStatus.pending_review
+    advance_version(case)
+    record_audit(db, user, "case.submit", "case", case.id)
+    db.commit()
+    return CaseOut.model_validate(case)
+
+
+@router.post("/{case_id}/approve", response_model=CaseOut)
+def approve_case(
+    case_id: int,
+    body: ReviewRequest,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(require_reviewer),
+) -> CaseOut:
+    case = _lock_case(db, case_id)
+    require_current_version(expected, case.updated_at)
+    if case.status != CaseStatus.pending_review:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有待审核案例可通过审核")
+    # 审批时复核全部人工确认字段
+    missing = _missing_case_fields(case)
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"人工确认内容不完整,不能通过: {', '.join(missing)}")
+    case.status = CaseStatus.approved
+    advance_version(case)
+    case.review_comment = body.comment
+    case.reviewed_by = reviewer.id
+    case.reviewed_at = utcnow()
+    record_audit(db, reviewer, "case.approve", "case", case.id, {"comment": body.comment[:200]})
+    db.commit()
+    return CaseOut.model_validate(case)
+
+
+@router.post("/{case_id}/return", response_model=CaseOut)
+def return_case(
+    case_id: int,
+    body: ReviewRequest,
+    expected: str | None = Header(default=None, alias="X-Expected-Updated-At"),
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(require_reviewer),
+) -> CaseOut:
+    case = _lock_case(db, case_id)
+    require_current_version(expected, case.updated_at)
+    if case.status != CaseStatus.pending_review:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有待审核案例可退回")
+    if not body.comment.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "退回必须填写审核意见")
+    case.status = CaseStatus.returned
+    advance_version(case)
+    case.review_comment = body.comment
+    case.reviewed_by = reviewer.id
+    case.reviewed_at = utcnow()
+    record_audit(db, reviewer, "case.return", "case", case.id, {"comment": body.comment[:200]})
+    db.commit()
+    return CaseOut.model_validate(case)
+
+
+@router.post("/{case_id}/generate-sop", response_model=SopOut, status_code=status.HTTP_201_CREATED)
+def generate_sop_draft(
+    case_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+) -> SopOut:
+    """人工主动从已通过案例生成 SOP 草稿(字段模板拷贝,不含 AI 生成,不自动执行)。"""
+    case = db.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    if case.status != CaseStatus.approved:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有已通过案例可生成 SOP 草稿")
+    if user.role == Role.operator and case.created_by != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只能从自己提交的案例生成草稿")
+
+    import uuid
+
+    sop = Sop(
+        doc_id=str(uuid.uuid4()),
+        version=1,
+        title=f"[草稿] {case.title}",
+        category_id=case.category_id,
+        tags=list(case.tags or []),
+        applicable_env=f"环境: {case.environment}\n服务: {case.service}\n组件版本: {case.component_version}",
+        symptom=case.symptom,
+        preconditions="【待补】请补充前置条件",
+        check_steps="【待补】请补充排查步骤",
+        handling_steps=case.handling_steps,
+        recovery_verification=case.recovery_verification,
+        rollback_steps="【待补】请补充回滚方式",
+        notes="【待补】请补充注意事项",
+        source_case_id=case.id,
+        maintainer_id=user.id,
+        status=SopStatus.draft,
+        created_by=user.id,
+    )
+    db.add(sop)
+    db.flush()
+    record_audit(db, user, "sop.generate_from_case", "sop", sop.id, {"case_id": case.id})
+    db.commit()
+    return SopOut.model_validate(sop)
+
+
+@router.post(
+    "/{case_id}/generate-sop-ai",
+    response_model=SopGenerateAiResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_sop_draft_ai(
+    case_id: int,
+    body: SopGenerateAiRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+) -> SopGenerateAiResponse:
+    """人工主动从已通过案例 AI 生成 SOP 草稿。
+
+    与模板生成(/generate-sop)分开;不自动提交审核或发布;不改写来源案例。
+    审核员不能调用(沿用生成权限:require_operator);运维仅限自己提交的已通过案例。
+    HTTP 201 仅代表创建了生成运行记录,是否成功以 run.status 为准。
+    """
+    from app.ai.llm import LLMError
+    from app.ai.service import RateLimited
+    from app.ai.sop_draft import (
+        AiUnavailable,
+        SourceRejected,
+        TokenConflict,
+        generate_sop_draft,
+    )
+
+    case = db.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    if case.status != CaseStatus.approved:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有已通过案例可生成 SOP 草稿")
+    if user.role == Role.operator and case.created_by != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只能从自己提交的案例生成草稿")
+
+    try:
+        result = generate_sop_draft(db, user, case_id, body.request_token, get_settings())
+    except AiUnavailable as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    except SourceRejected as exc:
+        # 来源状态在处理期间变化/权限失效:不调用模型、不落生成记录
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    except TokenConflict as exc:
+        # 同一请求正在生成中或 token 不匹配:防重复创建草稿/重复计费
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    except RateLimited as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc))
+    except LLMError as exc:
+        # 适配层配置错误(调用前失败):不落记录、不回退演示/模板结果
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message)
+
+    return SopGenerateAiResponse(
+        run=SopGenerationRunOut.model_validate(result.run),
+        sop=SopOut.model_validate(result.sop) if result.sop else None,
+        reused=result.reused,
+    )
+
+
+@router.get("/{case_id}/sop-generations", response_model=list[SopGenerationRunOut])
+def list_sop_generations(
+    case_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[SopGenerationRunOut]:
+    """查看某案例的 AI 生成运行记录(倒序)。与故障分析历史分开,不混用。"""
+    case = db.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
+    if not _can_view_case(user, case):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该案例")
+    rows = db.scalars(
+        select(SopAiGenerationRun)
+        .where(SopAiGenerationRun.case_id == case_id)
+        .order_by(SopAiGenerationRun.id.desc())
+        .limit(limit)
+    ).all()
+    out: list[SopGenerationRunOut] = []
+    for r in rows:
+        item = SopGenerationRunOut.model_validate(r)
+        # 幂等 token 只对本人(与管理员)可见,避免他人历史中泄露可重放的请求键
+        if user.role != Role.admin and r.created_by != user.id:
+            item = item.model_copy(update={"request_token": ""})
+        out.append(item)
+    return out

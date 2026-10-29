@@ -1,0 +1,32 @@
+name: 问题反馈
+description: 报告功能、部署或使用问题
+title: "[问题] "
+body:
+  - type: markdown
+    attributes:
+      value: "请先删除凭据、业务隐私和生产地址。安全漏洞请按 SECURITY.md 联系维护者。"
+  - type: input
+    id: version
+    attributes:
+      label: 产品版本
+      description: Git tag 或提交号
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 部署环境
+      description: 操作系统、Docker / Compose 版本，以及 AI / embedding 模式；不要填写密钥。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤与影响
+      description: 提供最小步骤、预期结果、实际结果和影响范围。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 脱敏日志或截图

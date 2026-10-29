@@ -1,0 +1,122 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    # PostgreSQL 16 与 pgvector:业务数据和可选向量索引
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    stop_grace_period: 60s
+    shm_size: 256mb
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opssop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-opssop}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opssop} -d ${POSTGRES_DB:-opssop}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # 仅本地开发暴露端口;云端部署请移除或绑定 127.0.0.1
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+  backend:
+    image: opssop-backend:2.2.0
+    build:
+      context: ./backend
+      args:
+        # 可选 Debian 镜像与 PyPI 镜像，供网络受限的构建环境使用
+        APT_MIRROR: ${APT_MIRROR:-}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    init: true
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opssop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-opssop}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-opssop_test}
+      SECRET_KEY: ${SECRET_KEY:?请在 .env 中设置 SECRET_KEY}
+      SESSION_EXPIRE_HOURS: ${SESSION_EXPIRE_HOURS:-8}
+      OPSSOP_ENV: ${OPSSOP_ENV:-development}
+      OPSSOP_ADMIN_USERNAME: ${OPSSOP_ADMIN_USERNAME:-admin}
+      OPSSOP_ADMIN_PASSWORD: ${OPSSOP_ADMIN_PASSWORD:?请在 .env 中设置 OPSSOP_ADMIN_PASSWORD}
+      OPSSOP_SEED_DEMO: ${OPSSOP_SEED_DEMO:-0}
+      OPSSOP_DEMO_OPERATOR_PASSWORD: ${OPSSOP_DEMO_OPERATOR_PASSWORD:-demo-operator-password}
+      OPSSOP_DEMO_REVIEWER_PASSWORD: ${OPSSOP_DEMO_REVIEWER_PASSWORD:-demo-reviewer-password}
+      AI_MODE: ${AI_MODE:-disabled}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      AI_SUPPORTS_JSON_MODE: ${AI_SUPPORTS_JSON_MODE:-0}
+      AI_SUPPORTS_USAGE: ${AI_SUPPORTS_USAGE:-0}
+      AI_MAX_CONTEXT_CHARS: ${AI_MAX_CONTEXT_CHARS:-24000}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-2048}
+      AI_RATE_LIMIT_PER_MINUTE: ${AI_RATE_LIMIT_PER_MINUTE:-6}
+      AI_MAX_CONCURRENT_PER_USER: ${AI_MAX_CONCURRENT_PER_USER:-2}
+      EMBEDDING_MODE: ${EMBEDDING_MODE:-disabled}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_TIMEOUT_SECONDS: ${EMBEDDING_TIMEOUT_SECONDS:-30}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-16}
+      EMBEDDING_MAX_INPUT_CHARS: ${EMBEDDING_MAX_INPUT_CHARS:-6000}
+      EMBEDDING_RATE_LIMIT_PER_MINUTE: ${EMBEDDING_RATE_LIMIT_PER_MINUTE:-30}
+      EMBEDDING_MAX_CONCURRENT_PER_USER: ${EMBEDDING_MAX_CONCURRENT_PER_USER:-4}
+      LOCAL_ONLY: ${LOCAL_ONLY:-0}
+      # 仅信任容器网络内的反向代理转发头;留空则忽略 X-Forwarded-For
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}
+      # 平台内置备份(生产环境启动每日任务;单实例)
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+      BACKUP_DIR: ${BACKUP_DIR:-/data/OpsSop/BackUp}
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-30}
+      TZ: ${TZ:-Asia/Shanghai}
+      # 邮件接口预留;默认 disabled,只记录日志
+      EMAIL_MODE: ${EMAIL_MODE:-disabled}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USERNAME: ${EMAIL_USERNAME:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # 便于容器内跑 pytest(测试库在 PostgreSQL 中,不产生文件卷)
+      - ./backend/tests:/srv/opssop/tests:ro
+      # 本地开发/演示使用命名卷;生产覆盖改为宿主机目录
+      - backupdata:/data/OpsSop/BackUp
+    # 宿主机端口可覆盖:演示环境使用独立端口,避免与既有项目冲突
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+
+  frontend:
+    image: opssop-frontend:2.2.0
+    build: ./frontend
+    restart: unless-stopped
+    stop_grace_period: 10s
+    logging: *default-logging
+    depends_on:
+      backend:
+        condition: service_healthy
+    # 云部署默认监听所有地址;本地演示可在 .env.demo 设 FRONTEND_HOST=127.0.0.1
+    ports:
+      - "${FRONTEND_HOST:-0.0.0.0}:${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  pgdata:
+  backupdata:

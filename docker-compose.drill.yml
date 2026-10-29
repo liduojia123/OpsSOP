@@ -1,0 +1,93 @@
+# 隔离运维演练覆盖配置。
+# 使用已准备的运行镜像与当前源码挂载,记录实际镜像和源码信息。
+# 正式生产用 docker-compose.yml + docker-compose.prod.yml;本文件只用于演练。
+#
+# 用法(由 scripts/ops_cli.py drill 生成并传入):
+#   docker compose -p <project> --env-file <drill.env> \
+#     -f docker-compose.yml -f docker-compose.drill.yml up -d
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    env_file:
+      - ${OPS_ENV_FILE:?}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports: !reset []
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    labels:
+      com.opssop.purpose: drill
+      com.opssop.run_id: ${OPS_RUN_ID:-}
+
+  backend:
+    image: opssop-backend:2.2.0
+    working_dir: /srv/opssop
+    command: ["sh", "scripts/start.sh"]
+    env_file:
+      - ${OPS_ENV_FILE:?}
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    # 只挂载运行所需源码;不把 tests 等开发材料带入运行容器
+    volumes: !override
+      - ./backend/app:/srv/opssop/app:ro
+      - ./backend/alembic:/srv/opssop/alembic:ro
+      - ./backend/scripts:/srv/opssop/scripts:ro
+      - ./backend/alembic.ini:/srv/opssop/alembic.ini:ro
+    ports: !reset []
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/system/health')",
+        ]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 30
+    labels:
+      com.opssop.purpose: drill
+      com.opssop.run_id: ${OPS_RUN_ID:-}
+
+  frontend:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: !override
+      - "127.0.0.1:${FRONTEND_PORT:?}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    labels:
+      com.opssop.purpose: drill
+      com.opssop.run_id: ${OPS_RUN_ID:-}
+
+volumes:
+  pgdata:
+    labels:
+      com.opssop.purpose: drill
+      com.opssop.run_id: ${OPS_RUN_ID:-}
+
+networks:
+  default:
+    labels:
+      com.opssop.purpose: drill
+      com.opssop.run_id: ${OPS_RUN_ID:-}

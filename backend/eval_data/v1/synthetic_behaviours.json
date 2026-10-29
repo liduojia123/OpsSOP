@@ -1,0 +1,14 @@
+{
+  "note": "合成模型行为仅用于协议与指标机制验证,不代表真实模型输出",
+  "behaviours": {
+    "S030": "timeout",
+    "S031": "rate_limited",
+    "S032": "bad_json",
+    "S033": "schema_bad",
+    "S034": "schema_repair_then_valid",
+    "S035": "invalid_reference",
+    "S036": "partial_usage",
+    "S037": "source_invalidation",
+    "S038": "valid"
+  }
+}
