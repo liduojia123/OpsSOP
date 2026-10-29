@@ -191,6 +191,16 @@ export interface AiProvider {
   user_base_url: string
 }
 
+/** 管理员全局 AI 配置(不含 Key 明文)。 */
+export interface AiGlobalConfig {
+  enabled: boolean
+  provider: string
+  base_url: string
+  model: string
+  has_key: boolean
+  updated_at: string | null
+}
+
 /** 厂商模型列表中的一项。 */
 export interface AiModel {
   id: string

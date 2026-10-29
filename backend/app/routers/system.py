@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.ai.keys import list_user_keys, resolve_user_config
+from app.ai.keys import (
+    list_user_keys,
+    resolve_effective_ai,
+    resolve_global_config,
+    resolve_user_config,
+)
 from app.ai.providers import get_provider
 from app.config import get_settings
 from app.database import get_db
@@ -33,8 +38,16 @@ def ai_status(
         "local": "本地模型模式:调用本机或内网模型接口。",
     }
     user_config = resolve_user_config(db, user, s)
+    global_config = resolve_global_config(db, s)
+    effective = user_config or global_config
     configured = any(row.api_key_encrypted for row in list_user_keys(db, user.id))
-    if user_config is not None:
+    if user_config is None and effective is not None:
+        provider_name = get_provider(effective.provider).name
+        message = (
+            f"已使用管理员配置的 {provider_name}({effective.model});"
+            "问题描述与日志片段会发送到该厂商接口。"
+        )
+    elif user_config is not None:
         provider_name = get_provider(user_config.provider).name
         message = (
             f"已使用你自填的 {provider_name} 配置({user_config.model});"
@@ -45,7 +58,8 @@ def ai_status(
     else:
         message = messages.get(s.ai_mode, "未知模式")
     return AiStatusOut(
-        ai_mode=s.ai_mode,
+        # 全局配置由管理员在界面启用时,状态显示为云端模式(即便环境变量仍是 disabled)
+        ai_mode=("cloud" if (s.ai_mode == "disabled" and global_config is not None) else s.ai_mode),
         embedding_mode=s.embedding_mode,
         local_only=s.local_only,
         message=message,

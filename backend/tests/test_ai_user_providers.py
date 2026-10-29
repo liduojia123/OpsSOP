@@ -26,7 +26,7 @@ from app.ai.providers import (
     parse_models_payload,
 )
 from app.config import Settings
-from app.models import UserAiKey
+from app.models import Role, User, UserAiKey
 
 
 SECRET = "unit-test-secret-key-0123456789"
@@ -418,3 +418,135 @@ def test_disabled_user_config_is_not_used(db, operator):
     set_user_ai_enabled(db, operator.id, False)
     db.commit()
     assert resolve_user_config(db, operator, settings) is None
+
+
+# ===== 管理员全局配置 =====
+
+def test_global_config_requires_admin(client, op_headers):
+    assert client.get("/api/admin/ai", headers=op_headers).status_code == 403
+    resp = client.put(
+        "/api/admin/ai",
+        json={"enabled": True, "provider": "deepseek", "api_key": "sk-x"},
+        headers=op_headers,
+    )
+    assert resp.status_code == 403
+
+
+def test_global_config_save_encrypts_and_hides_key(client, db, adm_headers):
+    resp = client.put(
+        "/api/admin/ai",
+        json={
+            "enabled": True,
+            "provider": "mimo",
+            "api_key": "sk-global-secret",
+            "model": "mimo-v2.6-pro",
+        },
+        headers=adm_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["enabled"] is True and body["has_key"] is True
+    assert "sk-global-secret" not in resp.text
+
+    from app.models import GlobalAiConfig
+
+    row = db.get(GlobalAiConfig, 1)
+    assert row is not None and "sk-global-secret" not in row.api_key_encrypted
+
+    read = client.get("/api/admin/ai", headers=adm_headers)
+    assert read.status_code == 200
+    assert "sk-global-secret" not in read.text
+
+
+def test_global_config_enable_requires_key(client, adm_headers):
+    resp = client.put(
+        "/api/admin/ai",
+        json={"enabled": True, "provider": "deepseek", "api_key": "", "model": "deepseek-flash"},
+        headers=adm_headers,
+    )
+    assert resp.status_code == 400
+    assert "API Key" in resp.json()["detail"]
+
+
+def test_global_config_applies_to_users_without_own_key(db, operator):
+    from app.ai.keys import resolve_effective_ai, save_global_config
+
+    settings = _settings()
+    admin = User(
+        username="global_admin",
+        display_name="管理员",
+        password_hash="x",
+        role=Role.admin,
+    )
+    db.add(admin)
+    db.commit()
+
+    assert resolve_effective_ai(db, operator, settings) is None
+    save_global_config(
+        db, admin, settings, enabled=True, provider="deepseek", api_key="sk-global", model="deepseek-flash"
+    )
+    db.commit()
+    config = resolve_effective_ai(db, operator, settings)
+    assert config is not None and config.provider == "deepseek" and config.api_key == "sk-global"
+
+
+def test_user_config_takes_precedence_over_global(db, operator):
+    from app.ai.keys import resolve_effective_ai, save_global_config
+
+    settings = _settings()
+    admin = User(username="a2", display_name="管理员", password_hash="x", role=Role.admin)
+    db.add(admin)
+    db.commit()
+    save_global_config(db, admin, settings, enabled=True, provider="deepseek", api_key="sk-g", model="deepseek-flash")
+    save_user_key(db, operator, "mimo", "sk-u", settings, model="mimo-v2.6-pro")
+    db.commit()
+
+    config = resolve_effective_ai(db, operator, settings)
+    assert config.provider == "mimo" and config.api_key == "sk-u"
+
+
+def test_global_config_disabled_is_not_used(db, operator):
+    from app.ai.keys import resolve_effective_ai, save_global_config
+
+    settings = _settings()
+    admin = User(username="a3", display_name="管理员", password_hash="x", role=Role.admin)
+    db.add(admin)
+    db.commit()
+    save_global_config(db, admin, settings, enabled=True, provider="deepseek", api_key="sk-g")
+    save_global_config(db, admin, settings, enabled=False, provider="deepseek")
+    db.commit()
+    assert resolve_effective_ai(db, operator, settings) is None
+
+
+def test_global_config_rejected_in_local_only(db, operator):
+    from app.ai.keys import save_global_config
+
+    admin = User(username="a4", display_name="管理员", password_hash="x", role=Role.admin)
+    db.add(admin)
+    db.commit()
+    with pytest.raises(KeyError_):
+        save_global_config(
+            db, admin, _settings(local_only=True), enabled=True, provider="deepseek", api_key="sk-g"
+        )
+
+
+def test_ai_status_reports_cloud_when_global_enabled(client, db, adm_headers):
+    client.put(
+        "/api/admin/ai",
+        json={"enabled": True, "provider": "deepseek", "api_key": "sk-global", "model": "deepseek-flash"},
+        headers=adm_headers,
+    )
+    # 用另一个没有自填 Key 的用户查询状态
+    other = User(username="no_key_user", display_name="无Key", password_hash="x", role=Role.operator)
+    db.add(other)
+    db.commit()
+    from app.security import hash_password
+
+    other.password_hash = hash_password("test-password-1")
+    db.commit()
+    login = client.post("/api/auth/login", json={"username": "no_key_user", "password": "test-password-1"})
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    status = client.get("/api/system/ai-status", headers=headers).json()
+    assert status["ai_mode"] == "cloud"
+    assert status["user_ai_enabled"] is False
+    assert "管理员配置" in status["message"]

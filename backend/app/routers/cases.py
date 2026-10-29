@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.ai.keys import resolve_user_config
+from app.ai.keys import resolve_effective_ai
 from app.config import get_settings
 from app.concurrency import advance_version, require_current_version
 from app.database import get_db
@@ -282,7 +282,7 @@ def generate_sop_draft_ai(
 
     try:
         settings = get_settings()
-        user_config = resolve_user_config(db, user, settings)
+        user_config = resolve_effective_ai(db, user, settings)
         result = generate_sop_draft(
             db, user, case_id, body.request_token, settings, user_config=user_config
         )

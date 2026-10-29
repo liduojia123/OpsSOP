@@ -73,8 +73,11 @@ async function fetchModels() {
     models.value = data.models
     modelsSource.value = data.source
     modelsNote.value = data.note || ''
-    if (data.models.length && !data.models.some((m: AiModel) => m.id === model.value)) {
-      model.value = data.models[0].id
+    const preferred =
+      data.models.find((m: AiModel) => (provider.value?.default_models || []).includes(m.id)) ||
+      data.models[0]
+    if (preferred && !data.models.some((m: AiModel) => m.id === model.value)) {
+      model.value = preferred.id
     }
     if (data.source === 'fallback') {
       ElMessage.warning(data.note || '厂商未提供模型列表,已给出内置清单')

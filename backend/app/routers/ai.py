@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.keys import resolve_user_config
+from app.ai.keys import resolve_effective_ai
 from app.ai.llm import LLMError
 from app.ai.service import EmptyInput, RateLimited, revalidate_report_dict, run_analysis
 from app.config import get_settings
@@ -54,7 +54,7 @@ def analyze_fault(
     """触发一次 AI 分析。不修改故障字段;模型失败不丢输入(输入仍在左栏表单中)。"""
     fault = _get_viewable_fault(db, fault_id, user)
     settings = get_settings()
-    user_config = resolve_user_config(db, user, settings)
+    user_config = resolve_effective_ai(db, user, settings)
     records = list(
         db.scalars(
             select(FaultRecord)

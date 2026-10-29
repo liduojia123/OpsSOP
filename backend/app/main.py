@@ -11,6 +11,7 @@ from app.net import TrustedProxyMiddleware, parse_trusted_cidrs
 from app.routers import (
     admin_embedding,
     ai,
+    ai_admin,
     ai_settings,
     audit,
     auth,
@@ -59,7 +60,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OpsSOP",
     description="运维故障知识库与 SOP 管理系统",
-    version="2.7.0",
+    version="2.8.0",
     lifespan=lifespan,
 )
 
@@ -90,4 +91,5 @@ app.include_router(backups.router)
 app.include_router(system.router)
 app.include_router(ai.router)
 app.include_router(ai_settings.router)
+app.include_router(ai_admin.router)
 app.include_router(admin_embedding.router)

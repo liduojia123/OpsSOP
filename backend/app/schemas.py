@@ -467,6 +467,27 @@ class AiToggleRequest(BaseModel):
     enabled: bool
 
 
+class AiGlobalOut(BaseModel):
+    """管理员全局 AI 配置(不含 Key 明文)。未配置时 provider 为空。"""
+
+    enabled: bool = False
+    provider: str = ""
+    base_url: str = ""
+    model: str = ""
+    has_key: bool = False
+    updated_at: datetime | None = None
+
+
+class AiGlobalRequest(BaseModel):
+    """保存全局配置;api_key 留空表示不修改已保存的 Key。"""
+
+    enabled: bool = False
+    provider: str = Field(min_length=1, max_length=32)
+    api_key: str = Field(default="", max_length=400)
+    base_url: str = Field(default="", max_length=300)
+    model: str = Field(default="", max_length=128)
+
+
 class AiToggleOut(BaseModel):
     enabled: bool
     has_key: bool

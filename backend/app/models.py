@@ -87,6 +87,23 @@ class User(Base):
     )
 
 
+class GlobalAiConfig(Base):
+    """管理员全局 AI 配置(单行,id=1);未配置时回落到环境变量。"""
+
+    __tablename__ = "ai_global_config"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    provider: Mapped[str] = mapped_column(String(32), default="")
+    api_key_encrypted: Mapped[str] = mapped_column(Text, default="")
+    base_url: Mapped[str] = mapped_column(String(300), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class UserAiKey(Base):
     """用户自填的模型厂商配置(每个用户每个厂商一条)。
 

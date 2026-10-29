@@ -1,6 +1,6 @@
 # OpsSOP AI 配置指南
 
-适用版本：2.7.0。
+适用版本：2.8.0。
 
 聊天模型负责故障分析和 SOP 草稿整理；embedding 模型负责知识向量化与混合检索。两者独立配置，均为可选能力。关闭模型后，业务流程和关键词检索仍可使用。
 
@@ -34,6 +34,15 @@ docker compose up -d --force-recreate backend
 | DeepSeek | `https://api.deepseek.com` | `GET /models` | `deepseek-flash`、`deepseek-v4-pro` |
 | MiniMax | `https://api.minimaxi.com/v1`（国际 `https://api.minimax.io/v1`） | `GET {base}/models` | `MiniMax-M3.1-Flash`、`MiniMax-M3` |
 | 小米 MiMo | `https://api.xiaomimimo.com/v1` | `GET {base}/models` | `mimo-v2.6-pro`、`mimo-v2.6-flash`、`mimo-v2.6-pro-ultraspeed` |
+
+## 管理员全局配置（界面）
+
+管理员可在「AI 设置」页底部的「全局 AI（管理员）」面板直接启用/关闭全局 AI：
+
+- 选择厂商、填写 Key、拉取模型并保存；配置存数据库、立即生效，不需要改 `.env` 或重建容器。
+- 对**没有自填 Key** 的用户生效；用户自填配置优先于全局配置。
+- 全局 Key 与用户 Key 一样加密存储，接口不回传明文；`LOCAL_ONLY=1` 时禁止保存。
+- 关闭全局开关会保留 Key，重新开启无需重填。
 
 ## 聊天模型
 

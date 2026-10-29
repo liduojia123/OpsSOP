@@ -12,8 +12,12 @@ import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import AiProviderSettings from '../components/AiProviderSettings.vue'
+import AiGlobalSettings from '../components/AiGlobalSettings.vue'
+import { useAuthStore } from '../stores/auth'
 import type { AiProvider, AiStatus } from '../types'
 
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.role === 'admin')
 const status = ref<AiStatus | null>(null)
 const providers = ref<AiProvider[]>([])
 const selected = ref('')
@@ -136,7 +140,7 @@ onMounted(load)
     <div class="ai-stat-grid">
       <div class="ops-panel ai-stat">
         <div>
-          <p class="ai-stat-label">全局 AI 模式</p>
+          <p class="ai-stat-label">全局 AI 模式（管理员配置）</p>
           <p class="ai-stat-value">{{ globalModeLabel }}</p>
         </div>
         <span class="ops-icon-tile"><AppIcon name="server" :size="20" /></span>
@@ -208,6 +212,12 @@ onMounted(load)
         <AiProviderSettings :provider-id="selected" @changed="load" />
       </div>
     </section>
+
+    <section v-if="isAdmin" class="ops-panel mt-6">
+      <div class="ai-global-body">
+        <AiGlobalSettings @changed="load" />
+      </div>
+    </section>
   </div>
 </template>
 
@@ -265,6 +275,9 @@ onMounted(load)
 }
 .ai-form-body {
   max-width: 760px;
+  padding: 20px;
+}
+.ai-global-body {
   padding: 20px;
 }
 .ai-form-note {

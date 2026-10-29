@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.keys import (
     KeyError_,
+    get_global_config,
     delete_user_key,
     get_user_key,
     list_user_keys,
@@ -35,7 +36,7 @@ from app.ai.providers import (
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, record_audit
-from app.models import User
+from app.models import Role, User
 from app.schemas import (
     AiKeyOut,
     AiKeyRequest,
@@ -225,16 +226,28 @@ def fetch_provider_models(
     if not api_key:
         row = get_user_key(db, user.id, spec.id)
         if row is None or not row.api_key_encrypted:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "请先填写该厂商的 API Key"
-            )
-        from app.ai.keys import decrypt_secret
+            # 管理员在全局配置页拉取模型时,允许使用已保存的全局 Key
+            global_row = get_global_config(db) if user.role == Role.admin else None
+            if global_row is not None and global_row.provider == spec.id and global_row.api_key_encrypted:
+                from app.ai.keys import decrypt_secret
 
-        try:
-            api_key = decrypt_secret(row.api_key_encrypted, settings.secret_key)
-        except KeyError_ as exc:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-        base_url = base_url or row.base_url
+                try:
+                    api_key = decrypt_secret(global_row.api_key_encrypted, settings.secret_key)
+                except KeyError_ as exc:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+                base_url = base_url or global_row.base_url
+            else:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "请先填写该厂商的 API Key"
+                )
+        else:
+            from app.ai.keys import decrypt_secret
+
+            try:
+                api_key = decrypt_secret(row.api_key_encrypted, settings.secret_key)
+            except KeyError_ as exc:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+            base_url = base_url or row.base_url
 
     try:
         resolved_base = normalize_base_url(spec, base_url)
