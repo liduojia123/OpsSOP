@@ -1,0 +1,104 @@
+/* 动效层：统一时长、缓动与错峰规则；只做透明度和小幅位移，避免触发布局重排。
+ * 所有非必要动效在 prefers-reduced-motion 下关闭。 */
+
+/* 路由切换：淡入 + 7px 上移，离开只淡出，避免整页大幅滑动 */
+.ops-page-enter-active {
+  transition:
+    opacity var(--ops-duration-base) var(--ops-ease-standard),
+    transform var(--ops-duration-base) var(--ops-ease-standard);
+}
+
+.ops-page-enter-from {
+  opacity: 0;
+  transform: translateY(7px);
+}
+
+.ops-page-leave-active {
+  transition: opacity 120ms ease-in;
+}
+
+.ops-page-leave-to {
+  opacity: 0;
+}
+
+/* 首次进入的错峰揭示：--ops-order 决定顺序，--ops-delay 用于整组后移 */
+.ops-reveal {
+  animation: ops-reveal-in var(--ops-reveal-duration, 200ms) var(--ops-ease-out) both;
+  animation-delay: calc(var(--ops-order, 0) * var(--ops-stagger) + var(--ops-delay, 0ms));
+}
+
+@keyframes ops-reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 异步结果返回后的轻微淡入（不移动阅读位置） */
+.ops-result-in {
+  animation: ops-result-in 200ms var(--ops-ease-standard) both;
+}
+
+@keyframes ops-result-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 列表行：背景变暖，右侧箭头右移 3px；只改变绘制属性 */
+.ops-row-hover {
+  transition:
+    background-color var(--ops-duration-fast) var(--ops-ease-standard),
+    border-color var(--ops-duration-fast) var(--ops-ease-standard);
+}
+
+.ops-row-hover:hover {
+  background: var(--ops-row-hover);
+}
+
+.ops-row-hover .ops-row-arrow {
+  transition:
+    transform var(--ops-duration-base) var(--ops-ease-out),
+    color var(--ops-duration-base) var(--ops-ease-standard);
+}
+
+.ops-row-hover:hover .ops-row-arrow {
+  transform: translateX(3px);
+  color: var(--ops-brand);
+}
+
+/* 侧栏与内容区出现时不使用循环/视差动画，避免持续抢占注意力 */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .ops-reveal,
+  .ops-result-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .ops-row-hover:hover .ops-row-arrow {
+    transform: none;
+  }
+}
+

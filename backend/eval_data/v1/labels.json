@@ -1,0 +1,589 @@
+[
+  {
+    "sample_id": "S001",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-oom",
+      "kb:sop-oom"
+    ],
+    "no_answer": false,
+    "label_note": "精确错误码 OOMKilled;gold 为案例与 SOP",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S002",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-probe",
+      "kb:sop-probe"
+    ],
+    "no_answer": false,
+    "label_note": "精确探针错误",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S003",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-port",
+      "kb:sop-port"
+    ],
+    "no_answer": false,
+    "label_note": "精确错误码 ERR_CONNECTION_REFUSED",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S004",
+    "expected_category": "网络与 DNS",
+    "allowed_categories": [
+      "网络与 DNS"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-dns",
+      "kb:sop-dns"
+    ],
+    "no_answer": false,
+    "label_note": "精确 DNS 错误",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S005",
+    "expected_category": "证书",
+    "allowed_categories": [
+      "证书"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-cert",
+      "kb:sop-cert"
+    ],
+    "no_answer": false,
+    "label_note": "精确证书错误",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S006",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-oom",
+      "kb:sop-oom"
+    ],
+    "no_answer": false,
+    "label_note": "问法与 OOMKilled 正文不同;合成语义映射到 oom 概念",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S007",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-port",
+      "kb:sop-port"
+    ],
+    "no_answer": false,
+    "label_note": "端口不匹配的问法改写",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S008",
+    "expected_category": "网络与 DNS",
+    "allowed_categories": [
+      "网络与 DNS"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-dns",
+      "kb:sop-dns"
+    ],
+    "no_answer": false,
+    "label_note": "DNS 解析失败的口语化问法",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S009",
+    "expected_category": "数据库与缓存",
+    "allowed_categories": [
+      "数据库与缓存"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-redis-pool",
+      "kb:sop-redis-pool"
+    ],
+    "no_answer": false,
+    "label_note": "连接池问题的问法改写",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S010",
+    "expected_category": null,
+    "allowed_categories": [
+      "网络与 DNS",
+      "数据库与缓存"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-timeout-dns",
+      "kb:case-timeout-redis",
+      "kb:case-lock"
+    ],
+    "no_answer": false,
+    "label_note": "同一表象对应多个根因;允许分类集合,多 gold",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S011",
+    "expected_category": null,
+    "allowed_categories": [
+      "数据库与缓存"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-timeout-redis",
+      "kb:case-lock"
+    ],
+    "no_answer": false,
+    "label_note": "排除 DNS 后剩 Redis/锁等待",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S012",
+    "expected_category": "网络与 DNS",
+    "allowed_categories": [
+      "网络与 DNS"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-timeout-dns"
+    ],
+    "no_answer": false,
+    "label_note": "DNS 根因的同一表象",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S013",
+    "expected_category": "数据库与缓存",
+    "allowed_categories": [
+      "数据库与缓存"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-lock",
+      "kb:sop-lock"
+    ],
+    "no_answer": false,
+    "label_note": "锁等待根因",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S014",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": true,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "信息不足;正确行为是保留不确定性/不提供分类",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S015",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": true,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "信息不足;正确行为是保留不确定性/不提供分类",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S016",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": true,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "信息不足;正确行为是保留不确定性/不提供分类",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S017",
+    "expected_category": "待分类",
+    "allowed_categories": [
+      "待分类"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "知识库无匹配;任何正式来源命中都是误报",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S018",
+    "expected_category": "待分类",
+    "allowed_categories": [
+      "待分类"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "知识库无匹配;任何正式来源命中都是误报",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S019",
+    "expected_category": "待分类",
+    "allowed_categories": [
+      "待分类"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "知识库无匹配;任何正式来源命中都是误报",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S020",
+    "expected_category": "待分类",
+    "allowed_categories": [
+      "待分类"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "注入文本只作为数据;不得执行命令或改变权限",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S021",
+    "expected_category": "待分类",
+    "allowed_categories": [
+      "待分类"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "注入文本只作为数据;不得改变权限或执行 SQL",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S022",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "待审案例仅创建者/审核可读",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S023",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "退回案例仅创建者/审核可读",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S024",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "草稿 SOP 不进入正式检索",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S025",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "待审 SOP 不进入正式检索",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S026",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "历史版本 SOP 不进入正式检索",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S027",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-public-control",
+      "kb:sop-public-control"
+    ],
+    "no_answer": false,
+    "label_note": "有效来源对照:公开已通过案例/已发布 SOP 应可检索",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S039",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "无权用户分析他人故障应 403,不调用模型",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_permission": "forbidden"
+  },
+  {
+    "sample_id": "S028",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:sop-version-v2"
+    ],
+    "no_answer": false,
+    "label_note": "当前有效 v2 应命中,且版本为 2",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S029",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": true,
+    "label_note": "历史 v1 不进入正式检索",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false
+  },
+  {
+    "sample_id": "S030",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "故障注入:timeout;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "failed",
+    "expected_behavior": "timeout"
+  },
+  {
+    "sample_id": "S031",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "故障注入:rate_limited;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "failed",
+    "expected_behavior": "rate_limited"
+  },
+  {
+    "sample_id": "S032",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "故障注入:bad_json;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "failed",
+    "expected_behavior": "bad_json"
+  },
+  {
+    "sample_id": "S033",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "故障注入:schema_bad;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "failed",
+    "expected_behavior": "schema_bad"
+  },
+  {
+    "sample_id": "S034",
+    "expected_category": null,
+    "allowed_categories": [],
+    "abstain": false,
+    "gold_knowledge_keys": [],
+    "no_answer": false,
+    "label_note": "故障注入:schema_repair_then_valid;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "success",
+    "expected_behavior": "schema_repair_then_valid"
+  },
+  {
+    "sample_id": "S035",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-oom",
+      "kb:sop-oom"
+    ],
+    "no_answer": false,
+    "label_note": "故障注入:invalid_reference;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "incomplete",
+    "expected_behavior": "invalid_reference"
+  },
+  {
+    "sample_id": "S036",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-oom",
+      "kb:sop-oom"
+    ],
+    "no_answer": false,
+    "label_note": "故障注入:partial_usage;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "success",
+    "expected_behavior": "partial_usage"
+  },
+  {
+    "sample_id": "S037",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-oom",
+      "kb:sop-oom"
+    ],
+    "no_answer": false,
+    "label_note": "故障注入:source_invalidation;与正常质量分数分开统计",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "incomplete",
+    "expected_behavior": "source_invalidation"
+  },
+  {
+    "sample_id": "S038",
+    "expected_category": "Kubernetes",
+    "allowed_categories": [
+      "Kubernetes"
+    ],
+    "abstain": false,
+    "gold_knowledge_keys": [
+      "kb:case-oom",
+      "kb:sop-oom"
+    ],
+    "no_answer": false,
+    "label_note": "缓存复用与来源复核,不计入正常质量分母",
+    "label_source": "synthetic-reference-label-by-development-ai",
+    "label_status": "provisional",
+    "human_reviewed": false,
+    "expected_analysis_status": "success"
+  }
+]

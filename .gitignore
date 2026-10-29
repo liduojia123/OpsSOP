@@ -1,0 +1,44 @@
+# secrets
+# 覆盖 .env.demo / .env.production 等本地配置命名;示例文件保持可跟踪
+.env
+.env.*
+!.env.example
+!.env.production.example
+*.env
+!.env.example
+!.env.production.example
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+
+# node
+node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+*.log
+
+# editors / os
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# data
+backups/
+*.sql
+
+# local UI screenshots / recordings
+scripts/ui-artifacts/
+
+# local e2e artifacts
+scripts/e2e-artifacts/
+
+# local eval artifacts
+scripts/eval-artifacts/
+
+# local ops drill artifacts / backups (outside-repo preferred)
+ops-artifacts/

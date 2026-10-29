@@ -1,0 +1,498 @@
+[
+  {
+    "key": "kb:case-oom",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 OOMKilled 内存超限",
+    "symptom": "Pod 内存持续上涨后被 OOMKilled 重启;memory limits 不足",
+    "category": "Kubernetes",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "limits.memory 过低",
+    "handling_steps": "提高 memory limits 并滚动重启",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "OOMKilled",
+      "内存"
+    ]
+  },
+  {
+    "key": "kb:sop-oom",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:oom",
+    "version": 1,
+    "title": "评测知识 OOMKilled 处理 SOP",
+    "category": "Kubernetes",
+    "symptom": "Pod 被 OOMKilled,内存持续上涨",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "查看 limits 与内存曲线",
+    "handling_steps": "调整 limits.memory 并滚动重启",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "OOMKilled",
+      "内存"
+    ]
+  },
+  {
+    "key": "kb:case-probe",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 探针 404 重启",
+    "symptom": "liveness probe 404 导致 Pod 重启;probe 路径错误",
+    "category": "Kubernetes",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "探针路径与健康端点不一致",
+    "handling_steps": "修正探针 path/port",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture"
+    ]
+  },
+  {
+    "key": "kb:sop-probe",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:probe",
+    "version": 1,
+    "title": "评测知识 探针配置错误处理 SOP",
+    "category": "Kubernetes",
+    "symptom": "探针 404 或 timeout",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "核对探针 path/port 与 initialDelaySeconds",
+    "handling_steps": "修正探针配置后滚动重启",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture"
+    ]
+  },
+  {
+    "key": "kb:case-port",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 Service 端口不匹配",
+    "symptom": "Service 访问 ERR_CONNECTION_REFUSED;connection refused;targetPort 不匹配",
+    "category": "Kubernetes",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "targetPort 与容器监听端口不一致",
+    "handling_steps": "统一 targetPort 与应用监听端口",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "端口"
+    ]
+  },
+  {
+    "key": "kb:sop-port",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:port",
+    "version": 1,
+    "title": "评测知识 Service 端口排查 SOP",
+    "category": "Kubernetes",
+    "symptom": "ERR_CONNECTION_REFUSED;Service 连接被拒绝",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "核对 Service targetPort 与容器端口",
+    "handling_steps": "修正端口映射并验证 Endpoints",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "端口"
+    ]
+  },
+  {
+    "key": "kb:case-dns",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 集群 DNS 解析失败",
+    "symptom": "域名解析失败 lookup no such host;CoreDNS 异常",
+    "category": "网络与 DNS",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "CoreDNS 配置/实例异常",
+    "handling_steps": "修正 CoreDNS 配置并验证解析",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "DNS"
+    ]
+  },
+  {
+    "key": "kb:sop-dns",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:dns",
+    "version": 1,
+    "title": "评测知识 DNS 解析排查 SOP",
+    "category": "网络与 DNS",
+    "symptom": "域名解析失败 no such host;lookup timeout",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "nslookup 与 CoreDNS 状态检查",
+    "handling_steps": "修正 DNS 转发/缓存配置",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "DNS"
+    ]
+  },
+  {
+    "key": "kb:case-cert",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 TLS 证书过期",
+    "symptom": "TLS 握手失败 certificate has expired;证书过期",
+    "category": "证书",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "入口证书过期",
+    "handling_steps": "更新证书并重载入口",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "证书",
+      "TLS"
+    ]
+  },
+  {
+    "key": "kb:sop-cert",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:cert",
+    "version": 1,
+    "title": "评测知识 证书过期处理 SOP",
+    "category": "证书",
+    "symptom": "certificate has expired;TLS 握手失败",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "openssl s_client 检查有效期",
+    "handling_steps": "更新证书与私钥并重载",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "证书",
+      "TLS"
+    ]
+  },
+  {
+    "key": "kb:case-redis-pool",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 Redis 连接池耗尽",
+    "symptom": "接口超时,Redis connection pool timeout;连接池耗尽",
+    "category": "数据库与缓存",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "连接池上限过低",
+    "handling_steps": "上调连接池与 maxclients",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "Redis",
+      "连接池"
+    ]
+  },
+  {
+    "key": "kb:sop-redis-pool",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:redis",
+    "version": 1,
+    "title": "评测知识 Redis 连接池处理 SOP",
+    "category": "数据库与缓存",
+    "symptom": "Redis 连接池等待/超时;maxclients",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "INFO clients/maxclients 与连接池核对",
+    "handling_steps": "调整连接池与 Redis 连接上限",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "Redis",
+      "连接池"
+    ]
+  },
+  {
+    "key": "kb:case-timeout-dns",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 接口超时 DNS 根因",
+    "symptom": "接口请求超时;接口超时;DNS 解析慢",
+    "category": "网络与 DNS",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "DNS 解析超时导致下游连接缓慢",
+    "handling_steps": "修复 DNS 转发/缓存配置",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "超时",
+      "DNS"
+    ]
+  },
+  {
+    "key": "kb:case-timeout-redis",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 接口超时 Redis 根因",
+    "symptom": "接口请求超时;接口超时;Redis 连接池等待",
+    "category": "数据库与缓存",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "Redis 连接池等待导致接口超时",
+    "handling_steps": "调整连接池并回收空闲连接",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "超时",
+      "Redis"
+    ]
+  },
+  {
+    "key": "kb:case-lock",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 接口超时 锁等待根因",
+    "symptom": "接口请求超时;接口超时;数据库锁等待;行锁",
+    "category": "数据库与缓存",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "行锁等待导致请求超时",
+    "handling_steps": "缩短事务并检查锁等待",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "超时",
+      "锁"
+    ]
+  },
+  {
+    "key": "kb:sop-lock",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:lock",
+    "version": 1,
+    "title": "评测知识 锁等待排查 SOP",
+    "category": "数据库与缓存",
+    "symptom": "请求超时;锁等待",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "查看锁等待与事务时长",
+    "handling_steps": "缩短事务或调整并发",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "锁"
+    ]
+  },
+  {
+    "key": "kb:sop-version-v1",
+    "kind": "sop",
+    "status": "superseded",
+    "doc_key": "doc:version",
+    "version": 1,
+    "title": "评测知识 SOP 版本链 历史 v1 V1-LEGACY-ONLY",
+    "category": "Kubernetes",
+    "symptom": "历史版本唯一词 V1-LEGACY-ONLY",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "历史版本排查步骤 V1-LEGACY-ONLY",
+    "handling_steps": "历史版本处理方法",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "版本链"
+    ]
+  },
+  {
+    "key": "kb:sop-version-v2",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:version",
+    "version": 2,
+    "title": "评测知识 SOP 版本链 当前 v2 V2-CURRENT-ONLY",
+    "category": "Kubernetes",
+    "symptom": "当前版本唯一词 V2-CURRENT-ONLY",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "当前版本排查步骤 V2-CURRENT-ONLY",
+    "handling_steps": "当前版本处理方法",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "版本链"
+    ]
+  },
+  {
+    "key": "kb:case-public-control",
+    "kind": "case",
+    "status": "approved",
+    "title": "评测知识 公开对照 磁盘空间不足",
+    "symptom": "No space left on device;PUBLIC-CONTROL-DISK;磁盘空间不足",
+    "category": "Linux",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "磁盘写满",
+    "handling_steps": "清理日志并扩容磁盘",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "公开对照"
+    ]
+  },
+  {
+    "key": "kb:sop-public-control",
+    "kind": "sop",
+    "status": "published",
+    "doc_key": "doc:public",
+    "version": 1,
+    "title": "评测知识 公开对照 磁盘清理 SOP",
+    "category": "Linux",
+    "symptom": "磁盘空间不足 PUBLIC-CONTROL-DISK;No space left",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "df -h 与日志目录检查",
+    "handling_steps": "清理日志并扩容",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "公开对照"
+    ]
+  },
+  {
+    "key": "kb:case-pending",
+    "kind": "case",
+    "status": "pending_review",
+    "title": "评测知识 待审私有案例 PRIVATE-PENDING-ONLY",
+    "symptom": "PRIVATE-PENDING-ONLY 待审案例不得进入正式检索",
+    "category": "Kubernetes",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "待审案例根因",
+    "handling_steps": "待审案例处理步骤",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "权限夹具"
+    ]
+  },
+  {
+    "key": "kb:case-returned",
+    "kind": "case",
+    "status": "returned",
+    "title": "评测知识 退回私有案例 PRIVATE-RETURNED-ONLY",
+    "symptom": "PRIVATE-RETURNED-ONLY 已退回案例不得进入正式检索",
+    "category": "Kubernetes",
+    "environment": "eval",
+    "service": "eval-svc",
+    "component_version": "1.0",
+    "confirmed_root_cause": "退回案例根因",
+    "handling_steps": "退回案例处理步骤",
+    "recovery_verification": "合成评测:恢复验证为夹具文本,不代表真实处理结果",
+    "tags": [
+      "evaluation-fixture",
+      "权限夹具"
+    ]
+  },
+  {
+    "key": "kb:sop-draft",
+    "kind": "sop",
+    "status": "draft",
+    "doc_key": "doc:draft",
+    "version": 1,
+    "title": "评测知识 草稿 SOP DRAFT-ONLY",
+    "category": "Kubernetes",
+    "symptom": "DRAFT-ONLY 草稿 SOP 不得进入正式检索",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "草稿排查步骤 DRAFT-ONLY",
+    "handling_steps": "草稿处理方法",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "权限夹具"
+    ]
+  },
+  {
+    "key": "kb:sop-submitted",
+    "kind": "sop",
+    "status": "submitted",
+    "doc_key": "doc:submitted",
+    "version": 1,
+    "title": "评测知识 待审 SOP SUBMITTED-ONLY",
+    "category": "Kubernetes",
+    "symptom": "SUBMITTED-ONLY 待审 SOP 不得进入正式检索",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "待审排查步骤 SUBMITTED-ONLY",
+    "handling_steps": "待审处理方法",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "权限夹具"
+    ]
+  },
+  {
+    "key": "kb:sop-deprecated",
+    "kind": "sop",
+    "status": "deprecated",
+    "doc_key": "doc:deprecated",
+    "version": 1,
+    "title": "评测知识 已废弃 SOP DEPRECATED-ONLY",
+    "category": "Kubernetes",
+    "symptom": "DEPRECATED-ONLY 已废弃 SOP 不得进入正式检索",
+    "applicable_env": "评测环境;合成夹具",
+    "preconditions": "合成评测前置条件,待人工复核",
+    "check_steps": "已废弃排查步骤 DEPRECATED-ONLY",
+    "handling_steps": "已废弃处理方法",
+    "recovery_verification": "合成评测:恢复验证为夹具文本",
+    "rollback_steps": "合成评测:回滚方式待人工复核",
+    "notes": "合成评测夹具,不是真实审核流程发布",
+    "tags": [
+      "evaluation-fixture",
+      "权限夹具"
+    ]
+  }
+]

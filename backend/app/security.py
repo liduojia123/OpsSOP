@@ -1,0 +1,69 @@
+"""密码哈希与会话令牌。密钥只从环境变量读取,不进入日志。"""
+
+from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
+import uuid
+
+import bcrypt
+import jwt
+
+from app.config import get_settings
+
+ALGORITHM = "HS256"
+
+# bcrypt 只对前 72 字节做有效哈希;超长内容按字节截断会造成不同口令互相验证通过。
+# 因此直接拒绝超长口令(按 UTF-8 字节计),与已有哈希兼容(旧哈希不受影响)。
+MAX_PASSWORD_BYTES = 72
+
+
+def session_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def hash_password(password: str) -> str:
+    data = password.encode("utf-8")
+    if len(data) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"密码过长:bcrypt 仅支持前 {MAX_PASSWORD_BYTES} 字节(UTF-8),请缩短密码")
+    return bcrypt.hashpw(data, bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        data = password.encode("utf-8")
+        if len(data) > MAX_PASSWORD_BYTES:
+            # 不静默截断:超长口令一律视为不匹配
+            return False
+        return bcrypt.checkpw(data, password_hash.encode("utf-8"))
+    except ValueError:
+        return False
+
+
+def password_session_tag(password_hash: str) -> str:
+    """令牌不包含密码哈希；密码重置后其绑定值自动变化。"""
+    key = get_settings().secret_key.encode("utf-8")
+    return hmac.new(key, password_hash.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def create_session_token(user_id: int, username: str, role: str, password_hash: str) -> tuple[str, datetime]:
+    settings = get_settings()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.session_expire_hours)
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "role": role,
+        "jti": uuid.uuid4().hex,
+        "password_tag": password_session_tag(password_hash),
+        "exp": expires_at,
+        "iat": datetime.now(timezone.utc),
+    }
+    token = jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
+    return token, expires_at
+
+
+def decode_session_token(token: str) -> dict | None:
+    settings = get_settings()
+    try:
+        return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM], options={"require": ["exp", "sub"]})
+    except jwt.PyJWTError:
+        return None

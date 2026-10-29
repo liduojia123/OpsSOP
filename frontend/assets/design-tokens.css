@@ -1,0 +1,131 @@
+/* OpsSOP · Signal Archive design tokens
+ * 单一变量来源：品牌、纸面、语义状态、排版、间距、动效与投影。
+ * 与 assets/design-tokens.json 同步维护；页面样式只引用这里的变量。 */
+:root {
+  /* 品牌与纸面 */
+  --ops-brand: #c94b25;
+  --ops-brand-hover: #aa381a;
+  --ops-brand-pressed: #933016;
+  --ops-brand-soft: #fbece5;
+  --ops-brand-mark: #f16a3c;
+  --ops-brand-line: #f2dccf;
+  --ops-brand-ink: #bd4824;
+  --ops-ink-on-dark: #f8f5eb;
+  --ops-paper-active: #f1ede1;
+  --ops-paper-band: #eee9dd;
+  --ops-warm-line: #e6dbc4;
+  --ops-warm-line-soft: #f0eadf;
+  --ops-row-hover: #fbf6ec;
+  --ops-code-surface: #24262a;
+  --ops-hero: #24262a;
+  --ops-code-text: #f3ead8;
+  --ops-metric-ink: #2c2b28;
+  --ops-metric-label: #67645d;
+  --ops-metric-note: #938a79;
+  --ops-canvas: #f2f0e9;
+  --ops-surface: #fffefa;
+  --ops-surface-muted: #faf7ef;
+  --ops-surface-warm: #f4f0e6;
+  --ops-surface-warm-strong: #efebe1;
+
+  /* 石墨导航 */
+  --ops-sidebar: #1c1e21;
+  --ops-sidebar-raised: #25262a;
+  --ops-sidebar-line: #37383c;
+  --ops-sidebar-text: #b8babd;
+  --ops-sidebar-muted: #969797;
+
+  /* 正文墨色 */
+  --ops-text: #232326;
+  --ops-text-soft: #45443f;
+  --ops-muted: #77746e;
+  --ops-faint: #938a79;
+
+  /* 结构边线 */
+  --ops-border: #dedbd2;
+  --ops-border-light: #e9e4d9;
+  --ops-border-strong: #c9c4b8;
+
+  /* 语义状态（不得用品牌橙代替系统健康信号） */
+  --ops-success: #0b6b55;
+  --ops-success-soft: #e6f2ec;
+  --ops-success-line: #cbe3d7;
+  --ops-warning: #9b6713;
+  --ops-warning-soft: #fdf3dc;
+  --ops-warning-line: #ecdcb6;
+  --ops-danger: #b94742;
+  --ops-danger-soft: #fcece9;
+  --ops-danger-line: #efd2ce;
+  --ops-info: #436a9c;
+  --ops-info-soft: #edf3fa;
+  --ops-info-line: #d6e2f1;
+
+  --ops-focus-ring: rgb(201 75 37 / 26%);
+  --ops-overlay: rgb(28 30 33 / 34%);
+
+  /* 字体 */
+  --ops-font-body: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --ops-font-mono: "Cascadia Code", Consolas, "Courier New", monospace;
+
+  /* 字号与字重 */
+  --ops-text-xs: 12px;
+  --ops-text-sm: 13px;
+  --ops-text-base: 14px;
+  --ops-text-lg: 16px;
+  --ops-text-title: 28px;
+  --ops-text-hero: 44px;
+  --ops-text-metric: 54px;
+  --ops-weight-regular: 400;
+  --ops-weight-medium: 500;
+  --ops-weight-semibold: 600;
+  --ops-weight-bold: 700;
+
+  /* 行高 */
+  --ops-leading-body: 1.6;
+  --ops-leading-dense: 1.4;
+  --ops-leading-title: 1.25;
+  --ops-leading-reading: 1.9;
+  --ops-leading-mono: 1.65;
+
+  /* 间距 */
+  --ops-space-1: 4px;
+  --ops-space-2: 8px;
+  --ops-space-3: 12px;
+  --ops-space-4: 16px;
+  --ops-space-5: 20px;
+  --ops-space-6: 24px;
+  --ops-space-8: 32px;
+  --ops-space-10: 40px;
+  --ops-space-12: 48px;
+
+  /* 形状与尺寸 */
+  --ops-radius-control: 5px;
+  --ops-radius-panel: 7px;
+  --ops-radius-dialog: 8px;
+  --ops-radius-pill: 999px;
+  --ops-sidebar-width: 240px;
+  --ops-header-height: 58px;
+  --ops-page-gutter: 32px;
+  --ops-panel-padding: 24px;
+  --ops-control-height: 34px;
+  --ops-table-row-height: 60px;
+
+  /* 投影 */
+  --ops-shadow-panel: 0 1px 2px rgb(28 30 33 / 4%);
+  --ops-shadow-raised: 0 10px 30px rgb(28 30 33 / 8%);
+  --ops-shadow-dialog: 0 26px 70px rgb(28 30 33 / 18%);
+  --ops-shadow-message: 0 8px 26px rgb(28 30 33 / 10%);
+
+  /* 动效：普通交互 140–200ms，弹窗抽屉 200–260ms */
+  --ops-ease-standard: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ops-ease-out: cubic-bezier(0.16, 0.84, 0.44, 1);
+  --ops-duration-fast: 140ms;
+  --ops-duration-base: 180ms;
+  --ops-duration-panel: 240ms;
+  --ops-stagger: 40ms;
+
+  /* 品牌轨道的斜纹标记 */
+  --ops-signal-stripe: repeating-linear-gradient(135deg, #e76338 0 7px, #27282b 7px 14px);
+}
+
+
