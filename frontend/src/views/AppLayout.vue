@@ -61,6 +61,11 @@ const context = computed(() => {
 const aiModeLabel = computed(() => {
   if (statusLoading.value) return '正在读取模型模式'
   if (!aiStatus.value) return '模型模式未知'
+  // 用户自填厂商配置时,即使全局未启用,该用户实际已可用
+  if (aiStatus.value.user_ai_enabled) {
+    const names: Record<string, string> = { deepseek: 'DeepSeek', minimax: 'MiniMax', mimo: '小米 MiMo' }
+    return `AI 已启用 · ${names[aiStatus.value.user_provider] || aiStatus.value.user_provider}`
+  }
   const labels: Record<string, string> = {
     disabled: 'AI 未启用', demo: 'AI 演示模式 · 模拟数据',
     cloud: 'AI 云端模式', local: 'AI 本地模式',

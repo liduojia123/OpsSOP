@@ -39,7 +39,9 @@ async function loadProviders() {
     const { data } = await client.get('/api/ai/providers')
     providers.value = data
     const wanted = props.providerId || currentId.value
-    const target = data.find((p: AiProvider) => p.id === wanted) || data[0]
+    // 未显式指定时优先定位「已配置」的厂商,而不是列表第一个
+    const configured = data.find((p: AiProvider) => p.has_key)
+    const target = data.find((p: AiProvider) => p.id === wanted) || configured || data[0]
     if (target) selectProvider(target.id)
   } catch (e) {
     error.value = errMsg(e)
