@@ -51,6 +51,8 @@ class LLMResult:
     usage: dict[str, int] | None  # 仅服务端实际返回 usage 时填充,否则 None
     model: str
     latency_ms: int
+    # 模型请求调用工具时的原始 tool_calls(OpenAI 兼容结构);普通文本响应为空
+    tool_calls: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -65,8 +67,12 @@ class LLMCapabilities:
 
 @dataclass
 class ChatMessage:
-    role: str  # system | user | assistant
+    role: str  # system | user | assistant | tool
     content: str
+    # assistant 消息回填的工具调用;tool 消息对应的调用 ID
+    tool_calls: list[dict] | None = None
+    tool_call_id: str | None = None
+    name: str | None = None
 
 
 @dataclass
@@ -78,12 +84,27 @@ class LLMRequest:
     # (DeepSeek 等服务在提示词不含 "json" 时会拒绝 json_object 并返回 400)
     json_mode: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    # OpenAI 兼容 function calling;为空表示不使用工具
+    tools: list[dict] | None = None
+    tool_choice: str | None = None
 
 
 class ChatAdapter(Protocol):
     def chat(self, request: LLMRequest) -> LLMResult: ...
 
     def describe(self) -> dict: ...
+
+
+def _message_payload(message: ChatMessage) -> dict:
+    """OpenAI 兼容消息体;tool 消息带 tool_call_id,assistant 消息带回 tool_calls。"""
+    payload: dict[str, Any] = {"role": message.role, "content": message.content or ""}
+    if message.role == "tool":
+        payload["tool_call_id"] = message.tool_call_id or ""
+        if message.name:
+            payload["name"] = message.name
+    if message.role == "assistant" and message.tool_calls:
+        payload["tool_calls"] = message.tool_calls
+    return payload
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -166,10 +187,13 @@ class OpenAICompatAdapter:
         url = self.endpoint.base_url.rstrip("/") + "/chat/completions"
         body: dict[str, Any] = {
             "model": self.endpoint.model,
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+            "messages": [_message_payload(m) for m in request.messages],
             self.endpoint.token_field: min(request.max_output_tokens, self.capabilities.max_output_tokens),
             "temperature": request.temperature,
         }
+        if request.tools:
+            body["tools"] = request.tools
+            body["tool_choice"] = request.tool_choice or "auto"
         # 厂商必填参数(如 thinking)放在最后,避免覆盖上面的字段
         body.update(self.endpoint.extra_body or {})
         if request.json_mode and self.capabilities.supports_json_mode:
@@ -212,10 +236,15 @@ class OpenAICompatAdapter:
 
         try:
             data = resp.json()
-            text = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            text = message.get("content") or ""
+            raw_calls = message.get("tool_calls") or []
+            tool_calls = [c for c in raw_calls if isinstance(c, dict)] if isinstance(raw_calls, list) else []
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise LLMError("bad_response", "模型响应不是预期的 chat/completions 结构") from exc
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str):
+            text = ""
+        if not text.strip() and not tool_calls:
             raise LLMError("bad_response", "模型返回内容为空")
 
         usage: dict[str, int] | None = None
@@ -232,6 +261,7 @@ class OpenAICompatAdapter:
             usage=usage,
             model=str(data.get("model", self.endpoint.model)),
             latency_ms=latency_ms,
+            tool_calls=tool_calls,
         )
 
     def describe(self) -> dict:

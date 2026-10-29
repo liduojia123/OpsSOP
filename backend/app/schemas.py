@@ -413,6 +413,147 @@ class AiStatusOut(BaseModel):
     user_provider: str = ""
     # 已保存 Key 但被用户主动关闭时为 True(前端据此显示开关状态)
     user_ai_configured: bool = False
+    # 是否配置了实时工具(Prometheus / SSH),前端据此提示 AI 可查实时数据
+    tools_available: bool = False
+
+
+# ===== 监控与 SSH 诊断 =====
+
+class MonitoringConfigOut(BaseModel):
+    enabled: bool
+    prometheus_url: str
+    timeout_seconds: int
+    ai_tools_enabled: bool
+    updated_at: datetime | None = None
+
+
+class MonitoringConfigRequest(BaseModel):
+    enabled: bool
+    prometheus_url: str = Field(default="", max_length=300)
+    timeout_seconds: int = 10
+    ai_tools_enabled: bool = True
+
+
+class MonitoringTestRequest(BaseModel):
+    prometheus_url: str = Field(default="", max_length=300)
+
+
+class MonitoringTestOut(BaseModel):
+    ok: bool
+    message: str = ""
+    target_count: int = 0
+    up_count: int = 0
+
+
+class MonitoredServerOut(BaseModel):
+    id: int
+    name: str
+    host: str
+    port: int
+    username: str
+    prometheus_instance: str = ""
+    enabled: bool = True
+    notes: str = ""
+    has_key: bool = False
+    host_key_fingerprint: str = ""
+
+
+class MonitoredServerRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    host: str = Field(min_length=1, max_length=255)
+    port: int = 22
+    username: str = Field(min_length=1, max_length=64)
+    private_key: str = Field(default="", max_length=8000)
+    host_key_fingerprint: str = Field(default="", max_length=128)
+    prometheus_instance: str = Field(default="", max_length=128)
+    enabled: bool = True
+    notes: str = Field(default="", max_length=1000)
+
+
+class ServerTestRequest(BaseModel):
+    host: str = Field(default="", max_length=255)
+    port: int = 22
+    username: str = Field(default="", max_length=64)
+    private_key: str = Field(default="", max_length=8000)
+
+
+class ServerTestOut(BaseModel):
+    ok: bool
+    fingerprint: str = ""
+    message: str = ""
+
+
+class SshTemplateOut(BaseModel):
+    id: int
+    key: str
+    name: str
+    command: str
+    param_schema: dict = {}
+    description: str = ""
+    enabled: bool = True
+    builtin: bool = True
+
+
+class DashboardPanelOut(BaseModel):
+    id: int
+    title: str
+    promql: str
+    unit: str = ""
+    kind: str = "line"
+    sort_order: int = 0
+    enabled: bool = True
+
+
+class MonitoringSeriesOut(BaseModel):
+    labels: dict = {}
+    points: list[list[float]] = []
+
+
+class MonitoringPanelOut(BaseModel):
+    id: int
+    title: str
+    unit: str = ""
+    kind: str = "line"
+    promql: str = ""
+    series: list[MonitoringSeriesOut] = []
+    error: str = ""
+    truncated: bool = False
+
+
+class MonitoringTargetOut(BaseModel):
+    job: str = ""
+    instance: str = ""
+    host: str = ""
+    health: str = ""
+    last_error: str = ""
+    last_scrape: str = ""
+    scrape_duration: float | None = None
+
+
+class MonitoringOverviewOut(BaseModel):
+    enabled: bool
+    config: dict = {}
+    panels: list[MonitoringPanelOut] = []
+    targets: list[MonitoringTargetOut] = []
+    servers: list[MonitoredServerOut] = []
+    fetched_at: str = ""
+    error: str = ""
+    targets_error: str = ""
+
+
+class RunCommandRequest(BaseModel):
+    template: str = Field(min_length=1, max_length=64)
+    args: dict = {}
+
+
+class RunCommandOut(BaseModel):
+    server: str
+    template: str
+    command: str
+    stdout: str
+    exit_status: int
+    truncated: bool
+    latency_ms: int
 
 
 # ===== AI 厂商与用户自填 Key =====
@@ -530,6 +671,19 @@ class AnalyzeRequest(BaseModel):
     input: AnalysisInputPatch | None = None
 
 
+class AiToolCallOut(BaseModel):
+    """一次 AI 实时工具调用(只读);result_excerpt 已截断。"""
+
+    id: int
+    tool: str
+    arguments: dict = {}
+    status: str
+    result_excerpt: str = ""
+    error: str = ""
+    latency_ms: int = 0
+    created_at: datetime
+
+
 class AiAnalysisOut(ORMModel):
     """一条分析记录(报告或失败状态)。usage 缺失时为 null(前端显示未知)。"""
 
@@ -550,6 +704,7 @@ class AiAnalysisOut(ORMModel):
     call_count: int
     latency_ms: int
     created_at: datetime
+    tool_calls: list[AiToolCallOut] = []
 
 
 class AnalyzeResponse(BaseModel):

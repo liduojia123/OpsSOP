@@ -87,6 +87,93 @@ class User(Base):
     )
 
 
+class MonitoringConfig(Base):
+    """监控数据源配置(单行 id=1);管理员在界面维护。"""
+
+    __tablename__ = "monitoring_config"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    prometheus_url: Mapped[str] = mapped_column(String(300), default="")
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=10)
+    ai_tools_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class MonitoredServer(Base):
+    """可诊断服务器;私钥加密保存,主机指纹用于防 MITM。"""
+
+    __tablename__ = "monitored_servers"
+    __table_args__ = (UniqueConstraint("host", "port", "username", name="uq_server_target"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column(Integer, default=22)
+    username: Mapped[str] = mapped_column(String(64))
+    private_key_encrypted: Mapped[str] = mapped_column(Text, default="")
+    host_key_fingerprint: Mapped[str] = mapped_column(String(128), default="")
+    prometheus_instance: Mapped[str] = mapped_column(String(128), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SshCommandTemplate(Base):
+    """只读诊断命令模板;命令由内置种子写入,界面只允许启停。"""
+
+    __tablename__ = "ssh_command_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    command: Mapped[str] = mapped_column(Text)
+    param_schema: Mapped[dict] = mapped_column(JSONB, default=dict)
+    description: Mapped[str] = mapped_column(Text, default="")
+    builtin: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DashboardPanel(Base):
+    """监控面板条目:PromQL 与展示方式。"""
+
+    __tablename__ = "dashboard_panels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(128))
+    promql: Mapped[str] = mapped_column(Text)
+    unit: Mapped[str] = mapped_column(String(32), default="")
+    kind: Mapped[str] = mapped_column(String(16), default="line")  # line | stat
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    builtin: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class AiToolInvocation(Base):
+    """AI 工具调用记录(PromQL / SSH),用于审计与报告展示。"""
+
+    __tablename__ = "ai_tool_invocations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int | None] = mapped_column(ForeignKey("ai_analyses.id"), index=True)
+    fault_id: Mapped[int] = mapped_column(ForeignKey("faults.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    tool: Mapped[str] = mapped_column(String(32))
+    arguments: Mapped[dict] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="ok")  # ok | error | denied
+    result_excerpt: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class GlobalAiConfig(Base):
     """管理员全局 AI 配置(单行,id=1);未配置时回落到环境变量。"""
 

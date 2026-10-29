@@ -27,6 +27,7 @@ const menuGroups = computed(() => [
       { name: 'workbench', title: '工作台', path: '/', icon: 'grid' },
       { name: 'faults', title: '故障处理', path: '/faults', icon: 'activity' },
       { name: 'ai-settings', title: 'AI 设置', path: '/ai-settings', icon: 'bot' },
+      { name: 'monitoring', title: '监控', path: '/monitoring', icon: 'activity' },
     ],
   },
   {

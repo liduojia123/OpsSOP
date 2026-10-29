@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.monitoring.defaults import ai_tools_configured
 from app.ai.keys import (
     list_user_keys,
     resolve_effective_ai,
@@ -67,4 +68,5 @@ def ai_status(
         user_ai_enabled=user_config is not None,
         user_provider=user_config.provider if user_config else "",
         user_ai_configured=configured,
+        tools_available=ai_tools_configured(db),
     )

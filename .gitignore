@@ -45,3 +45,6 @@ scripts/eval-artifacts/
 
 # local ops drill artifacts / backups (outside-repo preferred)
 ops-artifacts/
+
+# ZCode internal plans/session artifacts
+.zcode/

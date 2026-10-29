@@ -171,6 +171,114 @@ export interface AiStatus {
   user_provider: string
   /** 已保存 Key(即使被关闭):用于区分「未配置」与「已关闭」 */
   user_ai_configured: boolean
+  /** 是否配置了实时工具(Prometheus / SSH) */
+  tools_available: boolean
+}
+
+/** 一次 AI 实时工具调用(只读)。 */
+export interface AiToolCall {
+  id: number
+  tool: string
+  arguments: Record<string, unknown>
+  status: string
+  result_excerpt: string
+  error: string
+  latency_ms: number
+  created_at: string
+}
+
+// ===== 监控 =====
+
+export interface MonitoringConfig {
+  enabled: boolean
+  prometheus_url: string
+  timeout_seconds: number
+  ai_tools_enabled: boolean
+  updated_at: string | null
+}
+
+export interface MonitoringSeries {
+  labels: Record<string, string>
+  points: number[][]
+}
+
+export interface MonitoringPanel {
+  id: number
+  title: string
+  unit: string
+  kind: string
+  promql: string
+  series: MonitoringSeries[]
+  error: string
+  truncated: boolean
+}
+
+export interface MonitoringTarget {
+  job: string
+  instance: string
+  host: string
+  health: string
+  last_error: string
+  last_scrape: string
+  scrape_duration: number | null
+}
+
+export interface MonitoredServer {
+  id: number
+  name: string
+  host: string
+  port: number
+  username: string
+  prometheus_instance: string
+  enabled: boolean
+  notes: string
+  has_key: boolean
+  host_key_fingerprint: string
+}
+
+export interface SshTemplate {
+  id: number
+  key: string
+  name: string
+  command: string
+  param_schema: Record<string, {
+    required?: boolean
+    type?: string
+    min?: number
+    max?: number
+    pattern?: string
+    default?: number | string
+  }>
+  description: string
+  enabled: boolean
+  builtin: boolean
+}
+
+export interface MonitoringOverview {
+  enabled: boolean
+  config: Record<string, unknown>
+  panels: MonitoringPanel[]
+  targets: MonitoringTarget[]
+  servers: MonitoredServer[]
+  fetched_at: string
+  error: string
+  targets_error: string
+}
+
+export interface RunCommandResult {
+  server: string
+  template: string
+  command: string
+  stdout: string
+  exit_status: number
+  truncated: boolean
+  latency_ms: number
+}
+
+export interface ServerTestResult {
+  ok: boolean
+  fingerprint: string
+  message: string
 }
 
 /** 支持的模型厂商(后端注册表)。 */
@@ -276,6 +384,7 @@ export interface AiAnalysis {
   call_count: number
   latency_ms: number
   created_at: string
+  tool_calls: AiToolCall[]
 }
 
 export interface AnalyzeResponse {

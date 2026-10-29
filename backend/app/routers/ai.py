@@ -18,9 +18,10 @@ from app.ai.service import EmptyInput, RateLimited, revalidate_report_dict, run_
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import AiAnalysis, Fault, FaultRecord, Role, User
+from app.models import AiAnalysis, AiToolInvocation, Fault, FaultRecord, Role, User
 from app.schemas import (
     AiAnalysisOut,
+    AiToolCallOut,
     AnalyzeRequest,
     AnalyzeResponse,
     SearchHitOut,
@@ -29,6 +30,32 @@ from app.schemas import (
 from app.search.keyword import search_knowledge
 
 router = APIRouter(prefix="/api", tags=["ai"])
+
+
+def _tool_calls(db: Session, analysis_ids: list[int]) -> dict[int, list[AiToolCallOut]]:
+    """批量读取分析关联的实时工具调用,避免历史列表 N+1 查询。"""
+    if not analysis_ids:
+        return {}
+    rows = db.scalars(
+        select(AiToolInvocation)
+        .where(AiToolInvocation.analysis_id.in_(analysis_ids))
+        .order_by(AiToolInvocation.id)
+    ).all()
+    grouped: dict[int, list[AiToolCallOut]] = {}
+    for row in rows:
+        grouped.setdefault(row.analysis_id, []).append(
+            AiToolCallOut(
+                id=row.id,
+                tool=row.tool,
+                arguments=row.arguments or {},
+                status=row.status,
+                result_excerpt=row.result_excerpt,
+                error=row.error,
+                latency_ms=row.latency_ms,
+                created_at=row.created_at,
+            )
+        )
+    return grouped
 
 
 def _get_viewable_fault(db: Session, fault_id: int, user: User) -> Fault:
@@ -85,8 +112,9 @@ def analyze_fault(
         # 配置错误等在调用适配器前即失败:不落库、不回退预设答案
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message)
 
+    calls = _tool_calls(db, [row.id]).get(row.id, [])
     return AnalyzeResponse(
-        analysis=AiAnalysisOut.model_validate(row),
+        analysis=AiAnalysisOut.model_validate(row).model_copy(update={"tool_calls": calls}),
         reused=reused,
         input_substance=True,
     )
@@ -111,9 +139,12 @@ def list_analyses(
         .order_by(AiAnalysis.id.desc())
         .limit(limit)
     ).all()
+    calls_by_analysis = _tool_calls(db, [r.id for r in rows])
     out: list[AiAnalysisOut] = []
     for r in rows:
-        item = AiAnalysisOut.model_validate(r)
+        item = AiAnalysisOut.model_validate(r).model_copy(
+            update={"tool_calls": calls_by_analysis.get(r.id, [])}
+        )
         if item.report:
             cleaned, stale_reasons = revalidate_report_dict(db, item.report)
             if stale_reasons:

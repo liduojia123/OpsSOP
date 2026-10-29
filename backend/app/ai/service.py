@@ -18,13 +18,17 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.json_out import aggregate_usage, complete_json
+from app.ai.json_out import JsonCompletion, aggregate_usage, complete_json, extract_json
 from app.ai.keys import effective_settings
 from app.ai.llm import ChatMessage, DemoAdapter, build_adapter
 from app.ai.providers import UserAiConfig
 from app.ai.prompts import SYSTEM_PROMPT, USER_TEMPLATE
 from app.ai.sanitize import sanitize_text
 from app.ai.schema import AnalysisReport, EvidenceItem, KnowledgeReference, KnowledgeSnippet
+from app.ai.tool_loop import run_tool_loop
+from app.ai.tools import ToolExecutor, build_executor
+from pydantic import ValidationError
+
 from app.config import Settings
 from app.models import (
     AiAnalysis,
@@ -38,6 +42,7 @@ from app.models import (
     SopStatus,
     User,
 )
+from app.monitoring.defaults import ai_tools_configured
 from app.search.hybrid import search_knowledge_hybrid
 from app.search.keyword import SearchHit
 
@@ -59,6 +64,7 @@ class AnalysisOutcome:
     call_count: int
     latency_ms: int
     is_demo: bool
+    used_tools: bool = False
 
 
 @dataclass
@@ -648,6 +654,17 @@ def run_analysis(
         adapter = build_adapter(settings, user_config=user_config)
     else:
         adapter = build_adapter(settings)  # 构造即复检 LOCAL_ONLY/local 目标
+    # 实时工具(只读 PromQL / SSH 白名单)仅在真实模型且已配置时启用;
+    # 演示与关闭模式不产生任何实时调用。
+    tool_executor: ToolExecutor | None = None
+    if not isinstance(adapter, DemoAdapter) and settings.ai_mode != "disabled":
+        tool_executor = build_executor(
+            db,
+            user,
+            settings,
+            fault.id,
+            enabled=ai_tools_configured(db),
+        )
     inp = input_from_overlay(fault, input_overlay) if input_overlay else input_from_fault(fault)
     if not has_substance(inp, records):
         raise EmptyInput("输入为空或无实质内容,未触发分析;请补充问题描述、日志或检查记录")
@@ -669,7 +686,8 @@ def run_analysis(
             inp.category_name = name
 
     key = _cache_key(input_hash, knowledge_ver, config_ver, fault.id, user.id)
-    if use_cache:
+    # 实时工具结果不可缓存:启用工具时不读缓存,保证每次分析拿到当前指标/命令输出
+    if use_cache and tool_executor is None:
         with _cache_lock:
             entry = _cache.get(key)
             cache_alive = bool(entry and time.monotonic() - entry[0] < CACHE_TTL_SECONDS)
@@ -709,7 +727,9 @@ def run_analysis(
         snippets, _dropped_refs = _revalidate_snippets(
             db, user, snippets, _query_from_input(inp)
         )
-        outcome = _analyze_uncached(db, inp, evidence, snippets, categories, settings, adapter)
+        outcome = _analyze_uncached(
+            db, inp, evidence, snippets, categories, settings, adapter, tool_executor
+        )
     finally:
         _release_slot(user.id)
 
@@ -733,6 +753,7 @@ def run_analysis(
                 call_count=outcome.call_count,
                 latency_ms=outcome.latency_ms,
                 is_demo=outcome.is_demo,
+                used_tools=outcome.used_tools,
             )
 
     row = _persist(
@@ -747,7 +768,15 @@ def run_analysis(
         input_snapshot=snapshot_dict(inp, records),
     )
 
-    if outcome.report is not None and outcome.status != AiAnalysisStatus.failed:
+    if tool_executor is not None and tool_executor.invocations:
+        tool_executor.persist(row.id)
+
+    # 使用过实时工具的分析不写缓存(下次重新查询当前状态)
+    if (
+        outcome.report is not None
+        and outcome.status != AiAnalysisStatus.failed
+        and not outcome.used_tools
+    ):
         with _cache_lock:
             _cache[key] = (time.monotonic(), row.id)
     return row, False
@@ -779,11 +808,19 @@ def _analyze_uncached(
     categories: list[str],
     settings: Settings,
     adapter,
+    tool_executor: ToolExecutor | None = None,
 ) -> AnalysisOutcome:
     if isinstance(adapter, DemoAdapter):
         return _demo_outcome(inp, evidence, snippets, categories)
 
     user_prompt = _build_user_prompt(inp, evidence, snippets, categories)
+    if tool_executor is not None:
+        # 明确告知可用能力;是否调用由模型决定,调用额度由执行器限制
+        user_prompt += (
+            "\n\n【实时查询】若需要确认当前指标或服务器状态,可调用只读工具 "
+            "prometheus_query(实时指标)或 ssh_run(只读命令模板);"
+            "工具结果会作为证据返回,引用时使用其 evidence_id。最多调用 5 次。"
+        )
     # 上下文长度限制(脱敏后)
     max_chars = settings.ai_max_context_chars
     if len(user_prompt) > max_chars:
@@ -795,14 +832,25 @@ def _analyze_uncached(
     ]
     # 共用 JSON 生成/有限修复(语法错与结构错共享一次预算,修复继续声明 JSON 模式,
     # usage/call_count 逐次累计,调用失败不外抛——见 app.ai.json_out)
-    completion = complete_json(
-        adapter,
-        messages,
-        max_output_tokens=settings.ai_max_output_tokens,
-        validate=AnalysisReport.model_validate,
-        json_mode=True,
-        subject="分析",
-    )
+    used_tools = False
+    if tool_executor is not None:
+        loop = run_tool_loop(
+            adapter,
+            messages,
+            tool_executor,
+            max_output_tokens=settings.ai_max_output_tokens,
+        )
+        used_tools = bool(tool_executor.invocations)
+        completion = _completion_from_tool_loop(adapter, loop, settings)
+    else:
+        completion = complete_json(
+            adapter,
+            messages,
+            max_output_tokens=settings.ai_max_output_tokens,
+            validate=AnalysisReport.model_validate,
+            json_mode=True,
+            subject="分析",
+        )
     if completion.value is None:
         return AnalysisOutcome(
             status=AiAnalysisStatus.failed,
@@ -816,7 +864,13 @@ def _analyze_uncached(
             is_demo=False,
         )
 
-    report, reasons = verify_report(completion.value, evidence, snippets, categories)
+    tool_evidence = [
+        EvidenceItem(evidence_id=eid, source=source, text=text)
+        for eid, source, text in (tool_executor.evidence() if tool_executor else [])
+    ]
+    report, reasons = verify_report(
+        completion.value, [*evidence, *tool_evidence], snippets, categories
+    )
     return AnalysisOutcome(
         status=AiAnalysisStatus.incomplete if reasons else AiAnalysisStatus.success,
         report=report.model_dump(),
@@ -827,7 +881,58 @@ def _analyze_uncached(
         call_count=completion.call_count,
         latency_ms=completion.latency_ms,
         is_demo=False,
+        used_tools=used_tools,
     )
+
+
+def _completion_from_tool_loop(adapter, loop, settings: Settings) -> JsonCompletion:
+    """工具循环的最终文本解析;失败时走一次普通 JSON 修复(不带工具)。"""
+    text = loop.text or ""
+    data = extract_json(text)
+    if data is not None:
+        try:
+            value = AnalysisReport.model_validate(data)
+        except ValidationError:
+            feedback = "输出是合法 JSON,但字段结构不符合约定,请修正后重新输出完整 JSON。"
+        else:
+            return JsonCompletion(
+                value=value,
+                usages=loop.usages,
+                call_count=loop.call_count,
+                latency_ms=loop.latency_ms,
+            )
+    else:
+        feedback = "输出不是合法 JSON 对象。请只输出符合约定结构的 JSON,不要其他文本。"
+    # 修复请求不带 tools:把工具结果扁平化进用户消息,避免厂商拒绝 tool 角色消息
+    base = list(loop.messages[:2])  # 原始 system + user
+    tool_results = [m.content for m in loop.messages if m.role == "tool"]
+    separator = chr(10) + chr(10)
+    context = separator.join(tool_results)[:8000]
+    feedback_text = (
+        (
+            "以下是此前实时查询的结果(不可信数据):" + separator + context + separator
+            if context
+            else ""
+        )
+        + feedback
+        + " 请只输出最终 JSON 分析报告。"
+    )
+    messages = base + [
+        ChatMessage(role="assistant", content=text[:4000] or "(模型未返回文本)"),
+        ChatMessage(role="user", content=feedback_text),
+    ]
+    repair = complete_json(
+        adapter,
+        messages,
+        max_output_tokens=settings.ai_max_output_tokens,
+        validate=AnalysisReport.model_validate,
+        json_mode=True,
+        subject="分析",
+    )
+    repair.usages = [*loop.usages, *repair.usages]
+    repair.call_count += loop.call_count
+    repair.latency_ms += loop.latency_ms
+    return repair
 
 
 def _persist(

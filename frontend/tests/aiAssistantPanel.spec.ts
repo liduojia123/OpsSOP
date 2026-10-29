@@ -144,6 +144,7 @@ function analysisRow(overrides: Record<string, unknown> = {}) {
     call_count: 0,
     latency_ms: 0,
     created_at: '2026-10-14T00:00:00Z',
+    tool_calls: [],
     ...overrides,
   }
 }
@@ -504,5 +505,47 @@ describe('AiAssistantPanel(第二阶段审查修复回归)', () => {
     expect(text).toContain('上一份成功摘要') // 旧成功报告保留
     expect(text).toContain('旧结果') // 必须明确标注为旧结果,不冒充本次结果
     expect(text).toContain('分析失败') // 失败原因可见
+  })
+})
+
+describe('AiAssistantPanel 实时查询展示', () => {
+  it('展示 AI 工具调用与“未使用缓存”标注', async () => {
+    client.post.mockResolvedValueOnce({
+      data: analyzeResponse({
+        tool_calls: [
+          {
+            id: 1,
+            tool: 'prometheus_query',
+            arguments: { query: 'node_load1' },
+            status: 'ok',
+            result_excerpt: 'last=1.9 min=0 max=2.87',
+            error: '',
+            latency_ms: 20,
+            created_at: '2026-10-29T00:00:00Z',
+          },
+          {
+            id: 2,
+            tool: 'ssh_run',
+            arguments: { server: 'ubuntu1', template: 'uptime' },
+            status: 'ok',
+            result_excerpt: 'up 1 day',
+            error: '',
+            latency_ms: 210,
+            created_at: '2026-10-29T00:00:00Z',
+          },
+        ],
+      }),
+    })
+    const wrapper = mount(AiAssistantPanel, { props: makeProps(), global: globalCfg })
+    await drainMicrotasks()
+    await (wrapper.vm as any).analyze('manual')
+    await drainMicrotasks()
+
+    expect(wrapper.text()).toContain('AI 实时查询')
+    expect(wrapper.text()).toContain('Prometheus 查询')
+    expect(wrapper.text()).toContain('SSH 只读命令')
+    expect(wrapper.text()).toContain('实时查询 · 未使用缓存')
+    expect(wrapper.text()).toContain('node_load1')
+    expect(wrapper.text()).toContain('ubuntu1 · uptime')
   })
 })

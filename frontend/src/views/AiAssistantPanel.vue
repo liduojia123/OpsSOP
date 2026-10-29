@@ -19,6 +19,7 @@ import AppIcon from '../components/AppIcon.vue'
 import { sourcePath, sourceTagLabel, sourceVersionText, sourceViewLabel } from '../sourceLinks'
 import type {
   AiAnalysis,
+  AiToolCall,
   AiStatus,
   AnalysisReport,
   AnalyzeResponse,
@@ -92,6 +93,19 @@ let lastAnalyzedSig = ''
 let disposed = false
 
 // 状态未知(aiStatus 为 null)时视为不可调用:未确认模式与出网提示前不自动外发
+function toolLabel(tool: string): string {
+  if (tool === 'prometheus_query') return 'Prometheus 查询'
+  if (tool === 'ssh_run') return 'SSH 只读命令'
+  return tool
+}
+
+function toolArgs(call: AiToolCall): string {
+  const args = (call.arguments || {}) as Record<string, unknown>
+  if (call.tool === 'prometheus_query') return String(args.query || '').slice(0, 60)
+  if (call.tool === 'ssh_run') return `${args.server || ''} · ${args.template || ''}`
+  return JSON.stringify(args).slice(0, 60)
+}
+
 const aiDisabled = computed(
   () => !props.aiStatus || (props.aiStatus.ai_mode === 'disabled' && !props.aiStatus.user_ai_enabled),
 )
@@ -726,6 +740,29 @@ function triggerLabel(t: string): string {
             </ul>
           </section>
 
+          <!-- AI 实时查询记录(只读工具) -->
+          <section v-if="analysis.tool_calls?.length">
+            <h3 class="assistant-section-title mb-1">AI 实时查询</h3>
+            <div class="ops-note is-muted">
+              本次分析调用了 {{ analysis.tool_calls.length }} 次只读实时查询，未使用缓存；结果仅来自已配置的 Prometheus 与只读命令模板。
+            </div>
+            <details v-for="call in analysis.tool_calls" :key="call.id" class="assistant-tool-item">
+              <summary>
+                <span class="assistant-tool-title">{{ toolLabel(call.tool) }}</span>
+                <span class="assistant-hint">{{ toolArgs(call) }}</span>
+                <el-tag
+                  size="small"
+                  :type="call.status === 'ok' ? 'success' : call.status === 'denied' ? 'warning' : 'danger'"
+                  class="ml-1"
+                >
+                  {{ call.status }}
+                </el-tag>
+                <span class="assistant-hint ml-1">{{ call.latency_ms }}ms</span>
+              </summary>
+              <pre class="assistant-tool-output">{{ call.result_excerpt || call.error || '(无输出)' }}</pre>
+            </details>
+          </section>
+
           <!-- 证据不足 / 不完整说明 -->
           <el-alert
             v-if="report.insufficient_evidence"
@@ -753,6 +790,15 @@ function triggerLabel(t: string): string {
             状态:{{ statusLabel(analysis) }} · 触发:{{ triggerLabel(analysis.trigger_type) }} ·
             调用次数:{{ analysis.call_count }} · 延迟:{{ analysis.latency_ms }}ms
             <el-tag v-if="reused" size="small" type="info" effect="plain" class="ml-1">复用缓存结果</el-tag>
+            <el-tag
+              v-else-if="analysis.tool_calls?.length"
+              size="small"
+              type="warning"
+              effect="plain"
+              class="ml-1"
+            >
+              实时查询 · 未使用缓存
+            </el-tag>
           </div>
           <div>{{ usageText(analysis) }}</div>
           <div>
@@ -897,6 +943,40 @@ function triggerLabel(t: string): string {
 .assistant-heading :deep(.el-tag) { flex-shrink: 0; font-size: 10px; }
 .assistant-mode-note { flex-shrink: 0; margin-bottom: 14px; font-size: 11px; line-height: 1.8; }
 .assistant-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 8px; align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--ops-border-light); flex-shrink: 0; }
+.assistant-tool-item {
+  margin-top: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--ops-border-light);
+}
+.assistant-tool-item summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.assistant-tool-item summary::-webkit-details-marker {
+  display: none;
+}
+.assistant-tool-title {
+  margin-right: 8px;
+  color: var(--ops-text);
+  font-weight: 600;
+}
+.assistant-tool-output {
+  margin: 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--ops-surface-muted);
+  color: var(--ops-text-soft);
+  font-family: var(--ops-font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .assistant-heading-actions {
   display: flex;
   align-items: center;
