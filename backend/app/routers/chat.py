@@ -3,9 +3,14 @@
 - 会话与消息按用户隔离;管理员可查看全部会话(90 天留存)。
 - 提问只触发只读检索与只读工具;不执行任何变更。
 - 助手回答可经人工确认沉淀为故障记录或 SOP 草稿。
+- 流式接口使用 SSE:回答文本边生成边推送,消息仍在服务端完整落库。
 """
 
+import json
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -14,6 +19,7 @@ from app.ai.chat_service import (
     ChatRateLimited,
     ChatUnavailable,
     ask,
+    ask_stream,
     create_conversation,
     delete_conversation,
     get_conversation,
@@ -131,6 +137,38 @@ def send_message(
     return ChatAskResponse(
         user_message=ChatMessageOut.model_validate(user_row),
         assistant_message=ChatMessageOut.model_validate(assistant_row),
+    )
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+def send_message_stream(
+    conversation_id: int,
+    body: ChatAskRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """流式回答(SSE)。
+
+    前置错误(会话不属于当前用户)仍返回 HTTP 404;问答过程中的限流、AI 未启用
+    等以 error 事件推送,由前端在对话内提示。
+    """
+    try:
+        get_conversation(db, user, conversation_id)
+    except ChatError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from exc
+
+    def _sse(events: Iterator[dict]) -> Iterator[str]:
+        for event in events:
+            yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        _sse(ask_stream(conversation_id, user.id, body.content, get_settings())),
+        media_type="text/event-stream",
+        headers={
+            # 禁止中间层缓存/缓冲,保证逐段到达前端
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

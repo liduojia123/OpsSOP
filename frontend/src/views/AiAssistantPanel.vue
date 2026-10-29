@@ -14,7 +14,7 @@ import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import client, { errMsg } from '../api'
 import { fmtTime } from '../labels'
-import { renderSafeMd } from '../safeMd'
+import { renderSafeInlineMd, renderSafeMd } from '../safeMd'
 import AppIcon from '../components/AppIcon.vue'
 import { sourcePath, sourceTagLabel, sourceVersionText, sourceViewLabel } from '../sourceLinks'
 import type {
@@ -440,6 +440,11 @@ function md(text: string): string {
   return renderSafeMd(text ?? '')
 }
 
+/** 行内字段(依据/验证方法/关联说明):不生成段落,避免破坏标签旁的排版。 */
+function mdInline(text: string): string {
+  return renderSafeInlineMd(text ?? '')
+}
+
 function priorityTag(p: string): { label: string; type: 'danger' | 'warning' | 'info' } {
   if (p.includes('优先排查')) return { label: '优先排查', type: 'danger' }
   if (p.includes('次优先')) return { label: '次优先', type: 'warning' }
@@ -663,18 +668,18 @@ function triggerLabel(t: string): string {
                 class="hypothesis-card"
               >
                 <div class="flex items-start justify-between gap-2 mb-1">
-                  <div class="hypothesis-title"><span class="hypothesis-number">{{ String(i + 1).padStart(2, '0') }}</span><div class="hypothesis-title-text md-body" v-html="md(h.title)"></div></div>
+                  <div class="hypothesis-title"><span class="hypothesis-number">{{ String(i + 1).padStart(2, '0') }}</span><div class="hypothesis-title-text md-body" v-html="mdInline(h.title)"></div></div>
                   <el-tag size="small" :type="priorityTag(h.priority).type" effect="plain">
                     {{ priorityTag(h.priority).label }}
                   </el-tag>
                 </div>
                 <div class="hypothesis-body">
-                  <div><span class="hypothesis-label">依据:</span><span class="md-body" v-html="md(h.rationale)"></span></div>
+                  <div><span class="hypothesis-label">依据:</span><span class="md-body" v-html="mdInline(h.rationale)"></span></div>
                   <div v-if="h.missing_information?.length">
                     <span class="hypothesis-label">待补信息:</span>{{ h.missing_information.join('；') }}
                   </div>
                   <div v-if="h.verification">
-                    <span class="hypothesis-label">验证方法:</span><span class="md-body" v-html="md(h.verification)"></span>
+                    <span class="hypothesis-label">验证方法:</span><span class="md-body" v-html="mdInline(h.verification)"></span>
                   </div>
                   <div v-if="h.evidence_ids?.length || h.reference_ids?.length" class="flex flex-wrap gap-1 mt-1">
                     <el-tag v-for="eid in h.evidence_ids" :key="'e' + eid" size="small" type="info" effect="plain">{{ eid }}</el-tag>
@@ -722,7 +727,7 @@ function triggerLabel(t: string): string {
                 <span v-if="sourceVersionText(r.version)" class="assistant-hint ml-1">
                   {{ sourceVersionText(r.version) }}
                 </span>
-                <span class="ml-1 md-body" v-html="md(r.relevance)"></span>
+                <span class="ml-1 md-body" v-html="mdInline(r.relevance)"></span>
                 <!-- 来源地址只由受控 source_type/source_id 构造,不使用模型返回的任意 URL -->
                 <a
                   v-if="sourcePath(r.source_type, r.source_id)"

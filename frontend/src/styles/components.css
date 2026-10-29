@@ -241,3 +241,119 @@
 }
 
 
+
+/* ===== Markdown 内容(对话气泡与 AI 报告共用;内容已由 safeMd 转义) ===== */
+.chat-md .md-heading,
+.md-body .md-heading {
+  margin: 14px 0 6px;
+  color: var(--ops-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.chat-md .md-heading:first-child,
+.md-body .md-heading:first-child {
+  margin-top: 0;
+}
+
+.chat-md h1.md-heading,
+.md-body h1.md-heading {
+  font-size: 17px;
+}
+
+.chat-md h2.md-heading,
+.md-body h2.md-heading {
+  font-size: 15px;
+}
+
+.chat-md h3.md-heading,
+.md-body h3.md-heading {
+  font-size: 13.5px;
+}
+
+.chat-md .md-p,
+.md-body .md-p {
+  margin: 0 0 8px;
+}
+
+.chat-md .md-p:last-child,
+.md-body .md-p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-md .md-list,
+.md-body .md-list {
+  margin: 6px 0 9px;
+  padding-left: 20px;
+}
+
+.chat-md .md-list li,
+.md-body .md-list li {
+  margin: 3px 0;
+  line-height: 1.75;
+}
+
+.chat-md .md-quote,
+.md-body .md-quote {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--ops-brand);
+  background: var(--ops-surface-muted);
+  color: var(--ops-text-soft);
+}
+
+.chat-md .md-hr,
+.md-body .md-hr {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--ops-border-light);
+}
+
+.chat-md .md-table-wrap,
+.md-body .md-table-wrap {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.chat-md .md-table,
+.md-body .md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.chat-md .md-table th,
+.chat-md .md-table td,
+.md-body .md-table th,
+.md-body .md-table td {
+  padding: 5px 8px;
+  border: 1px solid var(--ops-border-light);
+  text-align: left;
+  vertical-align: top;
+}
+
+.chat-md .md-table th,
+.md-body .md-table th {
+  background: var(--ops-surface-muted);
+  color: var(--ops-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chat-md .md-align-center,
+.md-body .md-align-center {
+  text-align: center;
+}
+
+.chat-md .md-align-right,
+.md-body .md-align-right {
+  text-align: right;
+}
+
+.chat-md a,
+.md-body a {
+  color: var(--ops-brand);
+  text-decoration: underline;
+}

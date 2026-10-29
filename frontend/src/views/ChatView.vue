@@ -14,10 +14,10 @@ import { sourcePath, sourceVersionText } from '../sourceLinks'
 import { useAuthStore } from '../stores/auth'
 import type {
   AiStatus,
-  ChatAskResponse,
   ChatConversation,
   ChatDetail,
   ChatMessageItem,
+  ChatToolCall,
   Fault,
 } from '../types'
 
@@ -38,6 +38,27 @@ const question = ref('')
 const scroller = ref<HTMLElement | null>(null)
 const adminView = ref(false)
 const currentOwner = ref('')
+
+/** 流式回答的临时状态:delta 累积后实时渲染 Markdown,完成后由正式消息替换。 */
+interface StreamState {
+  content: string
+  tools: ChatToolCall[]
+  phase: string
+  seenUser: boolean
+  done: boolean
+}
+type StreamEvent =
+  | { type: 'user_message'; message: ChatMessageItem }
+  | { type: 'status'; text: string }
+  | { type: 'delta'; text: string }
+  | { type: 'reset' }
+  | { type: 'tool'; call: ChatToolCall }
+  | { type: 'done'; user_message: ChatMessageItem; assistant_message: ChatMessageItem; title: string }
+  | { type: 'error'; code?: string; message: string }
+
+const stream = ref<StreamState | null>(null)
+let pendingText = ''
+let flushTimer: ReturnType<typeof setTimeout> | null = null
 
 const sediment = reactive({
   open: false,
@@ -146,30 +167,168 @@ async function send() {
   question.value = ''
   sending.value = true
   error.value = ''
+  pendingText = ''
+  const state: StreamState = { content: '', tools: [], phase: '正在连接…', seenUser: false, done: false }
+  stream.value = state
+  // ref 会把对象包成响应式代理:后续事件必须改代理,改原始对象不会触发渲染
+  const live = stream.value as StreamState
   try {
-    if (!currentId.value) {
+    let conversationId = currentId.value
+    if (!conversationId) {
       const { data } = await client.post<ChatConversation>('/api/chat/conversations', { title: '新对话' })
       conversations.value.unshift(data)
       currentId.value = data.id
       currentOwner.value = auth.user?.username ?? ''
-    }
-    const { data } = await client.post<ChatAskResponse>(
-      `/api/chat/conversations/${currentId.value}/messages`,
-      { content },
-      { timeout: 300000 },
-    )
-    messages.value.push(data.user_message, data.assistant_message)
-    const summary = conversations.value.find((c) => c.id === currentId.value)
-    if (summary && (summary.title === '新对话' || !summary.title)) {
-      summary.title = content.slice(0, 40)
+      conversationId = data.id
     }
     await nextTick()
     scrollToBottom()
+    await streamAsk(conversationId, content, live)
   } catch (e) {
-    question.value = content // 失败不丢输入
-    error.value = errMsg(e)
+    // 请求未落到服务端(限流/AI 未启用/网络失败)时恢复输入,避免内容丢失
+    if (!live.seenUser) question.value = content
+    error.value = e instanceof Error ? e.message : errMsg(e)
   } finally {
     sending.value = false
+    stream.value = null
+    pendingText = ''
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+  }
+}
+
+async function streamAsk(conversationId: number, content: string, state: StreamState) {
+  const resp = await fetch(`/api/chat/conversations/${conversationId}/messages/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
+    },
+    body: JSON.stringify({ content }),
+  })
+  if (!resp.ok) {
+    if (resp.status === 401) {
+      // fetch 不经过 axios 拦截器,这里保持与全局一致的过期处理
+      auth.logout()
+      const current = router.currentRoute.value
+      if (current.name !== 'login') {
+        void router.push({ name: 'login', query: { redirect: current.fullPath } })
+      }
+      throw new Error('登录会话已过期,请重新登录')
+    }
+    let detail = `请求失败(HTTP ${resp.status})`
+    try {
+      const body = await resp.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      // 非 JSON 错误响应,保留状态码提示
+    }
+    throw new Error(detail)
+  }
+  if (!resp.body) throw new Error('当前浏览器不支持流式响应')
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary >= 0) {
+      const raw = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      const event = parseSseEvent(raw)
+      if (event) handleStreamEvent(event, state)
+      boundary = buffer.indexOf('\n\n')
+    }
+  }
+  buffer += decoder.decode()
+  if (buffer.trim()) {
+    const event = parseSseEvent(buffer)
+    if (event) handleStreamEvent(event, state)
+  }
+  if (!state.done) {
+    throw new Error('回答未完整返回,请重试')
+  }
+}
+
+function parseSseEvent(raw: string): StreamEvent | null {
+  const data = raw
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart())
+    .join('\n')
+  if (!data) return null
+  try {
+    return JSON.parse(data) as StreamEvent
+  } catch {
+    return null
+  }
+}
+
+function handleStreamEvent(event: StreamEvent, state: StreamState) {
+  switch (event.type) {
+    case 'user_message':
+      if (!state.seenUser) {
+        state.seenUser = true
+        messages.value.push(event.message)
+        scrollToBottom()
+      }
+      break
+    case 'status':
+      state.phase = event.text
+      break
+    case 'delta':
+      queueText(event.text, state)
+      break
+    case 'reset':
+      // 上一轮文字被判定为工具调用前的铺垫,清空后继续展示最终回答
+      pendingText = ''
+      state.content = ''
+      break
+    case 'tool':
+      state.tools.push(event.call)
+      break
+    case 'done': {
+      if (!messages.value.some((row) => row.id === event.user_message.id)) {
+        messages.value.push(event.user_message)
+      }
+      messages.value.push(event.assistant_message)
+      const summary = conversations.value.find((row) => row.id === currentId.value)
+      if (summary && event.title) summary.title = event.title
+      stream.value = null
+      state.done = true
+      void nextTick(() => scrollToBottom())
+      break
+    }
+    case 'error':
+      // 服务端已明确拒绝或不可用:抛出后由 send 统一提示并恢复输入
+      throw new Error(event.message)
+  }
+}
+
+function queueText(text: string, state: StreamState) {
+  pendingText += text
+  if (flushTimer) return
+  // 用定时器而不是 requestAnimationFrame:后台/被遮挡的标签页里也能持续刷新
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    if (!pendingText || stream.value !== state) return
+    state.content += pendingText
+    pendingText = ''
+    maybeScroll()
+  }, 40)
+}
+
+function maybeScroll() {
+  const el = scroller.value
+  if (!el) return
+  // 用户上翻查看历史时不强行拉回底部
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
+    el.scrollTop = el.scrollHeight
   }
 }
 
@@ -398,6 +557,41 @@ onMounted(async () => {
               </div>
             </div>
           </article>
+
+          <article v-if="stream" class="chat-message is-assistant is-streaming">
+            <div class="chat-avatar">
+              <AppIcon name="bot" :size="16" />
+            </div>
+            <div class="chat-bubble">
+              <div v-if="stream.content" class="chat-md" v-html="md(stream.content)"></div>
+              <div v-else class="chat-stream-phase">
+                <span class="chat-typing"><i></i><i></i><i></i></span>
+                {{ stream.phase }}
+              </div>
+              <div v-if="stream.content" class="chat-stream-phase is-inline">
+                <span class="chat-phase-text">{{ stream.phase }}</span>
+                <span class="chat-cursor" aria-hidden="true"></span>
+              </div>
+
+              <details v-if="stream.tools.length" class="chat-tools" open>
+                <summary>
+                  <span>实时查询 {{ stream.tools.length }} 次</span>
+                  <span class="ops-section-caption">不使用缓存</span>
+                </summary>
+                <div v-for="(call, index) in stream.tools" :key="index" class="chat-tool-row">
+                  <div class="chat-tool-head">
+                    <strong>{{ toolLabel(call.tool) }}</strong>
+                    <span class="ops-id">{{ toolSummary(call) }}</span>
+                    <el-tag size="small" :type="call.status === 'ok' ? 'success' : call.status === 'denied' ? 'warning' : 'danger'">
+                      {{ call.status }}
+                    </el-tag>
+                    <span class="ops-section-caption">{{ call.latency_ms }}ms</span>
+                  </div>
+                  <pre class="chat-tool-output">{{ call.result_excerpt || call.error || '(无输出)' }}</pre>
+                </div>
+              </details>
+            </div>
+          </article>
         </div>
 
         <div v-if="!adminView" class="chat-composer">
@@ -617,6 +811,68 @@ onMounted(async () => {
 .chat-md :deep(code) {
   font-family: var(--ops-font-mono);
   font-size: 11px;
+}
+.chat-message.is-streaming .chat-bubble {
+  border-style: dashed;
+}
+.chat-stream-phase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ops-muted);
+  font-size: 11px;
+}
+.chat-stream-phase.is-inline {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--ops-border-light);
+}
+.chat-phase-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.chat-typing i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ops-brand);
+  animation: chat-blink 1.1s infinite ease-in-out;
+}
+.chat-typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.chat-typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes chat-blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+.chat-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 12px;
+  background: var(--ops-brand);
+  animation: chat-caret 1s steps(1) infinite;
+}
+@keyframes chat-caret {
+  50% {
+    opacity: 0;
+  }
 }
 .chat-failed {
   color: var(--ops-danger);

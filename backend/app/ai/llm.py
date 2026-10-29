@@ -111,6 +111,19 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "\n…[已截断]"
 
 
+def _parse_usage(raw) -> dict[str, int] | None:
+    """只接受服务端实际返回的数值型 token 字段;缺失保持 None(未知,不伪造)。"""
+    if not isinstance(raw, dict):
+        return None
+    return {
+        k: int(v)
+        for k, v in raw.items()
+        if isinstance(v, (int, float))
+        and not isinstance(v, bool)
+        and k in ("prompt_tokens", "completion_tokens", "total_tokens")
+    } or None
+
+
 class DisabledAdapter:
     """AI 关闭:明确报错,不产生任何模拟结果。"""
 
@@ -183,8 +196,7 @@ class OpenAICompatAdapter:
         # (local 模式使用,防止应用数据经外部代理出网,见 build_adapter)
         self.trust_env = trust_env
 
-    def chat(self, request: LLMRequest) -> LLMResult:
-        url = self.endpoint.base_url.rstrip("/") + "/chat/completions"
+    def _build_body(self, request: LLMRequest) -> dict[str, Any]:
         body: dict[str, Any] = {
             "model": self.endpoint.model,
             "messages": [_message_payload(m) for m in request.messages],
@@ -198,9 +210,33 @@ class OpenAICompatAdapter:
         body.update(self.endpoint.extra_body or {})
         if request.json_mode and self.capabilities.supports_json_mode:
             body["response_format"] = {"type": "json_object"}
+        return body
+
+    def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.endpoint.api_key:
             headers["Authorization"] = f"Bearer {self.endpoint.api_key}"
+        return headers
+
+    @staticmethod
+    def _http_error(status_code: int) -> LLMError:
+        if status_code == 429:
+            return LLMError("rate_limited", "模型服务限流(HTTP 429);请稍后再试", retryable=True)
+        if status_code in (401, 403):
+            return LLMError("auth", "模型服务鉴权失败;请检查 API Key 配置", retryable=False)
+        if status_code >= 500:
+            return LLMError("upstream", f"模型服务错误(HTTP {status_code})", retryable=True)
+        return LLMError(
+            "bad_request",
+            f"模型请求被拒绝(HTTP {status_code});可能是参数能力不匹配,"
+            "可调整 AI_SUPPORTS_JSON_MODE 等能力配置",
+            retryable=False,
+        )
+
+    def chat(self, request: LLMRequest) -> LLMResult:
+        url = self.endpoint.base_url.rstrip("/") + "/chat/completions"
+        body = self._build_body(request)
+        headers = self._headers()
 
         import time
 
@@ -220,19 +256,8 @@ class OpenAICompatAdapter:
 
         latency_ms = int((time.monotonic() - start) * 1000)
 
-        if resp.status_code == 429:
-            raise LLMError("rate_limited", "模型服务限流(HTTP 429);请稍后再试", retryable=True)
-        if resp.status_code in (401, 403):
-            raise LLMError("auth", "模型服务鉴权失败;请检查 API Key 配置", retryable=False)
-        if resp.status_code >= 500:
-            raise LLMError("upstream", f"模型服务错误(HTTP {resp.status_code})", retryable=True)
         if resp.status_code >= 400:
-            raise LLMError(
-                "bad_request",
-                f"模型请求被拒绝(HTTP {resp.status_code});可能是参数能力不匹配,"
-                "可调整 AI_SUPPORTS_JSON_MODE 等能力配置",
-                retryable=False,
-            )
+            raise self._http_error(resp.status_code)
 
         try:
             data = resp.json()
@@ -247,14 +272,7 @@ class OpenAICompatAdapter:
         if not text.strip() and not tool_calls:
             raise LLMError("bad_response", "模型返回内容为空")
 
-        usage: dict[str, int] | None = None
-        raw_usage = data.get("usage")
-        if isinstance(raw_usage, dict):
-            usage = {
-                k: int(v)
-                for k, v in raw_usage.items()
-                if isinstance(v, (int, float)) and k in ("prompt_tokens", "completion_tokens", "total_tokens")
-            } or None
+        usage: dict[str, int] | None = _parse_usage(data.get("usage"))
 
         return LLMResult(
             text=text,
@@ -263,6 +281,133 @@ class OpenAICompatAdapter:
             latency_ms=latency_ms,
             tool_calls=tool_calls,
         )
+
+    def chat_stream(self, request: LLMRequest):
+        """流式调用:逐段 yield 文本增量;生成器返回值(StopIteration.value)为完整 LLMResult。
+
+        - 只转发 content 增量;tool_calls 增量按 index 累积,结束后一次性返回;
+        - 显式请求 stream_options.include_usage;厂商不支持(400)时去掉该参数重试一次,
+          且只在尚未输出任何内容时重试,避免重复生成;
+        - 部分网关忽略 stream 返回整段 JSON,按普通响应解析。
+        """
+        url = self.endpoint.base_url.rstrip("/") + "/chat/completions"
+        body = self._build_body(request)
+        body["stream"] = True
+        body["stream_options"] = {"include_usage": True}
+        headers = self._headers()
+        state = {"produced": False}
+        last_error: LLMError | None = None
+        for attempt in range(2):
+            try:
+                return (yield from self._stream_once(url, body, headers, state))
+            except LLMError as exc:
+                if (
+                    attempt == 0
+                    and not state["produced"]
+                    and "stream_options" in body
+                    and exc.code == "bad_request"
+                ):
+                    body.pop("stream_options")
+                    last_error = exc
+                    continue
+                raise
+        raise last_error or LLMError("bad_request", "模型请求被拒绝")
+
+    def _stream_once(self, url: str, body: dict[str, Any], headers: dict[str, str], state: dict):
+        import time
+
+        start = time.monotonic()
+        text_parts: list[str] = []
+        calls: dict[int, dict] = {}
+        usage: dict[str, int] | None = None
+        model = self.endpoint.model
+        try:
+            with httpx.Client(
+                timeout=self.endpoint.timeout_seconds, trust_env=self.trust_env
+            ) as client:
+                with client.stream("POST", url, json=body, headers=headers) as resp:
+                    if resp.status_code >= 400:
+                        raise self._http_error(resp.status_code)
+                    for raw_line in resp.iter_lines():
+                        line = raw_line.strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        payload = line[5:].strip() if line.startswith("data:") else line
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(payload)
+                        except ValueError:
+                            continue  # 厂商心跳/非 JSON 行忽略
+                        if not isinstance(data, dict):
+                            continue
+                        error = data.get("error")
+                        if isinstance(error, dict):
+                            message = error.get("message") or "模型服务返回错误"
+                            raise LLMError("upstream", sanitize_text(str(message))[:300])
+                        model = str(data.get("model") or model)
+                        usage = _parse_usage(data.get("usage")) or usage
+                        choices = data.get("choices")
+                        if not isinstance(choices, list):
+                            continue
+                        for choice in choices:
+                            if not isinstance(choice, dict):
+                                continue
+                            delta = choice.get("delta") or choice.get("message") or {}
+                            if not isinstance(delta, dict):
+                                continue
+                            content = delta.get("content")
+                            if isinstance(content, str) and content:
+                                text_parts.append(content)
+                                state["produced"] = True
+                                yield content
+                            self._merge_tool_delta(calls, delta.get("tool_calls"))
+        except httpx.TimeoutException as exc:
+            raise LLMError(
+                "timeout", f"模型调用超时(>{self.endpoint.timeout_seconds}s)", retryable=True
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise LLMError("connect", f"模型连接失败: {sanitize_text(str(exc))}", retryable=True) from exc
+
+        text = "".join(text_parts)
+        tool_calls = [calls[i] for i in sorted(calls)]
+        if not text.strip() and not tool_calls:
+            raise LLMError("bad_response", "模型返回内容为空")
+        return LLMResult(
+            text=text,
+            usage=usage,
+            model=model,
+            latency_ms=int((time.monotonic() - start) * 1000),
+            tool_calls=tool_calls,
+        )
+
+    @staticmethod
+    def _merge_tool_delta(calls: dict[int, dict], deltas) -> None:
+        """按 index 合并流式 tool_calls 增量(id/name 只取一次,arguments 分片拼接)。"""
+        if not isinstance(deltas, list):
+            return
+        for item in deltas:
+            if not isinstance(item, dict):
+                continue
+            index = item.get("index")
+            index = int(index) if isinstance(index, int) else 0
+            slot = calls.setdefault(
+                index,
+                {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+            )
+            if item.get("id"):
+                slot["id"] = str(item["id"])
+            function = item.get("function")
+            if not isinstance(function, dict):
+                continue
+            name = function.get("name")
+            if isinstance(name, str) and name and not slot["function"]["name"].endswith(name):
+                slot["function"]["name"] += name
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                slot["function"]["arguments"] += arguments
+            elif isinstance(arguments, dict):
+                slot["function"]["arguments"] = json.dumps(arguments, ensure_ascii=False)
 
     def describe(self) -> dict:
         # 只暴露非敏感配置;api_key 只暴露是否已配置
