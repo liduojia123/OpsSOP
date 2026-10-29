@@ -1,4 +1,4 @@
-# OpsSOP 2.6.0 备份与恢复
+# OpsSOP 2.6.1 备份与恢复
 
 运维入口为 `backend/scripts/ops_cli.py`，在 Docker 引擎所在宿主环境执行，只依赖 Python 3.10+ 标准库及 Docker CLI。本文生产示例使用项目 `opssop-prod`、`.env.production` 和生产 Compose 覆盖；操作已有安装时使用其实际项目名与配置。
 

@@ -9,13 +9,13 @@
  * - 演示数据逐条标注;usage 缺失显示未知,不估算费用;命令仅展示与复制,不执行。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import client, { errMsg } from '../api'
 import { fmtTime } from '../labels'
 import { renderSafeMd } from '../safeMd'
 import AppIcon from '../components/AppIcon.vue'
-import AiProviderSettings from '../components/AiProviderSettings.vue'
 import { sourcePath, sourceTagLabel, sourceVersionText, sourceViewLabel } from '../sourceLinks'
 import type {
   AiAnalysis,
@@ -101,7 +101,11 @@ const userProviderLabel = computed(() => {
   const names: Record<string, string> = { deepseek: 'DeepSeek', minimax: 'MiniMax', mimo: '小米 MiMo' }
   return names[props.aiStatus.user_provider] || props.aiStatus.user_provider
 })
-const settingsVisible = ref(false)
+const router = useRouter()
+
+function openSettings() {
+  router.push('/ai-settings')
+}
 const aiStatusMissing = computed(() => !props.aiStatus)
 const isDemo = computed(() => analysis.value?.is_demo ?? false)
 
@@ -500,7 +504,7 @@ function triggerLabel(t: string): string {
           <el-tag v-if="aiStatus" size="small" :type="aiDisabled ? 'info' : aiStatus.ai_mode === 'demo' ? 'warning' : 'primary'">
             {{ aiStatus.ai_mode === 'demo' ? '演示模式' : aiDisabled ? '未启用' : aiStatus.ai_mode === 'local' ? '本地模型' : userProviderLabel ? `${userProviderLabel} 模型` : '云端模型' }}
           </el-tag>
-          <el-button size="small" plain @click="settingsVisible = true">模型设置</el-button>
+          <el-button size="small" plain @click="openSettings">模型设置</el-button>
         </div>
       </div>
 
@@ -880,7 +884,6 @@ function triggerLabel(t: string): string {
       </div>
     </div>
   </aside>
-  <AiProviderSettings v-model:visible="settingsVisible" />
 </template>
 
 <style scoped>

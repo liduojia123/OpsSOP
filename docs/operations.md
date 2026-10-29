@@ -1,4 +1,4 @@
-# OpsSOP 2.6.0 运维指南
+# OpsSOP 2.6.1 运维指南
 
 生产部署使用 Compose 项目 `opssop-prod`。日常操作沿用安装时的环境文件、项目名和数据卷；备份与演练产物保存在仓库外。
 
@@ -66,7 +66,7 @@ docker exec opssop-prod-backend-1 python scripts/create_test_users.py --disable
 准备后端镜像和基础镜像：
 
 ```powershell
-docker build --tag opssop-backend:2.6.0 ./backend
+docker build --tag opssop-backend:2.6.1 ./backend
 docker pull pgvector/pgvector:pg16
 docker pull nginx:1.27-alpine
 
