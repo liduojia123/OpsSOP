@@ -19,7 +19,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.json_out import aggregate_usage, complete_json
+from app.ai.keys import effective_settings
 from app.ai.llm import ChatMessage, DemoAdapter, build_adapter
+from app.ai.providers import UserAiConfig
 from app.ai.prompts import SYSTEM_PROMPT, USER_TEMPLATE
 from app.ai.sanitize import sanitize_text
 from app.ai.schema import AnalysisReport, EvidenceItem, KnowledgeReference, KnowledgeSnippet
@@ -633,13 +635,19 @@ def run_analysis(
     trigger_type: str = "manual",
     use_cache: bool = True,
     input_overlay: dict | None = None,
+    user_config: UserAiConfig | None = None,
 ) -> tuple[AiAnalysis, bool]:
     """执行一次分析并落库;返回 (持久化的 AiAnalysis, 是否复用缓存)。
 
     input_overlay:未保存的表单编辑(覆盖已保存故障字段);分析不回写故障。
     空输入不调用模型;缓存命中(同输入/知识/配置版本)复用原记录,复用前重新校验权限与状态。
     """
-    adapter = build_adapter(settings)  # 构造即复检 LOCAL_ONLY/local 目标
+    if user_config is not None:
+        # 用户自填厂商配置优先;配置版本随之变化,缓存不跨厂商/模型复用
+        settings = effective_settings(settings, user_config)
+        adapter = build_adapter(settings, user_config=user_config)
+    else:
+        adapter = build_adapter(settings)  # 构造即复检 LOCAL_ONLY/local 目标
     inp = input_from_overlay(fault, input_overlay) if input_overlay else input_from_fault(fault)
     if not has_substance(inp, records):
         raise EmptyInput("输入为空或无实质内容,未触发分析;请补充问题描述、日志或检查记录")

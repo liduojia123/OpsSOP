@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.ai.keys import resolve_user_config
 from app.config import get_settings
 from app.concurrency import advance_version, require_current_version
 from app.database import get_db
@@ -280,7 +281,11 @@ def generate_sop_draft_ai(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只能从自己提交的案例生成草稿")
 
     try:
-        result = generate_sop_draft(db, user, case_id, body.request_token, get_settings())
+        settings = get_settings()
+        user_config = resolve_user_config(db, user, settings)
+        result = generate_sop_draft(
+            db, user, case_id, body.request_token, settings, user_config=user_config
+        )
     except AiUnavailable as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     except SourceRejected as exc:

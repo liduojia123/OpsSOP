@@ -87,6 +87,31 @@ class User(Base):
     )
 
 
+class UserAiKey(Base):
+    """用户自填的模型厂商配置(每个用户每个厂商一条)。
+
+    api_key_encrypted 为服务端加密后的密文;明文 Key 不落库、不出接口。
+    base_url 允许用户覆盖厂商默认端点(如国内/国际、Token Plan 专属端点)。
+    """
+
+    __tablename__ = "user_ai_keys"
+    __table_args__ = (UniqueConstraint("user_id", "provider", name="uq_user_ai_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(32), index=True)  # deepseek | minimax | mimo
+    api_key_encrypted: Mapped[str] = mapped_column(Text, default="")
+    base_url: Mapped[str] = mapped_column(String(300), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship()
+
+
 class RevokedSession(Base):
     __tablename__ = "revoked_sessions"
 

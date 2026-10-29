@@ -1,5 +1,18 @@
 # 版本记录
 
+## 2.6.0 — 2026-10-29
+
+### 自助开启 AI（用户自填 API Key）
+
+- 内置 **DeepSeek / MiniMax / 小米 MiMo** 三个厂商接入，参数按各家官方文档核对（2026-10-29）：DeepSeek `https://api.deepseek.com` + `max_tokens`；MiniMax `https://api.minimaxi.com/v1`（国际 `api.minimax.io/v1`）+ `max_completion_tokens`；MiMo `https://api.xiaomimimo.com/v1` + `max_completion_tokens`，`MiniMax-M3.1-Flash` 自动补 `thinking=adaptive`。
+- 用户在「AI 排查助手 → 模型设置」中自行填写 API Key，点「获取模型」实时调用厂商 `GET {base}/models` 拉取可用模型并选择保存；厂商无该接口时给出内置清单并标注来源。
+- 用户 Key 用服务端 `SECRET_KEY` 派生密钥加密落库，任何接口不回传明文或片段；变更写审计。生效顺序为「用户自填 > 管理员全局配置」，删除即回落。
+- `LOCAL_ONLY=1` 时禁止保存云厂商 Key、禁止拉取模型列表、禁止调用；`/api/system/ai-status` 增加 `user_ai_enabled`/`user_provider`，前端据此放开「全局未启用但用户自有 Key」的调用路径。
+
+### 验证范围
+
+后端 465 项测试通过（新增 28 项：加解密、厂商注册表、模型列表解析与拉取、接口不回传 Key、local-only 拒绝、适配层厂商参数）；前端 56 项测试与生产构建通过。
+
 ## 2.5.0 — 2026-10-29
 
 ### 异地副本每日任务

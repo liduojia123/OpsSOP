@@ -26,6 +26,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from app.ai.providers import UserAiConfig, get_provider
 from app.ai.sanitize import sanitize_text
 from app.config import Settings
 
@@ -133,6 +134,10 @@ class OpenAICompatEndpoint:
     model: str
     api_key: str = ""
     timeout_seconds: float = 60.0
+    # 厂商差异:MiniMax/MiMo 使用 max_completion_tokens,DeepSeek 使用 max_tokens
+    token_field: str = "max_tokens"
+    # 厂商要求的额外参数(如 MiniMax-M3.1-Flash 必须带 thinking=adaptive)
+    extra_body: dict[str, Any] = field(default_factory=dict)
 
 
 class OpenAICompatAdapter:
@@ -162,9 +167,11 @@ class OpenAICompatAdapter:
         body: dict[str, Any] = {
             "model": self.endpoint.model,
             "messages": [{"role": m.role, "content": m.content} for m in request.messages],
-            "max_tokens": min(request.max_output_tokens, self.capabilities.max_output_tokens),
+            self.endpoint.token_field: min(request.max_output_tokens, self.capabilities.max_output_tokens),
             "temperature": request.temperature,
         }
+        # 厂商必填参数(如 thinking)放在最后,避免覆盖上面的字段
+        body.update(self.endpoint.extra_body or {})
         if request.json_mode and self.capabilities.supports_json_mode:
             body["response_format"] = {"type": "json_object"}
         headers = {"Content-Type": "application/json"}
@@ -238,6 +245,7 @@ class OpenAICompatAdapter:
             "supports_json_mode": self.capabilities.supports_json_mode,
             "supports_usage": self.capabilities.supports_usage,
             "trust_env_proxy": self.trust_env,
+            "token_field": self.endpoint.token_field,
         }
 
 
@@ -283,8 +291,39 @@ def _is_trusted_local_target(base_url: str) -> bool:
     return False
 
 
-def build_adapter(settings: Settings) -> ChatAdapter:
-    """按配置构造适配器。构造即校验 LOCAL_ONLY 与 local 目标可信。"""
+def build_adapter(settings: Settings, user_config: UserAiConfig | None = None) -> ChatAdapter:
+    """按配置构造适配器。构造即校验 LOCAL_ONLY 与 local 目标可信。
+
+    user_config:用户自填厂商配置(优先于管理员全局配置);此时按厂商文档使用
+    对应的 token 字段与必填参数,并在 LOCAL_ONLY 下拒绝外发。
+    """
+    if user_config is not None:
+        spec = get_provider(user_config.provider)
+        if settings.local_only:
+            raise LLMError("config", "LOCAL_ONLY=1 禁止调用云端模型;不允许数据外发")
+        if not user_config.api_key:
+            raise LLMError("config", "用户模型配置缺少 API Key")
+        if not user_config.model:
+            raise LLMError("config", "用户模型配置缺少模型名")
+        return OpenAICompatAdapter(
+            OpenAICompatEndpoint(
+                base_url=user_config.base_url,
+                model=user_config.model,
+                api_key=user_config.api_key,
+                timeout_seconds=float(settings.ai_timeout_seconds),
+                token_field=spec.token_field,
+                extra_body=spec.extra_body(user_config.model),
+            ),
+            LLMCapabilities(
+                # 厂商的结构化输出/usage 行为不一致,用户配置默认保守关闭
+                supports_json_mode=False,
+                supports_usage=False,
+                max_context_chars=settings.ai_max_context_chars,
+                max_output_tokens=settings.ai_max_output_tokens,
+            ),
+            trust_env=True,
+        )
+
     mode = settings.ai_mode
     if mode == "disabled":
         return DisabledAdapter()

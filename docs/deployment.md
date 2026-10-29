@@ -1,4 +1,4 @@
-# OpsSOP 2.5.0 部署指南
+# OpsSOP 2.6.0 部署指南
 
 OpsSOP 采用 Vue 前端、FastAPI 后端与 PostgreSQL / pgvector 数据库，通过 Docker Compose 部署。应用与模型服务独立配置；关闭模型时，故障录入、案例审核、SOP 管理和关键词检索仍可使用。
 
@@ -150,15 +150,15 @@ proxy_set_header X-Forwarded-Proto $scheme;
 ## 升级与回退
 
 1. 安排维护窗口，暂停业务写入，按[备份与恢复](backup-restore.md)保存归档及元信息，记录当前应用版本、镜像标识和环境配置。
-2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v2.5.0`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
+2. 在全新目标库恢复备份并核对后，选定固定发行标签。首次部署使用 `v2.6.0`，后续升级使用对应发行标签，避免使用浮动分支作为生产版本。
 3. 在不覆盖私有环境文件的情况下更新源码。沿用生产项目名和数据卷，执行上述 `up -d --build`；后端按发行迁移自动升级数据库。
 4. 确认健康状态、登录、权限、检索和关键业务操作后恢复流量，保留升级前备份。
 
-固定发行版本的操作示例，升级时将 `v2.5.0` 替换为选定的目标标签：
+固定发行版本的操作示例，升级时将 `v2.6.0` 替换为选定的目标标签：
 
 ```powershell
 git fetch --tags origin
-git checkout --detach v2.5.0
+git checkout --detach v2.6.0
 docker compose -p opssop-prod --env-file .env.production `
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```

@@ -1,6 +1,6 @@
 # OpsSOP AI 配置指南
 
-适用版本：2.5.0。
+适用版本：2.6.0。
 
 聊天模型负责故障分析和 SOP 草稿整理；embedding 模型负责知识向量化与混合检索。两者独立配置，均为可选能力。关闭模型后，业务流程和关键词检索仍可使用。
 
@@ -13,6 +13,27 @@ docker compose up -d --force-recreate backend
 ```
 
 使用独立项目名或环境文件部署时，沿用原有的 `-p` 与 `--env-file` 参数。生产部署参见 [部署指南](deployment.md)。
+
+## 用户自填 API Key（自助开启 AI）
+
+除管理员统一配置外，平台内置 **DeepSeek / MiniMax / 小米 MiMo** 三个厂商的接入，用户可以自行填写 API Key 开启 AI，无需管理员改配置或重启服务。
+
+使用路径：故障详情页右侧「AI 排查助手」→ 右上角「模型设置」→ 选择厂商 → 填写 API Key → 点「获取模型」实时拉取该厂商可用模型 → 选择模型 → 保存。
+
+- **Key 存储**：用服务端 `SECRET_KEY` 派生密钥加密后落库（HMAC-SHA256 CTR + HMAC 校验），任何接口都不回传 Key 明文或片段，只回传「是否已配置」；Key 变更写审计记录（不含 Key 内容）。
+- **生效顺序**：用户自填配置 > 管理员全局配置（`AI_MODE` / `AI_BASE_URL` / `AI_MODEL` 等）。删除自填配置即回落到全局配置。
+- **模型列表**：调用厂商的 `GET {base_url}/models`（OpenAI 兼容格式）实时获取；厂商未提供该接口时返回内置清单并标注来源为「fallback」，不会伪造可用状态。
+- **接口地址**：默认用厂商官方地址，可按需覆盖（例如 MiniMax 国内 `https://api.minimaxi.com/v1`、国际 `https://api.minimax.io/v1`；MiMo 的 Token Plan 专属地址）。
+- **出网提示**：`LOCAL_ONLY=1` 时禁止保存云厂商 Key、禁止拉取模型列表、禁止调用（应用级约束，严格隔离仍需部署层限制出口）。
+- **厂商差异**（以官方文档为准）：DeepSeek 使用 `max_tokens`；MiniMax 与 MiMo 使用 `max_completion_tokens`；`MiniMax-M3.1-Flash` 必须携带 `thinking={"type":"adaptive"}`，平台按模型自动补齐。
+
+厂商参数（2026-10-29 核对官方文档）：
+
+| 厂商 | base_url | 模型列表 | 官方模型 ID |
+|---|---|---|---|
+| DeepSeek | `https://api.deepseek.com` | `GET /models` | `deepseek-flash`、`deepseek-v4-pro` |
+| MiniMax | `https://api.minimaxi.com/v1`（国际 `https://api.minimax.io/v1`） | `GET {base}/models` | `MiniMax-M3.1-Flash`、`MiniMax-M3` |
+| 小米 MiMo | `https://api.xiaomimimo.com/v1` | `GET {base}/models` | `mimo-v2.6-pro`、`mimo-v2.6-flash`、`mimo-v2.6-pro-ultraspeed` |
 
 ## 聊天模型
 

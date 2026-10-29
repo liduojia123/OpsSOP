@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.ai.keys import resolve_user_config
+from app.ai.providers import get_provider
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
@@ -18,7 +20,10 @@ def health(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/ai-status", response_model=AiStatusOut)
-def ai_status(_: User = Depends(get_current_user)) -> AiStatusOut:
+def ai_status(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AiStatusOut:
     """当前 AI 模式与配置状态;查询状态不触发模型调用。"""
     s = get_settings()
     messages = {
@@ -27,10 +32,21 @@ def ai_status(_: User = Depends(get_current_user)) -> AiStatusOut:
         "cloud": "云端模型模式:脱敏后的问题/日志片段将发送至配置的外部模型接口,数据库仍保存在部署所在地。",
         "local": "本地模型模式:调用本机或内网模型接口。",
     }
+    user_config = resolve_user_config(db, user, s)
+    if user_config is not None:
+        provider_name = get_provider(user_config.provider).name
+        message = (
+            f"已使用你自填的 {provider_name} 配置({user_config.model});"
+            "问题描述与日志片段会发送到该厂商接口。"
+        )
+    else:
+        message = messages.get(s.ai_mode, "未知模式")
     return AiStatusOut(
         ai_mode=s.ai_mode,
         embedding_mode=s.embedding_mode,
         local_only=s.local_only,
-        message=messages.get(s.ai_mode, "未知模式"),
+        message=message,
         model_config_version=s.ai_config_version,
+        user_ai_enabled=user_config is not None,
+        user_provider=user_config.provider if user_config else "",
     )

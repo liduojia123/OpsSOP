@@ -25,7 +25,9 @@ from sqlalchemy.orm import Session
 
 from app.ai import service as ai_service
 from app.ai.json_out import complete_json
+from app.ai.keys import effective_settings
 from app.ai.llm import ChatMessage, DemoAdapter, build_adapter
+from app.ai.providers import UserAiConfig
 from app.ai.sanitize import sanitize_text
 from app.ai.schema import EvidenceItem
 from app.ai.sop_prompts import SOP_SYSTEM_PROMPT, SOP_USER_TEMPLATE
@@ -592,6 +594,7 @@ def generate_sop_draft(
     case_id: int,
     request_token: str,
     settings: Settings,
+    user_config: UserAiConfig | None = None,
 ) -> SopGenResult:
     """执行一次 AI 生成 SOP 草稿并落库(含幂等/限流/来源复核)。
 
@@ -625,7 +628,11 @@ def generate_sop_draft(
             return _success_result(db, existing, reused=True)  # 含草稿可见性复核
 
     # 配置错误在落记录前失败(不创建空白记录);失败不回退演示/模板结果
-    adapter = build_adapter(settings)
+    if user_config is not None:
+        settings = effective_settings(settings, user_config)
+        adapter = build_adapter(settings, user_config=user_config)
+    else:
+        adapter = build_adapter(settings)
     is_demo = isinstance(adapter, DemoAdapter)
     config_ver = settings.ai_config_version
 

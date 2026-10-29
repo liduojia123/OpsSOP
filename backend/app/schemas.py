@@ -408,6 +408,67 @@ class AiStatusOut(BaseModel):
     message: str
     # 模型配置版本:前端绑定分析请求/响应,配置变化后旧报告标记过期
     model_config_version: str = ""
+    # 用户自填厂商配置:全局未启用时,该用户仍可用自己的 Key(前端据此放开调用)
+    user_ai_enabled: bool = False
+    user_provider: str = ""
+
+
+# ===== AI 厂商与用户自填 Key =====
+
+class AiProviderOut(BaseModel):
+    """支持的模型厂商;has_key/model 表示当前用户是否已配置。"""
+
+    id: str
+    name: str
+    base_url: str
+    alt_base_urls: list[str] = []
+    docs_url: str = ""
+    default_models: list[str] = []
+    key_prefix: str = ""
+    notes: str = ""
+    has_key: bool = False
+    model: str = ""
+    user_base_url: str = ""
+
+
+class AiModelOut(BaseModel):
+    """厂商模型列表中的一项。"""
+
+    id: str
+    name: str = ""
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    reasoning_levels: list[str] = []
+
+
+class AiModelsResponse(BaseModel):
+    """模型列表结果;source=fallback 表示厂商未提供列表,返回内置兜底清单。"""
+
+    provider: str
+    models: list[AiModelOut] = []
+    source: str = "provider"
+    note: str = ""
+
+
+class AiKeyRequest(BaseModel):
+    """保存用户自填的厂商配置;api_key 留空表示保持原 Key 不变。"""
+
+    api_key: str = Field(default="", max_length=400)
+    base_url: str = Field(default="", max_length=300)
+    model: str = Field(default="", max_length=128)
+    enabled: bool = True
+
+
+class AiKeyOut(BaseModel):
+    """用户厂商配置(不含 Key 明文或片段)。"""
+
+    provider: str
+    name: str = ""
+    has_key: bool = False
+    model: str = ""
+    base_url: str = ""
+    enabled: bool = True
+    updated_at: datetime | None = None
 
 
 # ===== AI 分析=====

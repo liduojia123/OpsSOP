@@ -165,6 +165,37 @@ export interface AiStatus {
   message: string
   /** 模型配置版本:绑定分析请求/响应,配置变化后旧报告标记过期 */
   model_config_version: string
+  /** 用户自填了厂商配置时为 true:即使全局 AI 未启用,该用户也能使用自己的 Key */
+  user_ai_enabled: boolean
+  /** 当前生效的用户厂商 ID(deepseek / minimax / mimo) */
+  user_provider: string
+}
+
+/** 支持的模型厂商(后端注册表)。 */
+export interface AiProvider {
+  id: string
+  name: string
+  base_url: string
+  alt_base_urls: string[]
+  docs_url: string
+  default_models: string[]
+  key_prefix: string
+  notes: string
+  /** 当前用户是否已保存该厂商的 Key */
+  has_key: boolean
+  /** 当前用户选择的模型 */
+  model: string
+  /** 当前用户覆盖的接口地址 */
+  user_base_url: string
+}
+
+/** 厂商模型列表中的一项。 */
+export interface AiModel {
+  id: string
+  name: string
+  context_window: number | null
+  max_output_tokens: number | null
+  reasoning_levels: string[]
 }
 
 // ===== AI 分析=====

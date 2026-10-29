@@ -15,6 +15,7 @@ import client, { errMsg } from '../api'
 import { fmtTime } from '../labels'
 import { renderSafeMd } from '../safeMd'
 import AppIcon from '../components/AppIcon.vue'
+import AiProviderSettings from '../components/AiProviderSettings.vue'
 import { sourcePath, sourceTagLabel, sourceVersionText, sourceViewLabel } from '../sourceLinks'
 import type {
   AiAnalysis,
@@ -91,7 +92,16 @@ let lastAnalyzedSig = ''
 let disposed = false
 
 // 状态未知(aiStatus 为 null)时视为不可调用:未确认模式与出网提示前不自动外发
-const aiDisabled = computed(() => !props.aiStatus || props.aiStatus.ai_mode === 'disabled')
+const aiDisabled = computed(
+  () => !props.aiStatus || (props.aiStatus.ai_mode === 'disabled' && !props.aiStatus.user_ai_enabled),
+)
+/** 用户自填厂商配置:全局未启用时也能用(后端按用户配置调用) */
+const userProviderLabel = computed(() => {
+  if (!props.aiStatus?.user_ai_enabled) return ''
+  const names: Record<string, string> = { deepseek: 'DeepSeek', minimax: 'MiniMax', mimo: '小米 MiMo' }
+  return names[props.aiStatus.user_provider] || props.aiStatus.user_provider
+})
+const settingsVisible = ref(false)
 const aiStatusMissing = computed(() => !props.aiStatus)
 const isDemo = computed(() => analysis.value?.is_demo ?? false)
 
@@ -486,9 +496,12 @@ function triggerLabel(t: string): string {
       <!-- 头部:标题 + 模式 -->
       <div class="assistant-heading">
         <div class="assistant-heading-label"><span class="assistant-brand-icon"><AppIcon name="bot" :size="21" /></span><div><h2>AI 排查助手</h2><p>证据驱动的排查建议</p></div></div>
-        <el-tag v-if="aiStatus" size="small" :type="aiDisabled ? 'info' : aiStatus.ai_mode === 'demo' ? 'warning' : 'primary'">
-          {{ aiStatus.ai_mode === 'demo' ? '演示模式' : aiDisabled ? '未启用' : aiStatus.ai_mode === 'local' ? '本地模型' : '云端模型' }}
-        </el-tag>
+        <div class="assistant-heading-actions">
+          <el-tag v-if="aiStatus" size="small" :type="aiDisabled ? 'info' : aiStatus.ai_mode === 'demo' ? 'warning' : 'primary'">
+            {{ aiStatus.ai_mode === 'demo' ? '演示模式' : aiDisabled ? '未启用' : aiStatus.ai_mode === 'local' ? '本地模型' : userProviderLabel ? `${userProviderLabel} 模型` : '云端模型' }}
+          </el-tag>
+          <el-button size="small" plain @click="settingsVisible = true">模型设置</el-button>
+        </div>
       </div>
 
       <!-- 模式与出网提示 -->
@@ -867,6 +880,7 @@ function triggerLabel(t: string): string {
       </div>
     </div>
   </aside>
+  <AiProviderSettings v-model:visible="settingsVisible" />
 </template>
 
 <style scoped>
@@ -880,6 +894,11 @@ function triggerLabel(t: string): string {
 .assistant-heading :deep(.el-tag) { flex-shrink: 0; font-size: 10px; }
 .assistant-mode-note { flex-shrink: 0; margin-bottom: 14px; font-size: 11px; line-height: 1.8; }
 .assistant-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 8px; align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--ops-border-light); flex-shrink: 0; }
+.assistant-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .assistant-toolbar > :deep(.el-button) { justify-self: start; min-width: 106px; height: 32px; font-weight: 600; }
 .assistant-toolbar > :deep(.el-switch) { justify-self: end; }
 .assistant-toolbar :deep(.el-switch__label) { color: var(--ops-muted); font-size: 11px; }
