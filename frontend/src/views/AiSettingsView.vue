@@ -2,9 +2,10 @@
 /**
  * AI 模型设置页(用户自助开启 AI)。
  *
- * - 一屏可见:当前状态、我已配置的厂商、配置表单;
- * - 填入自己的 API Key 后可实时拉取厂商可用模型并选择;
- * - Key 只保存在本人账号下,页面不回显;LOCAL_ONLY 时禁止云厂商。
+ * 页面骨架与系统管理/案例库一致:ops-page + ops-page-header + 面板。
+ * - 三张状态卡:全局模式、我的生效配置、出网限制;
+ * - 厂商表:三家厂商的配置状态、当前模型与接口地址;
+ * - 配置表单:选厂商 → 填 Key → 拉取模型 → 保存。
  */
 import { computed, onMounted, ref } from 'vue'
 import client, { errMsg } from '../api'
@@ -15,6 +16,7 @@ import type { AiProvider, AiStatus } from '../types'
 const status = ref<AiStatus | null>(null)
 const providers = ref<AiProvider[]>([])
 const selected = ref('')
+const loading = ref(false)
 const loadError = ref('')
 
 const providerNames: Record<string, string> = {
@@ -33,11 +35,20 @@ const globalModeLabel = computed(() => {
 })
 
 const effectiveLabel = computed(() => {
-  if (!status.value?.user_ai_enabled) return '未配置(使用全局配置)'
+  if (!status.value?.user_ai_enabled) return '未配置 · 使用全局配置'
   return `${providerNames[status.value.user_provider] || status.value.user_provider} · 自填配置`
 })
 
+const configuredCount = computed(() => providers.value.filter((p) => p.has_key).length)
+
+const pageChip = computed(() => {
+  if (!status.value) return '状态读取中'
+  if (status.value.user_ai_enabled) return `AI 已启用 · ${providerNames[status.value.user_provider] || status.value.user_provider}`
+  return status.value.ai_mode === 'disabled' ? 'AI 未启用' : globalModeLabel.value
+})
+
 async function load() {
+  loading.value = true
   loadError.value = ''
   try {
     const [statusResp, providersResp] = await Promise.all([
@@ -48,6 +59,8 @@ async function load() {
     providers.value = providersResp.data
   } catch (e) {
     loadError.value = errMsg(e)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -55,66 +68,86 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="ai-settings-page">
+  <div class="ops-page">
     <header class="ops-page-header">
       <div>
-        <h2>AI 模型设置</h2>
-        <p class="ops-section-caption">
-          填写你自己的 API Key 即可启用 AI 分析与 SOP 草稿生成;Key 只保存在你的账号下,页面不回显。
+        <div class="ops-eyebrow">AI / MODEL PROVIDERS</div>
+        <h1>AI 设置</h1>
+        <p class="ops-page-description">
+          填写自己的 API Key 即可启用 AI 排查分析与 SOP 草稿生成；Key 只保存在你的账号下，页面不回显。
         </p>
       </div>
-      <el-button :loading="!status" @click="load">刷新状态</el-button>
+      <div class="ops-page-actions">
+        <span class="ops-chip"><AppIcon name="bot" :size="15" />{{ pageChip }}</span>
+        <el-button :loading="loading" @click="load"><AppIcon name="refresh" :size="15" />刷新</el-button>
+      </div>
     </header>
 
-    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon class="mb-3" />
+    <el-alert
+      v-if="loadError"
+      class="mb-5"
+      :title="loadError"
+      type="error"
+      :closable="false"
+      show-icon
+    />
 
-    <section class="ops-panel ai-status-panel">
-      <div class="ai-status-grid">
+    <div class="ai-stat-grid">
+      <div class="ops-panel ai-stat">
         <div>
-          <span>全局 AI 模式</span>
-          <strong>{{ globalModeLabel }}</strong>
+          <p class="ai-stat-label">全局 AI 模式</p>
+          <p class="ai-stat-value">{{ globalModeLabel }}</p>
         </div>
-        <div>
-          <span>我的生效配置</span>
-          <strong>{{ effectiveLabel }}</strong>
-        </div>
-        <div>
-          <span>出网限制</span>
-          <strong>{{ status?.local_only ? 'LOCAL_ONLY 已开启(禁止云厂商)' : '允许调用云端模型' }}</strong>
-        </div>
+        <span class="ops-icon-tile"><AppIcon name="server" :size="20" /></span>
       </div>
-      <p v-if="status" class="ops-note mt-2">{{ status.message }}</p>
-    </section>
+      <div class="ops-panel ai-stat">
+        <div>
+          <p class="ai-stat-label">我的生效配置</p>
+          <p class="ai-stat-value">{{ effectiveLabel }}</p>
+        </div>
+        <span class="ops-icon-tile is-warm"><AppIcon name="bot" :size="20" /></span>
+      </div>
+      <div class="ops-panel ai-stat">
+        <div>
+          <p class="ai-stat-label">出网限制</p>
+          <p class="ai-stat-value">{{ status?.local_only ? '仅本地 · 禁止云厂商' : '允许调用云端模型' }}</p>
+        </div>
+        <span class="ops-icon-tile"><AppIcon name="lock" :size="20" /></span>
+      </div>
+    </div>
 
-    <section class="ops-panel ai-providers-panel">
+    <section class="ops-panel ops-table-panel mb-6">
       <div class="ops-section-header">
         <div>
-          <h3>支持的模型厂商</h3>
-          <p class="ops-section-caption mt-1">点「配置」切换到对应厂商填写 Key;厂商与模型 ID 以官方文档为准。</p>
+          <h2><AppIcon name="server" :size="17" />模型厂商</h2>
+          <p>点「配置」切换厂商；模型 ID 与接口地址以厂商官方文档为准。</p>
         </div>
+        <span class="ops-section-caption">已配置 {{ configuredCount }} / {{ providers.length }}</span>
       </div>
       <el-table :data="providers" empty-text="加载中">
-        <el-table-column label="厂商" min-width="140">
+        <el-table-column label="厂商" min-width="150">
           <template #default="{ row }">
-            <span class="ai-provider-name">
-              <AppIcon name="bot" :size="16" />{{ row.name }}
-            </span>
+            <span class="ai-vendor-name"><AppIcon name="bot" :size="16" />{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="120">
+        <el-table-column label="状态" width="110">
           <template #default="{ row }">
             <el-tag size="small" :type="row.has_key ? 'success' : 'info'">
               {{ row.has_key ? '已配置' : '未配置' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="当前模型" min-width="160">
-          <template #default="{ row }">{{ row.model || '-' }}</template>
+        <el-table-column label="当前模型" min-width="170">
+          <template #default="{ row }">
+            <span class="ops-id">{{ row.model || '—' }}</span>
+          </template>
         </el-table-column>
-        <el-table-column label="接口地址" min-width="200">
-          <template #default="{ row }"><span class="ops-id">{{ row.user_base_url || row.base_url }}</span></template>
+        <el-table-column label="接口地址" min-width="240">
+          <template #default="{ row }">
+            <span class="ai-endpoint">{{ row.user_base_url || row.base_url }}</span>
+          </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" align="right">
+        <el-table-column label="操作" width="96" align="right">
           <template #default="{ row }">
             <el-button size="small" plain @click="selected = row.id">配置</el-button>
           </template>
@@ -122,55 +155,78 @@ onMounted(load)
       </el-table>
     </section>
 
-    <section class="ops-panel ai-form-panel">
+    <section class="ops-panel">
       <div class="ops-section-header">
         <div>
-          <h3>配置我的模型</h3>
-          <p class="ops-section-caption mt-1">
-            保存后，分析与 SOP 草稿生成会使用这里选择的厂商与模型;删除配置即回落到全局配置。
-          </p>
+          <h2><AppIcon name="edit" :size="17" />配置我的模型</h2>
+          <p>保存后，分析与 SOP 草稿生成使用这里选择的厂商与模型；删除配置即回落到全局配置。</p>
         </div>
       </div>
-      <AiProviderSettings :provider-id="selected" @changed="load" />
+      <div class="ai-form-body">
+        <p v-if="status" class="ai-form-note">{{ status.message }}</p>
+        <AiProviderSettings :provider-id="selected" @changed="load" />
+      </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-.ai-settings-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.ops-page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.ai-status-grid {
+.ai-stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
 }
-.ai-status-grid span {
-  display: block;
-  margin-bottom: 4px;
+.ai-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+}
+.ai-stat-label {
+  margin: 0;
   color: var(--ops-muted);
   font-size: 11px;
+  line-height: 1.5;
 }
-.ai-status-grid strong {
-  color: var(--ops-text-soft);
-  font-weight: 600;
+.ai-stat-value {
+  margin: 8px 0 0;
+  color: var(--ops-text);
+  font-size: 15px;
+  font-weight: var(--ops-weight-semibold);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
-.ai-provider-name {
+.ai-vendor-name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-weight: 600;
+  gap: 9px;
+  color: var(--ops-text);
+  font-weight: var(--ops-weight-medium);
 }
-.ai-providers-panel,
-.ai-form-panel {
-  padding: 16px 20px;
+.ai-vendor-name > svg {
+  color: var(--ops-brand);
+}
+.ai-endpoint {
+  color: var(--ops-muted);
+  font-family: var(--ops-font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ai-form-body {
+  max-width: 760px;
+  padding: 20px;
+}
+.ai-form-note {
+  margin: 0 0 14px;
+  color: var(--ops-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+@media (max-width: 960px) {
+  .ai-stat-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

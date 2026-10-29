@@ -213,7 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
     drill = sub.add_parser("drill", help="隔离备份/恢复/持久化/生产 smoke 演练")
     drill.add_argument("--work-dir", required=True)
     drill.add_argument("--run-id", required=True)
-    drill.add_argument("--backend-image", default="opssop-backend:2.6.2")
+    drill.add_argument("--backend-image", default="opssop-backend:2.6.3")
     drill.add_argument("--timeout", type=int, default=180)
     drill.add_argument("--keep-resources", action="store_true")
     drill.add_argument("--cleanup-on-failure", action="store_true")

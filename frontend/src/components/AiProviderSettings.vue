@@ -142,7 +142,7 @@ onMounted(loadProviders)
 
 <template>
   <div class="ai-settings">
-    <label class="ai-settings-label">模型厂商</label>
+    <label class="form-label">模型厂商</label>
     <el-select v-model="currentId" class="ai-settings-field" :loading="loadingProviders" placeholder="选择厂商">
       <el-option v-for="p in providers" :key="p.id" :label="p.name" :value="p.id" />
     </el-select>
@@ -151,18 +151,22 @@ onMounted(loadProviders)
       <a v-if="provider.docs_url" :href="provider.docs_url" target="_blank" rel="noreferrer">官方文档</a>
     </p>
 
-    <label class="ai-settings-label">API Key</label>
-    <el-input
-      v-model="apiKey"
-      class="ai-settings-field"
-      type="password"
-      show-password
-      autocomplete="off"
-      :placeholder="hasSavedKey ? '已保存(留空表示不修改)' : `请输入 ${provider?.key_prefix || ''} 开头的 Key`"
-    />
-
-    <label class="ai-settings-label">接口地址(可选)</label>
-    <el-input v-model="baseUrl" class="ai-settings-field" :placeholder="provider?.base_url || ''" />
+    <div class="ai-settings-grid">
+      <div>
+        <label class="form-label">API Key</label>
+        <el-input
+          v-model="apiKey"
+          type="password"
+          show-password
+          autocomplete="off"
+          :placeholder="hasSavedKey ? '已保存（留空表示不修改）' : `请输入 ${provider?.key_prefix || ''} 开头的 Key`"
+        />
+      </div>
+      <div>
+        <label class="form-label">接口地址（可选）</label>
+        <el-input v-model="baseUrl" :placeholder="provider?.base_url || ''" />
+      </div>
+    </div>
     <p v-if="provider && provider.alt_base_urls.length" class="ai-settings-hint">
       其他可用地址：{{ provider.alt_base_urls.join('、') }}
     </p>
@@ -193,13 +197,19 @@ onMounted(loadProviders)
   flex-direction: column;
   gap: 8px;
 }
-.ai-settings-label {
-  font-size: 12px;
-  color: var(--ops-muted);
-  margin-top: 6px;
-}
 .ai-settings-field {
   width: 100%;
+}
+.ai-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-top: 6px;
+}
+@media (max-width: 720px) {
+  .ai-settings-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .ai-settings-hint {
   font-size: 12px;
