@@ -9,15 +9,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access import can_view_fault
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, record_audit, require_operator
-from app.models import MonitoredServer, SshCommandTemplate, User
+from app.models import Fault, MonitoredServer, SshCommandTemplate, User
+from app.monitoring.alerts import sync_alerts
 from app.monitoring.defaults import ensure_defaults
-from app.monitoring.service import execute_server_template, overview, server_public, template_public
+from app.monitoring.service import (
+    execute_server_template,
+    fault_metrics,
+    overview,
+    server_public,
+    template_public,
+)
 from app.monitoring.ssh import SshError
 from app.monitoring.templates import TemplateError
 from app.schemas import (
+    FaultMetricsOut,
     MonitoredServerOut,
     MonitoringOverviewOut,
     RunCommandOut,
@@ -53,7 +62,26 @@ def monitoring_overview(
     _: User = Depends(get_current_user),
 ) -> MonitoringOverviewOut:
     ensure_defaults(db)
+    # 告警转故障:开启时按 60 秒节流同步,页面查看即可落在故障列表
+    sync_alerts(db)
     return MonitoringOverviewOut(**overview(db, minutes=minutes, step=step))
+
+
+@router.get("/faults/{fault_id}/metrics", response_model=FaultMetricsOut)
+def fault_live_metrics(
+    fault_id: int,
+    minutes: int = Query(default=60, ge=1, le=1440),
+    step: int = Query(default=60, ge=15, le=3600),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FaultMetricsOut:
+    """故障详情页的实时指标:按故障服务匹配承载服务器,并按实例裁剪序列。"""
+    fault = db.get(Fault, fault_id)
+    if fault is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "故障不存在")
+    if not can_view_fault(user, fault):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该故障")
+    return FaultMetricsOut(**fault_metrics(db, fault, minutes=minutes, step=step))
 
 
 @router.get("/servers", response_model=list[MonitoredServerOut])

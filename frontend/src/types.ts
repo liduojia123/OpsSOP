@@ -68,6 +68,7 @@ export interface Fault {
   attempted_actions: string
   category_id: number | null
   tags: string[]
+  source?: string
   status: FaultStatus
   actual_root_cause: string
   handling_steps: string
@@ -276,7 +277,38 @@ export interface MonitoringConfig {
   prometheus_url: string
   timeout_seconds: number
   ai_tools_enabled: boolean
+  alerts_enabled: boolean
+  alert_service_label: string
+  alert_owner_id: number | null
+  alert_last_sync_at: string | null
   updated_at: string | null
+}
+
+export interface AlertItem {
+  name: string
+  state: string
+  severity: string
+  instance: string
+  service: string
+  summary: string
+  active_at: string
+}
+
+export interface AlertPreview {
+  ok: boolean
+  enabled: boolean
+  items: AlertItem[]
+  error: string
+}
+
+export interface AlertSyncResult {
+  ok: boolean
+  skipped: string
+  created: Array<{ id: number; title: string; service: string }>
+  firing: number
+  total: number
+  synced_at: string
+  error: string
 }
 
 export interface MonitoringSeries {
@@ -293,6 +325,40 @@ export interface MonitoringPanel {
   series: MonitoringSeries[]
   error: string
   truncated: boolean
+  scoped?: boolean
+}
+
+export interface FaultMetrics {
+  enabled: boolean
+  mapped: boolean
+  fault_id: number
+  service: string
+  servers: MonitoredServer[]
+  instances: string[]
+  panels: MonitoringPanel[]
+  fetched_at: string
+  error: string
+}
+
+export interface AuditTimelineItem {
+  id: number
+  action: string
+  actor_name: string
+  detail: Record<string, unknown>
+  created_at: string
+}
+
+export interface NotificationItem {
+  id: number
+  user_id: number
+  kind: string
+  title: string
+  body: string
+  link: string
+  entity_type: string
+  entity_id: number | null
+  read_at: string | null
+  created_at: string
 }
 
 export interface MonitoringTarget {
@@ -312,6 +378,7 @@ export interface MonitoredServer {
   port: number
   username: string
   prometheus_instance: string
+  service_names: string[]
   enabled: boolean
   notes: string
   has_key: boolean
@@ -572,7 +639,7 @@ export interface SopGenerateAiResponse {
 // ===== 统一检索 =====
 
 export interface UnifiedHit {
-  type: 'fault' | 'case' | 'sop'
+  type: 'fault' | 'case' | 'sop' | 'server'
   id: number
   title: string
   status: string
@@ -582,7 +649,7 @@ export interface UnifiedHit {
 }
 
 export interface UnifiedGroup {
-  type: 'fault' | 'case' | 'sop'
+  type: 'fault' | 'case' | 'sop' | 'server'
   total: number
   truncated: boolean
   items: UnifiedHit[]

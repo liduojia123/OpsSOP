@@ -205,6 +205,28 @@ class PrometheusClient:
             )
         return out
 
+    def alerts(self) -> list[dict]:
+        """读取 Prometheus 规则告警(只读)。最多返回 50 条,避免大响应拖垮页面。"""
+        data = self._get("/api/v1/alerts", {})
+        out: list[dict] = []
+        for item in data.get("alerts") or []:
+            if len(out) >= 50:
+                break
+            labels = {str(k): str(v) for k, v in (item.get("labels") or {}).items()}
+            annotations = {
+                str(k): str(v) for k, v in (item.get("annotations") or {}).items()
+            }
+            out.append(
+                {
+                    "state": str(item.get("state", "")),
+                    "labels": labels,
+                    "annotations": annotations,
+                    "active_at": str(item.get("activeAt", "")),
+                    "value": str(item.get("value", ""))[:200],
+                }
+            )
+        return out
+
     def ready(self) -> bool:
         try:
             with httpx.Client(timeout=self.timeout, trust_env=True) as client:

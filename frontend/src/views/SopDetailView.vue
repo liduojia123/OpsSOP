@@ -5,6 +5,7 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import AuditTimeline from '../components/AuditTimeline.vue'
 import { fmtTime, sopStatusMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import type {
@@ -65,6 +66,11 @@ const canEdit = computed(
     (auth.role === 'admin' || sop.value.created_by === auth.user?.id),
 )
 const canReview = computed(() => auth.role === 'reviewer' || auth.role === 'admin')
+
+function askAi() {
+  if (!sop.value) return
+  void router.push({ path: '/chat', query: { sop: String(sop.value.id) } })
+}
 
 function fillForm(data: Sop) {
   form.title = data.title
@@ -325,6 +331,9 @@ onMounted(async () => {
         </div>
       </div>
       <div class="ops-page-actions sop-page-actions">
+        <el-button plain @click="askAi">
+          <AppIcon name="bot" :size="15" /> 问 AI
+        </el-button>
         <el-button v-if="canEdit" type="primary" :loading="saving" :disabled="submitting" @click="save">保存</el-button>
         <el-button v-if="canEdit" :loading="submitting" :disabled="saving" @click="submitForReview">提交审核</el-button>
         <el-button v-if="canReview && sop.status === 'submitted'" type="success" @click="approve">
@@ -521,6 +530,7 @@ onMounted(async () => {
             </div>
           </div>
         </div>
+      <AuditTimeline entity-type="sop" :entity-id="sop.id" />
       </aside>
     </div>
 

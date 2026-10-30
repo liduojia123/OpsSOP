@@ -23,11 +23,14 @@ from app.models import (
     SshCommandTemplate,
     User,
 )
+from app.monitoring.alerts import preview_alerts, sync_alerts
 from app.monitoring.defaults import client_from_config, ensure_defaults, get_config, save_config
 from app.monitoring.prometheus import MonitoringError, PrometheusClient, validate_prometheus_url
 from app.monitoring.service import server_public, template_public
 from app.monitoring.ssh import SshError, SshTarget, probe_fingerprint
 from app.schemas import (
+    AlertPreviewOut,
+    AlertSyncOut,
     DashboardPanelOut,
     ServerTestRequest,
     MonitoredServerOut,
@@ -53,6 +56,10 @@ def _config_out(row) -> MonitoringConfigOut:
         prometheus_url=row.prometheus_url,
         timeout_seconds=row.timeout_seconds,
         ai_tools_enabled=row.ai_tools_enabled,
+        alerts_enabled=row.alerts_enabled,
+        alert_service_label=row.alert_service_label,
+        alert_owner_id=row.alert_owner_id,
+        alert_last_sync_at=row.alert_last_sync_at,
         updated_at=row.updated_at,
     )
 
@@ -80,6 +87,9 @@ def update_monitoring(
             prometheus_url=body.prometheus_url,
             timeout_seconds=body.timeout_seconds,
             ai_tools_enabled=body.ai_tools_enabled,
+            alerts_enabled=body.alerts_enabled,
+            alert_service_label=body.alert_service_label,
+            alert_owner_id=body.alert_owner_id,
         )
     except MonitoringError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
@@ -89,7 +99,12 @@ def update_monitoring(
         "monitoring.save",
         "monitoring",
         "",
-        {"enabled": row.enabled, "url": row.prometheus_url, "ai_tools": row.ai_tools_enabled},
+        {
+            "enabled": row.enabled,
+            "url": row.prometheus_url,
+            "ai_tools": row.ai_tools_enabled,
+            "alerts": row.alerts_enabled,
+        },
     )
     db.commit()
     return _config_out(row)
@@ -135,6 +150,36 @@ def list_targets(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
 
 
+@router.get("/monitoring/alerts", response_model=AlertPreviewOut)
+def preview_prometheus_alerts(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> AlertPreviewOut:
+    """预览 Prometheus 当前告警(只读),用于确认标签与服务映射。"""
+    ensure_defaults(db)
+    return AlertPreviewOut(**preview_alerts(db))
+
+
+@router.post("/monitoring/alerts/sync", response_model=AlertSyncOut)
+def sync_prometheus_alerts(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> AlertSyncOut:
+    """立即同步告警并生成故障(按指纹去重);不受 60 秒节流限制。"""
+    ensure_defaults(db)
+    result = sync_alerts(db, force=True)
+    record_audit(
+        db,
+        admin,
+        "monitoring.alert.sync_manual",
+        "monitoring",
+        "",
+        {"created": [item["id"] for item in result.get("created", [])]},
+    )
+    db.commit()
+    return AlertSyncOut(**result)
+
+
 # ===== 服务器 =====
 
 @router.get("/servers", response_model=list[MonitoredServerOut])
@@ -153,6 +198,20 @@ def _validate_server(body: MonitoredServerRequest) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "SSH 用户名格式不合法")
     if not 1 <= body.port <= 65535:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "SSH 端口不合法")
+    if len(body.service_names) > 50:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "承载服务最多 50 个")
+
+
+def _clean_services(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values or []:
+        name = str(value).strip()[:128]
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            out.append(name)
+    return out
 
 
 @router.post("/servers", response_model=MonitoredServerOut, status_code=status.HTTP_201_CREATED)
@@ -173,6 +232,7 @@ def create_server(
         private_key_encrypted=encrypt_secret(body.private_key.strip(), settings.secret_key),
         host_key_fingerprint=body.host_key_fingerprint.strip(),
         prometheus_instance=body.prometheus_instance.strip(),
+        service_names=_clean_services(body.service_names),
         enabled=body.enabled,
         notes=body.notes.strip(),
     )
@@ -198,6 +258,7 @@ def update_server(
     row.port = body.port
     row.username = body.username.strip()
     row.prometheus_instance = body.prometheus_instance.strip()
+    row.service_names = _clean_services(body.service_names)
     row.enabled = body.enabled
     row.notes = body.notes.strip()
     if body.private_key.strip():

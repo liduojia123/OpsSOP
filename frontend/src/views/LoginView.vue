@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AppIcon from '../components/AppIcon.vue'
+import AppLogo from '../components/AppLogo.vue'
 import client, { errMsg } from '../api'
 import { safeRedirect } from '../safeRedirect'
 import { useAuthStore } from '../stores/auth'
@@ -43,8 +44,7 @@ async function doLogin() {
   <div class="ops-login">
     <section class="ops-login-story">
       <div class="ops-login-brand">
-        <span class="ops-login-mark"><AppIcon name="workflow" :size="23" /></span>
-        <strong>OpsSOP</strong>
+        <AppLogo dark />
       </div>
 
       <div class="ops-login-story-main">
@@ -80,7 +80,7 @@ async function doLogin() {
 
     <section class="ops-login-access">
       <div class="ops-login-mobile-brand">
-        <span class="ops-login-mark"><AppIcon name="workflow" :size="23" /></span><strong>OpsSOP</strong>
+        <AppLogo />
       </div>
       <div class="ops-login-form-wrap ops-reveal" style="--ops-order: 2">
         <div class="ops-login-form-heading">
@@ -122,9 +122,7 @@ async function doLogin() {
 .ops-login { display: grid; grid-template-columns: 1.06fr 1fr; min-height: 100%; color: var(--ops-text); background: var(--ops-surface); }
 .ops-login-story { position: relative; display: flex; flex-direction: column; min-height: 100vh; padding: 38px 8% 26px; overflow: hidden; background-color: #222428; background-image: linear-gradient(#ffffff05 1px, transparent 1px), linear-gradient(90deg, #ffffff05 1px, transparent 1px); background-size: 40px 40px; color: #f6f1e5; }
 .ops-login-story::after { content: 'FIELD NOTES / SYSTEM MEMORY'; position: absolute; top: 39px; right: 26px; color: #79776f; font-family: var(--ops-font-mono); font-size: 9px; letter-spacing: 2px; writing-mode: vertical-rl; }
-.ops-login-brand, .ops-login-mobile-brand { display: flex; align-items: center; gap: 11px; }
-.ops-login-mark { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 3px; background: var(--ops-brand-mark); color: #222428; transform: rotate(-5deg); }
-.ops-login-brand > strong, .ops-login-mobile-brand > strong { color: #f8f4e8; font-size: 27px; font-weight: 750; letter-spacing: -1.6px; }
+.ops-login-brand, .ops-login-mobile-brand { --ops-logo-width: 210px; }
 .ops-login-story-main { display: flex; flex: 1; flex-direction: column; justify-content: center; width: 100%; max-width: 520px; margin: 40px auto 20px; }
 .ops-login-eyebrow { color: #e38965; font-family: var(--ops-font-mono); font-size: 11px; letter-spacing: 2px; }
 .ops-login-story h1 { margin: 22px 0 18px; color: #f2ecdf; font-size: clamp(40px, 4.3vw, 64px); font-weight: 650; line-height: 1.24; letter-spacing: -2.5px; }
@@ -172,7 +170,6 @@ async function doLogin() {
   .ops-login-story { display: none; }
   .ops-login-access { padding: 140px 28px 90px; background: var(--ops-canvas); }
   .ops-login-mobile-brand { position: absolute; top: 36px; left: 28px; display: flex; }
-  .ops-login-mobile-brand > strong { color: var(--ops-text); font-size: 24px; }
   .ops-login-form-wrap { max-width: 380px; }
 }
 @media (max-height: 700px) and (min-width: 801px) {

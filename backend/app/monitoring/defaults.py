@@ -101,16 +101,31 @@ def save_config(
     prometheus_url: str,
     timeout_seconds: int = 10,
     ai_tools_enabled: bool = True,
+    alerts_enabled: bool = False,
+    alert_service_label: str = "service",
+    alert_owner_id: int | None = None,
 ) -> MonitoringConfig:
     url = validate_prometheus_url(prometheus_url) if prometheus_url.strip() else ""
     if enabled and not url:
         raise MonitoringError("config", "启用监控前请填写 Prometheus 地址")
     timeout = max(3, min(int(timeout_seconds), 30))
+    label = (alert_service_label or "service").strip() or "service"
+    if len(label) > 64:
+        raise MonitoringError("config", "告警服务标签过长")
+    if alert_owner_id is not None:
+        owner = db.get(User, alert_owner_id)
+        if owner is None or not owner.is_active:
+            raise MonitoringError("config", "告警故障负责人不存在或已停用")
+    if alerts_enabled and not enabled:
+        raise MonitoringError("config", "启用告警转故障前请先启用监控")
     row = get_config(db)
     row.enabled = enabled
     row.prometheus_url = url
     row.timeout_seconds = timeout
     row.ai_tools_enabled = ai_tools_enabled
+    row.alerts_enabled = alerts_enabled
+    row.alert_service_label = label
+    row.alert_owner_id = alert_owner_id
     row.updated_by = admin.id
     from datetime import datetime, timezone
 

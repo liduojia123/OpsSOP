@@ -11,6 +11,8 @@ import MetricChart from '../components/MetricChart.vue'
 import { fmtTime } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import type {
+  AlertPreview,
+  AlertSyncResult,
   MonitoredServer,
   MonitoringConfig,
   MonitoringOverview,
@@ -18,6 +20,7 @@ import type {
   RunCommandResult,
   ServerTestResult,
   SshTemplate,
+  UserOption,
 } from '../types'
 
 const auth = useAuthStore()
@@ -46,7 +49,14 @@ const configForm = reactive({
   prometheus_url: '',
   timeout_seconds: 10,
   ai_tools_enabled: true,
+  alerts_enabled: false,
+  alert_service_label: 'service',
+  alert_owner_id: null as number | null,
 })
+const userOptions = ref<UserOption[]>([])
+const alertPreview = ref<AlertPreview | null>(null)
+const alertChecking = ref(false)
+const alertSyncing = ref(false)
 const savingConfig = ref(false)
 const testingProm = ref(false)
 const promTest = ref('')
@@ -65,6 +75,7 @@ const serverForm = reactive({
   private_key: '',
   host_key_fingerprint: '',
   prometheus_instance: '',
+  service_names: [] as string[],
   enabled: true,
   notes: '',
 })
@@ -122,10 +133,11 @@ async function loadDiagnostics() {
 async function loadAdmin() {
   if (!isAdmin.value) return
   try {
-    const [configResp, serverResp, templateResp] = await Promise.all([
+    const [configResp, serverResp, templateResp, userResp] = await Promise.all([
       client.get<MonitoringConfig>('/api/admin/monitoring'),
       client.get<MonitoredServer[]>('/api/admin/servers'),
       client.get<SshTemplate[]>('/api/admin/ssh-templates'),
+      client.get<UserOption[]>('/api/users/options'),
     ])
     config.value = configResp.data
     Object.assign(configForm, {
@@ -133,9 +145,13 @@ async function loadAdmin() {
       prometheus_url: configResp.data.prometheus_url,
       timeout_seconds: configResp.data.timeout_seconds,
       ai_tools_enabled: configResp.data.ai_tools_enabled,
+      alerts_enabled: configResp.data.alerts_enabled,
+      alert_service_label: configResp.data.alert_service_label,
+      alert_owner_id: configResp.data.alert_owner_id,
     })
     adminServers.value = serverResp.data
     adminTemplates.value = templateResp.data
+    userOptions.value = userResp.data
   } catch (e) {
     ElMessage.error(errMsg(e))
   }
@@ -199,6 +215,9 @@ async function saveConfig() {
       prometheus_url: configForm.prometheus_url,
       timeout_seconds: configForm.timeout_seconds,
       ai_tools_enabled: configForm.ai_tools_enabled,
+      alerts_enabled: configForm.alerts_enabled,
+      alert_service_label: configForm.alert_service_label,
+      alert_owner_id: configForm.alert_owner_id,
     })
     config.value = data
     ElMessage.success('监控配置已保存')
@@ -225,6 +244,41 @@ async function testPrometheus() {
   }
 }
 
+async function checkAlerts() {
+  alertChecking.value = true
+  try {
+    const { data } = await client.get<AlertPreview>('/api/admin/monitoring/alerts')
+    alertPreview.value = data
+    if (!data.ok && data.error) ElMessage.warning(data.error)
+  } catch (e) {
+    alertPreview.value = null
+    ElMessage.error(errMsg(e))
+  } finally {
+    alertChecking.value = false
+  }
+}
+
+async function syncAlertsNow() {
+  alertSyncing.value = true
+  try {
+    const { data } = await client.post<AlertSyncResult>('/api/admin/monitoring/alerts/sync')
+    if (!data.ok) {
+      ElMessage.warning(data.error || '同步未完成')
+    } else {
+      ElMessage.success(
+        data.created.length
+          ? `已从告警生成 ${data.created.length} 条故障`
+          : `没有新增故障（当前告警 ${data.firing} 条，已去重）`,
+      )
+    }
+    await Promise.all([loadAdmin(), loadOverview()])
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  } finally {
+    alertSyncing.value = false
+  }
+}
+
 function openServerDialog(row?: MonitoredServer) {
   editingId.value = row?.id ?? null
   serverTest.value = null
@@ -236,6 +290,7 @@ function openServerDialog(row?: MonitoredServer) {
     private_key: '',
     host_key_fingerprint: row?.host_key_fingerprint ?? '',
     prometheus_instance: row?.prometheus_instance ?? '',
+    service_names: [...(row?.service_names ?? [])],
     enabled: row?.enabled ?? true,
     notes: row?.notes ?? '',
   })
@@ -253,6 +308,7 @@ async function saveServer() {
       private_key: serverForm.private_key,
       host_key_fingerprint: serverForm.host_key_fingerprint,
       prometheus_instance: serverForm.prometheus_instance,
+      service_names: [...serverForm.service_names],
       enabled: serverForm.enabled,
       notes: serverForm.notes,
     }
@@ -486,6 +542,25 @@ onBeforeUnmount(() => {
               <label class="form-label">允许 AI 实时查询</label>
               <el-switch v-model="configForm.ai_tools_enabled" />
             </div>
+            <div class="mon-config-switch">
+              <label class="form-label">告警转故障</label>
+              <el-switch v-model="configForm.alerts_enabled" />
+            </div>
+            <div>
+              <label class="form-label">告警服务标签</label>
+              <el-input v-model="configForm.alert_service_label" placeholder="service" />
+            </div>
+            <div>
+              <label class="form-label">告警故障负责人</label>
+              <el-select v-model="configForm.alert_owner_id" clearable placeholder="默认首位管理员" class="w-full">
+                <el-option
+                  v-for="u in userOptions"
+                  :key="u.id"
+                  :label="`${u.display_name}（${u.username}）`"
+                  :value="u.id"
+                />
+              </el-select>
+            </div>
           </div>
           <div class="mon-config-actions">
             <el-button :loading="testingProm" @click="testPrometheus">测试连接</el-button>
@@ -493,6 +568,45 @@ onBeforeUnmount(() => {
             <span v-if="promTest" class="ops-section-caption">{{ promTest }}</span>
           </div>
         </div>
+      </section>
+
+      <section v-if="configForm.alerts_enabled" class="ops-panel mb-6">
+        <div class="ops-section-header">
+          <div>
+            <h2><AppIcon name="alert" :size="17" />告警同步</h2>
+            <p>读取 Prometheus 告警并按标签指纹去重生成故障；不会自动关闭或执行任何操作。</p>
+          </div>
+          <div class="mon-config-actions">
+            <span v-if="config?.alert_last_sync_at" class="ops-section-caption">
+              上次同步 {{ fmtTime(config.alert_last_sync_at) }}
+            </span>
+            <el-button :loading="alertChecking" @click="checkAlerts">预览当前告警</el-button>
+            <el-button type="primary" plain :loading="alertSyncing" @click="syncAlertsNow">立即同步</el-button>
+          </div>
+        </div>
+        <div v-if="alertPreview?.error" class="ops-section-caption mb-3">{{ alertPreview.error }}</div>
+        <el-table :data="alertPreview?.items ?? []" empty-text="点击「预览当前告警」读取当前规则告警" size="small">
+          <el-table-column label="告警" min-width="160">
+            <template #default="{ row }">{{ row.name }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.state === 'firing' ? 'danger' : 'info'">{{ row.state }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="严重度" width="90">
+            <template #default="{ row }">{{ row.severity || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="实例" min-width="150">
+            <template #default="{ row }"><span class="ops-id">{{ row.instance || '-' }}</span></template>
+          </el-table-column>
+          <el-table-column label="服务" width="110">
+            <template #default="{ row }">{{ row.service || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="摘要" min-width="220">
+            <template #default="{ row }">{{ row.summary || '-' }}</template>
+          </el-table-column>
+        </el-table>
       </section>
 
       <section class="ops-panel ops-table-panel mb-6">
@@ -510,7 +624,13 @@ onBeforeUnmount(() => {
           <el-table-column label="地址" min-width="200">
             <template #default="{ row }"><span class="ops-id">{{ row.username }}@{{ row.host }}:{{ row.port }}</span></template>
           </el-table-column>
-          <el-table-column label="指纹" width="120">
+          <el-table-column label="承载服务" min-width="160">
+            <template #default="{ row }">
+              <span v-if="row.service_names?.length" class="ops-text-soft">{{ row.service_names.join('、') }}</span>
+              <span v-else class="ops-text-faint">未映射</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="指纹" width="110">
             <template #default="{ row }">
               <el-tag size="small" :type="row.host_key_fingerprint ? 'success' : 'warning'">
                 {{ row.host_key_fingerprint ? '已确认' : '未确认' }}
@@ -638,6 +758,20 @@ onBeforeUnmount(() => {
         <div class="mon-config-switch">
           <label class="form-label">启用</label>
           <el-switch v-model="serverForm.enabled" />
+        </div>
+        <div class="mon-form-wide">
+          <label class="form-label">承载服务（与故障的“服务”字段匹配，用于关联实时指标）</label>
+          <el-select
+            v-model="serverForm.service_names"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入服务名后回车，例如 order-service"
+            class="w-full"
+          >
+            <el-option v-for="name in serverForm.service_names" :key="name" :label="name" :value="name" />
+          </el-select>
         </div>
         <div class="mon-form-wide">
           <label class="form-label">备注</label>

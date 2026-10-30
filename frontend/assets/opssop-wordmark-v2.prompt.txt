@@ -1,0 +1,6 @@
+Generator: built-in image_gen
+Use case: logo-brand.
+Create a polished typographic logo for the actual product name "OpsSOP". This is an operations troubleshooting and Standard Operating Procedure knowledge system. The NAME must be the logo, immediately readable, not a generic document icon.
+Text verbatim: "OpsSOP" with exactly that capitalization, one uninterrupted word, letters O p s S O P. No other text.
+Create one centered horizontal wordmark on a genuinely transparent background, with generous but not excessive clear space. Large, bold, carefully kerned contemporary geometric sans-serif lettering, engineered and distinctive but highly readable. "Ops" is graphite #1C1E21, "SOP" is signal orange #C94B25. Integrate a restrained custom cut into the first capital O suggesting an operations signal, and subtly squared step-like geometry in the orange capital S to suggest ordered procedures. Keep all six letters unambiguous and maintain a consistent baseline and stroke weight. The lettering itself carries the entire identity. Flat solid colors, crisp clean contours, professional software product branding, optical balance.
+Do not add a separate symbol, folders, books, databases, magnifying glasses, people, network diagrams, captions, taglines, extra initials, gradients, shadows, bevels, perspective, 3D, mockups or watermarks. One logo only.

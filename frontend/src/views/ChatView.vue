@@ -378,6 +378,10 @@ function toolLabel(tool: string): string {
   if (tool === 'ssh_run') return 'SSH 只读命令'
   if (tool === 'list_faults') return '故障清单'
   if (tool === 'list_todos') return '待办汇总'
+  if (tool === 'get_fault') return '故障详情'
+  if (tool === 'get_case') return '案例详情'
+  if (tool === 'get_sop') return 'SOP 详情'
+  if (tool === 'search_all') return '统一检索'
   return tool
 }
 
@@ -390,6 +394,13 @@ function toolSummary(call: { tool: string; arguments: Record<string, unknown> })
     return `${status}${keyword}`
   }
   if (call.tool === 'list_todos') return '本人待办与待审核'
+  if (call.tool === 'get_fault') return `故障 #${call.arguments.fault_id ?? ''}`
+  if (call.tool === 'get_case') return `案例 #${call.arguments.case_id ?? ''}`
+  if (call.tool === 'get_sop') return `SOP #${call.arguments.sop_id ?? ''}`
+  if (call.tool === 'search_all') {
+    const types = Array.isArray(call.arguments.types) ? call.arguments.types.join('/') : '全部'
+    return `${call.arguments.query ?? ''} · ${types}`
+  }
   return ''
 }
 
@@ -453,13 +464,25 @@ watch(adminView, async () => {
 
 onMounted(async () => {
   await Promise.all([loadStatus(), loadConversations()])
-  // 从故障页“问 AI”进入:新建会话并预填问题,由模型调用 get_fault 读取详情
+  if (adminView.value) return
+  // 从详情页“问 AI”进入:新建会话并预填问题,由模型调用对应详情工具读取数据
   const faultId = Number(route.query.fault)
-  if (Number.isSafeInteger(faultId) && faultId > 0 && !adminView.value) {
+  const caseId = Number(route.query.case)
+  const sopId = Number(route.query.sop)
+  const valid = (value: number) => Number.isSafeInteger(value) && value > 0
+  if (valid(faultId)) {
     await newConversation()
     question.value = `请分析故障 #${faultId} 的当前状态，并给出下一步排查建议。`
-    void router.replace({ path: '/chat' })
+  } else if (valid(caseId)) {
+    await newConversation()
+    question.value = `请阅读案例 #${caseId}，概括确认根因与处理步骤，并说明复用这套做法时需要注意的风险。`
+  } else if (valid(sopId)) {
+    await newConversation()
+    question.value = `请阅读 SOP #${sopId}，说明适用场景、关键步骤与执行风险，并指出还缺少哪些前置条件。`
+  } else {
+    return
   }
+  void router.replace({ path: '/chat' })
 })
 </script>
 

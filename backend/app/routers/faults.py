@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.access import can_view_fault as _can_view_fault
 from app.database import get_db
 from app.concurrency import advance_version
 from app.deps import get_current_user, record_audit, require_operator
 from app.models import Case, CaseStatus, Fault, FaultRecord, FaultStatus, RecordKind, Role, User, utcnow
+from app.notifications import notify_reviewers
 from app.schemas import (
     FaultCreate,
     FaultDetailOut,
@@ -26,12 +28,6 @@ def _visible_faults(user: User):
     """查询过滤:运维人员只看自己的故障;审核/管理可见全部。"""
     if user.role == Role.operator:
         return Fault.created_by == user.id
-    return True
-
-
-def _can_view_fault(user: User, fault: Fault) -> bool:
-    if user.role == Role.operator:
-        return fault.created_by == user.id
     return True
 
 
@@ -239,6 +235,16 @@ def resolve_fault(
         "fault",
         fault.id,
         {"case_id": case.id, "root_cause": body.actual_root_cause[:200]},
+    )
+    # 故障确认后生成的案例进入待审核,通知审核人员及时处理
+    notify_reviewers(
+        db,
+        kind="case.submitted",
+        title=f"案例 #{case.id} 待审核：{case.title}",
+        body=f"来源故障 #{fault.id} 已由人工确认解决，请审核案例内容。",
+        link=f"/cases/{case.id}",
+        entity_type="case",
+        entity_id=case.id,
     )
     db.commit()
 

@@ -194,7 +194,10 @@ onMounted(async () => {
           <template #default="{ row }">
             <div class="py-1.5">
               <router-link :to="`/faults/${row.id}`" class="ops-entity-link">{{ row.title }}</router-link>
-              <div class="ops-id mt-1">INC-{{ String(row.id).padStart(4, '0') }}</div>
+              <div class="ops-id mt-1">
+                INC-{{ String(row.id).padStart(4, '0') }}
+                <el-tag v-if="row.source === 'alert'" size="small" type="warning" effect="plain" class="ml-2">告警</el-tag>
+              </div>
             </div>
           </template>
         </el-table-column>

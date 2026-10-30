@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.access import can_view_case, can_view_fault, can_view_sop
 from app.ai.sanitize import sanitize_text
 from app.config import Settings
 from app.models import (
@@ -39,6 +40,7 @@ from app.monitoring.prometheus import MonitoringError
 from app.monitoring.service import execute_server_template
 from app.monitoring.ssh import SshError
 from app.monitoring.templates import TemplateError
+from app.search.unified import search_all
 
 logger = logging.getLogger("opssop.ai.tools")
 
@@ -179,6 +181,85 @@ TOOL_SPECS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_case",
+            "description": (
+                "按案例 ID 读取详情(只读,仅限当前用户有权访问):状态、现象、人工确认根因、"
+                "处理步骤、恢复验证、来源故障与衍生 SOP 链接。用户提到具体案例编号、"
+                "或从案例页进入对话时使用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "case_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "案例 ID",
+                    }
+                },
+                "required": ["case_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_sop",
+            "description": (
+                "按 SOP ID 读取详情(只读,仅限当前用户有权访问):版本与状态、适用环境、现象、"
+                "排查步骤、处理方法、恢复验证、回滚与注意事项、来源案例链接。"
+                "用户提到具体 SOP 编号、或从 SOP 页进入对话时使用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sop_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "SOP ID",
+                    }
+                },
+                "required": ["sop_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_all",
+            "description": (
+                "跨实体检索 OpsSOP 数据(只读,结果即页面的统一搜索结果):故障、案例、SOP、"
+                "监控服务器。用户问“有没有关于 X 的故障/案例/SOP/哪台服务器跑 X”时使用,"
+                "返回每类总数、摘要与站内链接。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "检索关键词(标题/现象/服务/主机等),1-100 字符",
+                    },
+                    "types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["fault", "case", "sop", "server"],
+                        },
+                        "description": "限定实体类型,默认全部",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "description": "每类最多返回条数,默认 5",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -238,7 +319,9 @@ class ToolExecutor:
         """按上下文返回可用工具:业务数据仅对话;监控工具需已配置数据源或服务器。"""
         names: set[str] = set()
         if self.conversation_id is not None:
-            names.update({"list_faults", "list_todos", "get_fault"})
+            names.update(
+                {"list_faults", "list_todos", "get_fault", "get_case", "get_sop", "search_all"}
+            )
         if self.available():
             names.update({"prometheus_query", "ssh_run"})
         return [spec for spec in TOOL_SPECS if spec["function"]["name"] in names]
@@ -247,7 +330,9 @@ class ToolExecutor:
         """后端实际允许调用的工具:监控工具在分析和对话中都允许(未配置时由工具自身报错)。"""
         names = {"prometheus_query", "ssh_run"}
         if self.conversation_id is not None:
-            names.update({"list_faults", "list_todos", "get_fault"})
+            names.update(
+                {"list_faults", "list_todos", "get_fault", "get_case", "get_sop", "search_all"}
+            )
         return names
 
     def _check_rate(self) -> None:
@@ -295,6 +380,12 @@ class ToolExecutor:
                 text = self._list_todos(arguments)
             elif name == "get_fault":
                 text = self._get_fault(arguments)
+            elif name == "get_case":
+                text = self._get_case(arguments)
+            elif name == "get_sop":
+                text = self._get_sop(arguments)
+            elif name == "search_all":
+                text = self._search_all(arguments)
             else:
                 raise ToolDenied(f"未知工具: {name}")
         except ToolDenied as exc:
@@ -586,6 +677,149 @@ class ToolExecutor:
                 )
         else:
             lines.append("关联案例: 无(人工确认解决后自动生成)")
+        return "\n".join(lines)
+
+    def _get_case(self, arguments: dict) -> str:
+        """案例详情:权限与案例页一致,附来源故障与衍生 SOP 链接。"""
+        try:
+            case_id = int(arguments.get("case_id"))
+        except (TypeError, ValueError) as exc:
+            raise ToolDenied("case_id 必须是正整数") from exc
+        if case_id <= 0:
+            raise ToolDenied("case_id 必须是正整数")
+
+        with self.db.begin_nested():
+            case = self.db.get(Case, case_id)
+            if case is None:
+                raise ToolDenied("案例不存在")
+            if not can_view_case(self.user, case):
+                raise ToolDenied("无权查看该案例")
+            fault = self.db.get(Fault, case.fault_id)
+            fault_visible = fault is not None and can_view_fault(self.user, fault)
+            sops = list(
+                self.db.scalars(
+                    select(Sop)
+                    .where(Sop.source_case_id == case.id)
+                    .order_by(Sop.version.desc())
+                )
+            )
+            visible_sops = [row for row in sops if can_view_sop(self.user, row)]
+
+        lines = [
+            f"案例 #{case.id} [{_text(case.status)}] {case.title}",
+            f"环境={case.environment or '-'} · 服务={case.service or '-'} · "
+            f"更新时间={_fmt_time(case.updated_at)} · 链接=/cases/{case.id}",
+            "现象: " + ((case.symptom or "").strip()[:500] or "(无)"),
+            "人工确认根因: " + ((case.confirmed_root_cause or "").strip()[:400] or "(未填写)"),
+            "处理步骤: " + ((case.handling_steps or "").strip()[:500] or "(未填写)"),
+            "恢复验证: " + ((case.recovery_verification or "").strip()[:300] or "(未填写)"),
+        ]
+        if case.review_comment:
+            lines.append("审核意见: " + case.review_comment[:300])
+        if fault_visible:
+            lines.append(
+                f"来源故障: #{fault.id} [{_text(fault.status)}] {fault.title[:80]}"
+                f" · 链接=/faults/{fault.id}"
+            )
+        if visible_sops:
+            for sop in visible_sops:
+                lines.append(
+                    f"衍生 SOP: #{sop.id} v{sop.version} [{_text(sop.status)}] "
+                    f"{sop.title[:80]} · 链接=/sops/{sop.id}"
+                )
+        else:
+            lines.append("衍生 SOP: 无")
+        return "\n".join(lines)
+
+    def _get_sop(self, arguments: dict) -> str:
+        """SOP 详情:权限与 SOP 页一致,附来源案例与同文档版本列表。"""
+        try:
+            sop_id = int(arguments.get("sop_id"))
+        except (TypeError, ValueError) as exc:
+            raise ToolDenied("sop_id 必须是正整数") from exc
+        if sop_id <= 0:
+            raise ToolDenied("sop_id 必须是正整数")
+
+        with self.db.begin_nested():
+            sop = self.db.get(Sop, sop_id)
+            if sop is None:
+                raise ToolDenied("SOP 不存在")
+            if not can_view_sop(self.user, sop):
+                raise ToolDenied("无权查看该 SOP")
+            source_case = None
+            if sop.source_case_id:
+                candidate = self.db.get(Case, sop.source_case_id)
+                if candidate is not None and can_view_case(self.user, candidate):
+                    source_case = candidate
+            versions = [
+                row
+                for row in self.db.scalars(
+                    select(Sop).where(Sop.doc_id == sop.doc_id).order_by(Sop.version.desc())
+                )
+                if can_view_sop(self.user, row)
+            ]
+
+        lines = [
+            f"SOP #{sop.id} v{sop.version} [{_text(sop.status)}] {sop.title}",
+            f"更新时间={_fmt_time(sop.updated_at)} · 发布时间={_fmt_time(sop.published_at) or '-'}"
+            f" · 链接=/sops/{sop.id}",
+            "适用环境: " + ((sop.applicable_env or "").strip()[:300] or "(无)"),
+            "现象: " + ((sop.symptom or "").strip()[:400] or "(无)"),
+            "前置条件: " + ((sop.preconditions or "").strip()[:300] or "(无)"),
+            "排查步骤: " + ((sop.check_steps or "").strip()[:600] or "(无)"),
+            "处理方法: " + ((sop.handling_steps or "").strip()[:600] or "(无)"),
+            "恢复验证: " + ((sop.recovery_verification or "").strip()[:400] or "(无)"),
+        ]
+        if sop.rollback_steps:
+            lines.append("回滚方式: " + sop.rollback_steps[:300])
+        if sop.notes:
+            lines.append("注意事项: " + sop.notes[:300])
+        if sop.review_comment:
+            lines.append("审核意见: " + sop.review_comment[:300])
+        if source_case is not None:
+            lines.append(
+                f"来源案例: #{source_case.id} [{_text(source_case.status)}] "
+                f"{source_case.title[:80]} · 链接=/cases/{source_case.id}"
+            )
+        others = [row for row in versions if row.id != sop.id]
+        if others:
+            lines.append("同文档其他版本:")
+            for row in others[:6]:
+                lines.append(
+                    f"  #{row.id} v{row.version} [{_text(row.status)}] · 链接=/sops/{row.id}"
+                )
+        return "\n".join(lines)
+
+    def _search_all(self, arguments: dict) -> str:
+        """统一检索:与 /search 页面同一套权限与分组结果。"""
+        query = str(arguments.get("query") or "").strip()
+        if not query:
+            raise ToolDenied("query 不能为空")
+        raw_types = arguments.get("types") or []
+        if isinstance(raw_types, str):
+            raw_types = [part.strip() for part in raw_types.split(",") if part.strip()]
+        if not isinstance(raw_types, list):
+            raise ToolDenied("types 必须是数组")
+        types = [str(item).strip() for item in raw_types if str(item).strip()]
+        limit = _limit(arguments.get("limit"), default=5, maximum=20)
+
+        groups = search_all(self.db, self.user, query, types, limit)
+        labels = {"fault": "故障", "case": "案例", "sop": "SOP", "server": "服务器"}
+        lines = [f"统一检索: {query}"]
+        for group in groups:
+            lines.append(
+                f"[{labels.get(group.type, group.type)}] 共 {group.total} 条"
+                + ("(仅显示部分)" if group.truncated else "")
+            )
+            if not group.items:
+                lines.append("  (无匹配)")
+            for hit in group.items:
+                lines.append(
+                    f"  {labels.get(hit.type, hit.type)} #{hit.id} {hit.title[:80]}"
+                    f" · 状态={hit.status}"
+                    + (f" · {hit.subtitle}" if hit.subtitle else "")
+                    + f" · 链接={hit.link}"
+                )
         return "\n".join(lines)
 
     def _record(

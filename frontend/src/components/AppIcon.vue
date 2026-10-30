@@ -28,6 +28,7 @@ const paths: Record<string, string> = {
   edit: 'm14 5 5 5 M4 20l5-1L21 7l-5-5L4 14z',
   folder: 'M3 6h7l2 2h9v12H3z M3 6V4h7l2 2',
   workflow: 'M3 3h6v6H3z M15 15h6v6h-6z M15 3h6v6h-6z M9 6h6 M6 9v9h9',
+  bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8 M10.3 21a2 2 0 0 0 3.4 0',
 }
 </script>
 

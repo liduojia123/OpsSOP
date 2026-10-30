@@ -20,6 +20,7 @@ const TYPE_OPTIONS = [
   { value: 'fault', label: '故障', icon: 'activity' },
   { value: 'case', label: '案例', icon: 'files' },
   { value: 'sop', label: 'SOP', icon: 'book' },
+  { value: 'server', label: '服务器', icon: 'server' },
 ] as const
 const EXAMPLES = ['504', '磁盘', 'order-service', 'OOM']
 const LIMIT = 8
@@ -27,7 +28,7 @@ const LIMIT = 8
 const route = useRoute()
 const router = useRouter()
 const query = ref('')
-const types = ref<string[]>(['fault', 'case', 'sop'])
+const types = ref<string[]>(['fault', 'case', 'sop', 'server'])
 const loading = ref(false)
 const error = ref('')
 const result = ref<UnifiedSearchResult | null>(null)
@@ -53,6 +54,11 @@ function statusMeta(hit: UnifiedHit): { label: string; type: string } {
   }
   if (hit.type === 'case') {
     return caseStatusMap[hit.status as CaseStatus] ?? fallback
+  }
+  if (hit.type === 'server') {
+    return hit.status === 'enabled'
+      ? { label: '已启用', type: 'success' }
+      : { label: '已停用', type: 'info' }
   }
   return sopStatusMap[hit.status as SopStatus] ?? fallback
 }
@@ -127,7 +133,7 @@ onMounted(() => {
         <div class="ops-eyebrow">WORKSPACE / UNIFIED SEARCH</div>
         <h1>搜索</h1>
         <p class="ops-page-description">
-          一次搜索故障、案例与 SOP；结果范围与当前账号权限一致，可直接打开对应记录。
+          一次搜索故障、案例、SOP 与监控服务器；结果范围与当前账号权限一致，可直接打开对应记录。
         </p>
       </div>
     </header>

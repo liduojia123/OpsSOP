@@ -23,7 +23,7 @@ from app.config import Settings
 from app.database import SessionLocal
 from app.deps import record_audit
 from app.ai.chat_service import prune_chat
-from app.retention import prune_audit_events, prune_login_attempts
+from app.retention import prune_audit_events, prune_login_attempts, prune_notifications
 
 logger = logging.getLogger("opssop.maintenance")
 
@@ -113,18 +113,24 @@ def run_daily_maintenance(settings: Settings) -> dict:
         audit_deleted = prune_audit_events(db, settings.audit_retention_days)
         login_deleted = prune_login_attempts(db)
         chat_pruned = prune_chat(db, settings.chat_retention_days)
+        notifications_deleted = prune_notifications(db, 90)
         record_audit(
             db,
             None,
             "maintenance.retention",
             "system",
             "",
-            {"audit_deleted": audit_deleted, "login_attempts_deleted": login_deleted},
+            {
+                "audit_deleted": audit_deleted,
+                "login_attempts_deleted": login_deleted,
+                "notifications_deleted": notifications_deleted,
+            },
         )
         db.commit()
         results["audit_deleted"] = audit_deleted
         results["login_attempts_deleted"] = login_deleted
         results["chat_pruned"] = chat_pruned
+        results["notifications_deleted"] = notifications_deleted
         logger.info("每日维护完成: %s", results)
         return results
     finally:

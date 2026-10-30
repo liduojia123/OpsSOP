@@ -7,7 +7,9 @@ import { faultStatusMap, fmtTime } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import AiAssistantPanel from './AiAssistantPanel.vue'
 import AppIcon from '../components/AppIcon.vue'
-import type { AiStatus, Category, FaultDetail, RecordKind } from '../types'
+import AuditTimeline from '../components/AuditTimeline.vue'
+import MetricChart from '../components/MetricChart.vue'
+import type { AiStatus, Category, FaultDetail, FaultMetrics, RecordKind } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +22,9 @@ const adding = ref(false)
 const resolving = ref(false)
 const toggling = ref(false)
 const loadError = ref('')
+const metrics = ref<FaultMetrics | null>(null)
+const metricsLoading = ref(false)
+const metricsError = ref('')
 
 const form = reactive({
   title: '',
@@ -73,6 +78,25 @@ function fillForm(data: FaultDetail) {
   form.tags = [...(data.tags ?? [])]
 }
 
+async function loadMetrics() {
+  if (!fault.value) return
+  metricsLoading.value = true
+  metricsError.value = ''
+  try {
+    const { data } = await client.get<FaultMetrics>(
+      `/api/monitoring/faults/${fault.value.id}/metrics`,
+      { params: { minutes: 60, step: 60 } },
+    )
+    metrics.value = data
+  } catch (e) {
+    // 监控不可用时只影响该面板,不影响故障正文
+    metrics.value = null
+    metricsError.value = errMsg(e)
+  } finally {
+    metricsLoading.value = false
+  }
+}
+
 async function load() {
   const id = Number(route.params.id)
   try {
@@ -80,6 +104,8 @@ async function load() {
     fault.value = data
     loadError.value = ''
     fillForm(data)
+    if (data.service?.trim()) void loadMetrics()
+    else metrics.value = null
   } catch (e) {
     // 明确展示加载失败并提供重试,不用空表单冒充已加载
     loadError.value = errMsg(e)
@@ -107,6 +133,9 @@ async function save() {
     const { data } = await client.patch(`/api/faults/${fault.value.id}`, formPayload())
     fault.value.status = data.status
     fault.value.updated_at = data.updated_at
+    // 服务名可能变化,重新匹配承载服务器与实时指标
+    if (form.service.trim()) void loadMetrics()
+    else metrics.value = null
     ElMessage.success('已保存')
     return true
   } catch (e) {
@@ -325,6 +354,61 @@ onMounted(async () => {
           </el-form>
         </section>
 
+        <!-- 关联实时指标:服务 → 承载服务器 → Prometheus 实例 -->
+        <section v-if="fault && (form.service.trim() || metrics)" class="ops-panel fault-metrics-panel">
+          <div class="ops-section-header">
+            <div class="fault-section-heading">
+              <span class="section-icon"><AppIcon name="activity" :size="18" /></span>
+              <div><h2>关联实时指标</h2><p>按服务匹配服务器，仅显示该实例</p></div>
+            </div>
+            <el-button text size="small" :loading="metricsLoading" @click="loadMetrics">刷新</el-button>
+          </div>
+          <div v-if="metricsLoading && !metrics" class="fault-metrics-note">正在读取监控数据…</div>
+          <div v-else-if="metricsError" class="fault-metrics-note">{{ metricsError }}</div>
+          <template v-else-if="metrics">
+            <el-alert
+              v-if="!metrics.enabled"
+              class="mb-2"
+              type="info"
+              :closable="false"
+              show-icon
+              :title="metrics.error || '监控未启用'"
+            />
+            <el-alert
+              v-else-if="!metrics.mapped"
+              class="mb-2"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="metrics.error || '该服务尚未映射到监控服务器'"
+            />
+            <template v-else>
+              <div class="fault-metrics-servers">
+                <el-tag v-for="server in metrics.servers" :key="server.id" size="small" effect="plain">
+                  {{ server.name }} · {{ server.prometheus_instance || server.host }}
+                </el-tag>
+                <span class="fault-metrics-time">采集于 {{ fmtTime(metrics.fetched_at) }}</span>
+              </div>
+              <div class="fault-metrics-grid">
+                <div v-for="panel in metrics.panels" :key="panel.id" class="fault-metric-card">
+                  <div class="fault-metric-title">
+                    {{ panel.title }}
+                    <span v-if="!panel.scoped" class="fault-metric-scope">全局值</span>
+                  </div>
+                  <MetricChart
+                    v-if="panel.series.length && !panel.error"
+                    :series="panel.series"
+                    :unit="panel.unit"
+                    :height="110"
+                  />
+                  <p v-else class="fault-metric-empty">{{ panel.error || '暂无数据' }}</p>
+                </div>
+              </div>
+            </template>
+          </template>
+          <div v-else class="fault-metrics-note">保存服务名后自动匹配监控服务器。</div>
+        </section>
+
         <!-- 追加记录 -->
         <section class="ops-panel fault-record-panel">
           <div class="ops-section-header"><div class="fault-section-heading"><span class="section-icon"><AppIcon name="history" :size="18" /></span><div><h2>检查结果与处理记录</h2><p>把现场发现留在时间线上</p></div></div><span v-if="fault" class="record-count">{{ fault.records.length }} 条记录</span></div>
@@ -381,6 +465,8 @@ onMounted(async () => {
             <div class="ops-text-faint confirmed-time">确认时间: {{ fmtTime(fault.resolved_at) }}</div>
           </div>
         </div>
+
+        <AuditTimeline v-if="fault" entity-type="fault" :entity-id="fault.id" />
       </div>
 
       <!-- 右侧:AI 排查助手 -->
@@ -471,6 +557,15 @@ onMounted(async () => {
 .confirmed-value { color: var(--ops-text); font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
 .confirmed-time { margin-top: 14px; font-family: var(--ops-font-mono); font-size: 10px; }
 .fault-assistant-placeholder { min-height: 0; }
+.fault-metrics-panel { display: flex; flex-direction: column; gap: 14px; }
+.fault-metrics-note { color: var(--ops-muted); font-size: 12px; line-height: 1.7; }
+.fault-metrics-servers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fault-metrics-time { margin-left: auto; color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 10px; }
+.fault-metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 4px; }
+.fault-metric-card { padding: 12px 14px 10px; border: 1px solid var(--ops-border-light); border-radius: 4px; background: var(--ops-surface-warm); }
+.fault-metric-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--ops-text); font-size: 11px; font-weight: 600; }
+.fault-metric-scope { color: var(--ops-warning, #b07d2b); font-size: 9px; font-weight: 500; }
+.fault-metric-empty { margin: 8px 0; color: var(--ops-faint); font-size: 11px; }
 .fault-load-error { display: flex; flex-direction: column; gap: 16px; max-width: 760px; padding: 24px; }
 .fault-load-error-actions { display: flex; gap: 8px; }
 @media (min-width: 1500px) { .fault-workspace { grid-template-columns: minmax(0, 1fr) 420px; } }

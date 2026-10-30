@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.access import can_view_sop as _can_view_sop
 from app.database import get_db
 from app.concurrency import advance_version, require_current_version
 from app.deps import get_current_user, record_audit, require_operator, require_reviewer
@@ -18,6 +19,7 @@ from app.models import (
     User,
     utcnow,
 )
+from app.notifications import notify, notify_reviewers
 from app.schemas import (
     LinkedCaseOut,
     ReviewRequest,
@@ -43,16 +45,6 @@ def _sop_visible(user: User):
         return or_(
             Sop.created_by == user.id,
             Sop.status.in_([SopStatus.published, SopStatus.superseded, SopStatus.deprecated]),
-        )
-    return True
-
-
-def _can_view_sop(user: User, sop: Sop) -> bool:
-    if user.role == Role.operator:
-        return sop.created_by == user.id or sop.status in (
-            SopStatus.published,
-            SopStatus.superseded,
-            SopStatus.deprecated,
         )
     return True
 
@@ -217,6 +209,15 @@ def submit_sop(
     sop.status = SopStatus.submitted
     advance_version(sop)
     record_audit(db, user, "sop.submit", "sop", sop.id)
+    notify_reviewers(
+        db,
+        kind="sop.submitted",
+        title=f"SOP #{sop.id} v{sop.version} 待审核：{sop.title}",
+        body="SOP 等待发布审核，请确认排查/处理/恢复步骤完整。",
+        link=f"/sops/{sop.id}",
+        entity_type="sop",
+        entity_id=sop.id,
+    )
     db.commit()
     return SopOut.model_validate(sop)
 
@@ -265,6 +266,46 @@ def approve_sop(
         sop.id,
         {"doc_id": sop.doc_id, "version": sop.version, "superseded": [o.id for o in old_published]},
     )
+    notify(
+        db,
+        [sop.created_by, sop.maintainer_id],
+        kind="sop.published",
+        title=f"SOP #{sop.id} v{sop.version} 已发布：{sop.title}",
+        body=body.comment[:500] or "SOP 已发布，可被检索与引用。",
+        link=f"/sops/{sop.id}",
+        entity_type="sop",
+        entity_id=sop.id,
+    )
+    # 回写来源案例/故障:知识资产发布后在来源时间线上可追溯,并通知案例作者
+    if sop.source_case_id:
+        source_case = db.get(Case, sop.source_case_id)
+        if source_case is not None:
+            record_audit(
+                db,
+                reviewer,
+                "case.sop_published",
+                "case",
+                source_case.id,
+                {"sop_id": sop.id, "version": sop.version},
+            )
+            record_audit(
+                db,
+                reviewer,
+                "fault.sop_published",
+                "fault",
+                source_case.fault_id,
+                {"sop_id": sop.id, "version": sop.version, "case_id": source_case.id},
+            )
+            notify(
+                db,
+                [source_case.created_by],
+                kind="case.sop_published",
+                title=f"案例 #{source_case.id} 衍生的 SOP 已发布",
+                body=f"SOP #{sop.id} v{sop.version}：{sop.title}",
+                link=f"/sops/{sop.id}",
+                entity_type="case",
+                entity_id=source_case.id,
+            )
     db.commit()
     return SopOut.model_validate(sop)
 
@@ -289,6 +330,16 @@ def return_sop(
     sop.reviewed_by = reviewer.id
     sop.reviewed_at = utcnow()
     record_audit(db, reviewer, "sop.return", "sop", sop.id, {"comment": body.comment[:200]})
+    notify(
+        db,
+        [sop.created_by],
+        kind="sop.returned",
+        title=f"SOP #{sop.id} v{sop.version} 被退回：{sop.title}",
+        body=f"审核意见：{body.comment[:500]}",
+        link=f"/sops/{sop.id}",
+        entity_type="sop",
+        entity_id=sop.id,
+    )
     db.commit()
     return SopOut.model_validate(sop)
 
@@ -309,6 +360,16 @@ def deprecate_sop(
     advance_version(sop)
     sop.review_comment = body.comment
     record_audit(db, reviewer, "sop.deprecate", "sop", sop.id, {"comment": body.comment[:200]})
+    notify(
+        db,
+        [sop.created_by, sop.maintainer_id],
+        kind="sop.deprecated",
+        title=f"SOP #{sop.id} v{sop.version} 已废弃：{sop.title}",
+        body=body.comment[:500] or "该 SOP 已废弃，不再作为有效知识引用。",
+        link=f"/sops/{sop.id}",
+        entity_type="sop",
+        entity_id=sop.id,
+    )
     db.commit()
     return SopOut.model_validate(sop)
 

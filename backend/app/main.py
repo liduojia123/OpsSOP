@@ -23,6 +23,7 @@ from app.routers import (
     faults,
     monitoring,
     monitoring_admin,
+    notifications,
     search,
     sops,
     system,
@@ -65,7 +66,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OpsSOP",
     description="运维故障知识库与 SOP 管理系统",
-    version="3.4.1",
+    version="3.5.0",
     lifespan=lifespan,
 )
 
@@ -99,6 +100,7 @@ app.include_router(ai_settings.router)
 app.include_router(ai_admin.router)
 app.include_router(monitoring.router)
 app.include_router(monitoring_admin.router)
+app.include_router(notifications.router)
 app.include_router(chat.router)
 app.include_router(chat_admin.router)
 app.include_router(search.router)

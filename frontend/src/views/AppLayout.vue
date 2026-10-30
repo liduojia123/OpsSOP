@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import AppLogo from '../components/AppLogo.vue'
+import NotificationBell from '../components/NotificationBell.vue'
 import client, { errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { roleMap } from '../labels'
@@ -207,7 +208,10 @@ async function changePassword() {
           <AppIcon name="chevron-right" :size="14" class="ops-breadcrumb-divider" />
           <span class="ops-breadcrumb-current">{{ context.title }}</span>
         </div>
-        <div class="ops-topbar-note"><AppIcon name="shield" :size="15" /><span>记录有据 · 知识可循</span></div>
+        <div class="ops-topbar-actions">
+          <NotificationBell />
+          <div class="ops-topbar-note"><AppIcon name="shield" :size="15" /><span>记录有据 · 知识可循</span></div>
+        </div>
       </header>
       <main ref="mainEl" class="ops-main">
         <router-view v-slot="{ Component }">
@@ -251,7 +255,8 @@ async function changePassword() {
 .ops-mobile-menu-button:hover { background: var(--ops-surface-warm); color: var(--ops-text); }
 .ops-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .ops-topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; height: var(--ops-header-height); min-height: var(--ops-header-height); padding: 0 var(--ops-page-gutter); border-bottom: 1px solid var(--ops-border); background: #f8f6f0; }
-.ops-topbar-location, .ops-topbar-note { display: flex; align-items: center; }
+.ops-topbar-location, .ops-topbar-note, .ops-topbar-actions { display: flex; align-items: center; }
+.ops-topbar-actions { gap: 6px; }
 .ops-topbar-location { gap: 12px; font-size: 12px; }
 .ops-breadcrumb-parent, .ops-breadcrumb-divider { color: var(--ops-muted); }
 .ops-breadcrumb-current { color: var(--ops-text); font-weight: 600; }

@@ -188,6 +188,7 @@ class FaultOut(ORMModel):
     attempted_actions: str
     category_id: int | None
     tags: list
+    source: str = "manual"  # manual | alert
     status: FaultStatus
     actual_root_cause: str
     handling_steps: str
@@ -433,6 +434,39 @@ class AuditEventOut(ORMModel):
     created_at: datetime
 
 
+class AuditTimelineOut(BaseModel):
+    """实体时间线:只暴露动作、操作者显示名与已有详情,不返回登录/网络信息。"""
+
+    id: int
+    action: str
+    actor_name: str = ""
+    detail: dict = {}
+    created_at: datetime
+
+
+# ===== 站内通知 =====
+
+class NotificationOut(ORMModel):
+    id: int
+    user_id: int
+    kind: str
+    title: str
+    body: str
+    link: str
+    entity_type: str
+    entity_id: int | None
+    read_at: datetime | None
+    created_at: datetime
+
+
+class NotificationCountOut(BaseModel):
+    count: int
+
+
+class NotificationReadAllOut(BaseModel):
+    updated: int
+
+
 # ===== 系统状态 =====
 
 class AiStatusOut(BaseModel):
@@ -519,6 +553,10 @@ class MonitoringConfigOut(BaseModel):
     prometheus_url: str
     timeout_seconds: int
     ai_tools_enabled: bool
+    alerts_enabled: bool = False
+    alert_service_label: str = "service"
+    alert_owner_id: int | None = None
+    alert_last_sync_at: datetime | None = None
     updated_at: datetime | None = None
 
 
@@ -527,6 +565,9 @@ class MonitoringConfigRequest(BaseModel):
     prometheus_url: str = Field(default="", max_length=300)
     timeout_seconds: int = 10
     ai_tools_enabled: bool = True
+    alerts_enabled: bool = False
+    alert_service_label: str = Field(default="service", max_length=64)
+    alert_owner_id: int | None = None
 
 
 class MonitoringTestRequest(BaseModel):
@@ -547,6 +588,7 @@ class MonitoredServerOut(BaseModel):
     port: int
     username: str
     prometheus_instance: str = ""
+    service_names: list[str] = []
     enabled: bool = True
     notes: str = ""
     has_key: bool = False
@@ -561,8 +603,36 @@ class MonitoredServerRequest(BaseModel):
     private_key: str = Field(default="", max_length=8000)
     host_key_fingerprint: str = Field(default="", max_length=128)
     prometheus_instance: str = Field(default="", max_length=128)
+    service_names: list[str] = []
     enabled: bool = True
     notes: str = Field(default="", max_length=1000)
+
+
+class AlertItemOut(BaseModel):
+    name: str
+    state: str = "firing"
+    severity: str = ""
+    instance: str = ""
+    service: str = ""
+    summary: str = ""
+    active_at: str = ""
+
+
+class AlertPreviewOut(BaseModel):
+    ok: bool = True
+    enabled: bool = False
+    items: list[AlertItemOut] = []
+    error: str = ""
+
+
+class AlertSyncOut(BaseModel):
+    ok: bool = True
+    skipped: str = ""
+    created: list[dict] = []
+    firing: int = 0
+    total: int = 0
+    synced_at: str = ""
+    error: str = ""
 
 
 class ServerTestRequest(BaseModel):
@@ -613,6 +683,8 @@ class MonitoringPanelOut(BaseModel):
     series: list[MonitoringSeriesOut] = []
     error: str = ""
     truncated: bool = False
+    # False 表示该 PromQL 已聚合掉实例,展示的是全局值(故障页提示用)
+    scoped: bool = True
 
 
 class MonitoringTargetOut(BaseModel):
@@ -623,6 +695,20 @@ class MonitoringTargetOut(BaseModel):
     last_error: str = ""
     last_scrape: str = ""
     scrape_duration: float | None = None
+
+
+class FaultMetricsOut(BaseModel):
+    """故障关联的实时指标:按服务器承载服务映射,只读、按实例裁剪。"""
+
+    enabled: bool
+    mapped: bool
+    fault_id: int
+    service: str = ""
+    servers: list[MonitoredServerOut] = []
+    instances: list[str] = []
+    panels: list[MonitoringPanelOut] = []
+    fetched_at: str = ""
+    error: str = ""
 
 
 class MonitoringOverviewOut(BaseModel):

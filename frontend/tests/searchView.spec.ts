@@ -107,7 +107,7 @@ describe('SearchView', () => {
     await flushPromises()
 
     expect(client.get).toHaveBeenCalledWith('/api/search/all', {
-      params: { q: '磁盘', types: 'fault,case,sop', limit: 8 },
+      params: { q: '磁盘', types: 'fault,case,sop,server', limit: 8 },
     })
     expect(wrapper.text()).toContain('磁盘写满')
     expect(wrapper.text()).toContain('磁盘处置 SOP')
@@ -132,7 +132,7 @@ describe('SearchView', () => {
     await flushPromises()
 
     expect(client.get).toHaveBeenCalledWith('/api/search/all', {
-      params: { q: 'OOM', types: 'fault,case,sop', limit: 8 },
+      params: { q: 'OOM', types: 'fault,case,sop,server', limit: 8 },
     })
     expect(wrapper.text()).toContain('没有匹配结果')
   })
@@ -140,10 +140,11 @@ describe('SearchView', () => {
   it('至少保留一种类型筛选', async () => {
     const wrapper = mount(SearchView, { global: { components: stubs } })
     const typeButtons = wrapper.findAll('button.search-type')
-    expect(typeButtons).toHaveLength(3)
+    expect(typeButtons).toHaveLength(4)
     await typeButtons[0].trigger('click')
     await typeButtons[1].trigger('click')
-    // 只剩 SOP 时,再点击最后一个类型不应清空
+    await typeButtons[2].trigger('click')
+    // 只剩服务器时,再点击最后一个类型不应清空
     const active = wrapper.findAll('button.search-type.is-active')
     expect(active).toHaveLength(1)
     await active[0].trigger('click')

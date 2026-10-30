@@ -2,7 +2,15 @@
 
 from uuid import uuid4
 
-from app.models import Case, CaseStatus, Fault, FaultStatus, Sop, SopStatus
+from app.models import (
+    Case,
+    CaseStatus,
+    Fault,
+    FaultStatus,
+    MonitoredServer,
+    Sop,
+    SopStatus,
+)
 
 
 def _fault(db, user, title, description="", service="", status=FaultStatus.open):
@@ -125,7 +133,8 @@ def test_empty_query_and_limit(client, db, operator, reviewer, op_headers):
     rows = _seed(db, operator, reviewer)
 
     empty = client.get("/api/search/all", params={"q": "  "}, headers=op_headers).json()
-    assert [group["total"] for group in empty["groups"]] == [0, 0, 0]
+    assert [group["type"] for group in empty["groups"]] == ["fault", "case", "sop", "server"]
+    assert [group["total"] for group in empty["groups"]] == [0, 0, 0, 0]
     assert all(group["items"] == [] for group in empty["groups"])
 
     limited = client.get(
@@ -135,6 +144,53 @@ def test_empty_query_and_limit(client, db, operator, reviewer, op_headers):
     assert cases["total"] == 2  # 本人通过 + 他人通过
     assert len(cases["items"]) == 1
     assert cases["truncated"] is True
+
+
+def test_server_group_matches_services_and_hides_disabled(client, db, op_headers, rev_headers):
+    db.add_all(
+        [
+            MonitoredServer(
+                name="order-node-1",
+                host="10.0.0.8",
+                username="ops",
+                service_names=["order-service"],
+                enabled=True,
+            ),
+            MonitoredServer(
+                name="legacy-node",
+                host="10.0.0.9",
+                username="ops",
+                service_names=["order-service"],
+                enabled=False,
+            ),
+            MonitoredServer(
+                name="pay-node",
+                host="10.0.0.10",
+                username="ops",
+                service_names=["payment-service"],
+                enabled=True,
+            ),
+        ]
+    )
+    db.commit()
+
+    body = client.get(
+        "/api/search/all", params={"q": "order-service", "types": "server"}, headers=op_headers
+    ).json()
+    assert [group["type"] for group in body["groups"]] == ["server"]
+    group = _group(body, "server")
+    assert [item["title"] for item in group["items"]] == ["order-node-1"]
+    assert group["items"][0]["link"] == "/monitoring"
+    assert group["items"][0]["status"] == "enabled"
+
+    # 审核/管理员可见停用服务器,便于确认历史映射
+    reviewer = client.get(
+        "/api/search/all", params={"q": "order-service", "types": "server"}, headers=rev_headers
+    ).json()
+    assert {item["title"] for item in _group(reviewer, "server")["items"]} == {
+        "order-node-1",
+        "legacy-node",
+    }
 
 
 def test_search_requires_login(client):

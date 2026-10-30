@@ -11,15 +11,24 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Case, CaseStatus, Fault, Role, Sop, SopStatus, User
+from app.models import (
+    Case,
+    CaseStatus,
+    Fault,
+    MonitoredServer,
+    Role,
+    Sop,
+    SopStatus,
+    User,
+)
 
 MAX_QUERY_CHARS = 100
 DEFAULT_LIMIT = 5
 MAX_LIMIT = 20
-TYPES = ("fault", "case", "sop")
+TYPES = ("fault", "case", "sop", "server")
 
 
 @dataclass
@@ -170,6 +179,40 @@ def search_all(
                     status=_status_text(row.status),
                     subtitle=_subtitle(f"v{row.version}", row.symptom),
                     link=f"/sops/{row.id}",
+                    updated_at=row.updated_at,
+                ),
+            )
+        )
+
+    if "server" in selected:
+        stmt = select(MonitoredServer).where(
+            or_(
+                MonitoredServer.name.ilike(like),
+                MonitoredServer.host.ilike(like),
+                MonitoredServer.notes.ilike(like),
+                cast(MonitoredServer.service_names, Text).ilike(like),
+            )
+        )
+        if user.role == Role.operator:
+            stmt = stmt.where(MonitoredServer.enabled.is_(True))
+        groups.append(
+            _group(
+                db,
+                "server",
+                stmt,
+                MonitoredServer.updated_at,
+                limit,
+                lambda row: UnifiedHit(
+                    type="server",
+                    id=row.id,
+                    title=row.name,
+                    status="enabled" if row.enabled else "disabled",
+                    subtitle=_subtitle(
+                        row.host,
+                        "、".join(row.service_names or []),
+                        row.prometheus_instance,
+                    ),
+                    link="/monitoring",
                     updated_at=row.updated_at,
                 ),
             )

@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.access import can_view_case as _can_view_case
 from app.ai.keys import resolve_effective_ai
 from app.config import get_settings
 from app.concurrency import advance_version, require_current_version
 from app.database import get_db
 from app.deps import get_current_user, record_audit, require_operator, require_reviewer
 from app.models import Case, CaseStatus, Fault, Role, Sop, SopAiGenerationRun, SopStatus, User, utcnow
+from app.notifications import notify, notify_reviewers
 from app.schemas import (
     CaseDetailOut,
     CaseOut,
@@ -28,12 +30,6 @@ def _case_visible(user: User):
     """查询过滤:已通过案例对所有登录用户可读;待审核/退回仅创建者与审核权限可见。"""
     if user.role == Role.operator:
         return or_(Case.created_by == user.id, Case.status == CaseStatus.approved)
-    return True
-
-
-def _can_view_case(user: User, case: Case) -> bool:
-    if user.role == Role.operator:
-        return case.created_by == user.id or case.status == CaseStatus.approved
     return True
 
 
@@ -169,6 +165,15 @@ def submit_case(
     case.status = CaseStatus.pending_review
     advance_version(case)
     record_audit(db, user, "case.submit", "case", case.id)
+    notify_reviewers(
+        db,
+        kind="case.submitted",
+        title=f"案例 #{case.id} 待审核：{case.title}",
+        body="重新提交的案例等待审核，请确认人工确认根因与处理步骤。",
+        link=f"/cases/{case.id}",
+        entity_type="case",
+        entity_id=case.id,
+    )
     db.commit()
     return CaseOut.model_validate(case)
 
@@ -195,6 +200,16 @@ def approve_case(
     case.reviewed_by = reviewer.id
     case.reviewed_at = utcnow()
     record_audit(db, reviewer, "case.approve", "case", case.id, {"comment": body.comment[:200]})
+    notify(
+        db,
+        [case.created_by],
+        kind="case.approved",
+        title=f"案例 #{case.id} 已通过审核",
+        body=body.comment[:500] or "案例已进入正式知识库，可供检索与引用。",
+        link=f"/cases/{case.id}",
+        entity_type="case",
+        entity_id=case.id,
+    )
     db.commit()
     return CaseOut.model_validate(case)
 
@@ -219,6 +234,16 @@ def return_case(
     case.reviewed_by = reviewer.id
     case.reviewed_at = utcnow()
     record_audit(db, reviewer, "case.return", "case", case.id, {"comment": body.comment[:200]})
+    notify(
+        db,
+        [case.created_by],
+        kind="case.returned",
+        title=f"案例 #{case.id} 被退回：{case.title}",
+        body=f"审核意见：{body.comment[:500]}",
+        link=f"/cases/{case.id}",
+        entity_type="case",
+        entity_id=case.id,
+    )
     db.commit()
     return CaseOut.model_validate(case)
 

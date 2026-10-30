@@ -12,6 +12,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import AuditTimeline from '../components/AuditTimeline.vue'
 import { caseStatusMap, fmtTime, sopStatusMap } from '../labels'
 import type { CaseDetail, CaseStatus } from '../types'
 
@@ -112,6 +113,11 @@ const statusInfo = computed(() => {
 const canRetry = computed(
   () => error.value?.kind === 'network' || error.value?.kind === 'server',
 )
+
+function askAi() {
+  if (!item.value) return
+  void router.push({ path: '/chat', query: { case: String(item.value.id) } })
+}
 </script>
 
 <template>
@@ -123,9 +129,14 @@ const canRetry = computed(
         <h1>案例详情</h1>
         <p class="ops-page-description">从一次真实的处理过程，找到下一次排查的依据。</p>
       </div>
-      <el-tag v-if="item" size="small" :type="(caseStatusMap[item.status as CaseStatus].type as any)">
-        {{ caseStatusMap[item.status as CaseStatus].label }}
-      </el-tag>
+      <div class="ops-page-actions case-header-actions">
+        <el-tag v-if="item" size="small" :type="(caseStatusMap[item.status as CaseStatus].type as any)">
+          {{ caseStatusMap[item.status as CaseStatus].label }}
+        </el-tag>
+        <el-button v-if="item" plain @click="askAi">
+          <AppIcon name="bot" :size="15" /> 问 AI
+        </el-button>
+      </div>
     </div>
 
     <div v-if="loading" class="ops-panel case-loading"><AppIcon name="files" :size="24" /><span>加载中…</span></div>
@@ -204,6 +215,7 @@ const canRetry = computed(
             <div class="ops-section-header"><h2>审核意见</h2><AppIcon name="shield" :size="17" /></div>
             <p class="case-review-comment">{{ item.review_comment }}</p>
           </section>
+          <AuditTimeline entity-type="case" :entity-id="item.id" />
           <div class="case-reading-note"><AppIcon name="lock" :size="18" /><p>只读知识来源<br /><span>审核和内容维护请从案例库进入。来源故障仅提供跳转，原始日志仍按故障页权限访问。</span></p></div>
         </aside>
       </div>
@@ -233,6 +245,8 @@ const canRetry = computed(
 .case-confirmed-section { margin: 25px -17px 0; padding: 18px; border: 1px solid var(--ops-warm-line); border-radius: var(--ops-radius-panel); background: var(--ops-surface-warm); }
 .case-confirmed-section .case-section-label > svg { color: var(--ops-success); }
 .case-metadata-column { display: grid; gap: 18px; }
+.case-header-actions { display: flex; align-items: center; gap: 10px; }
+.case-header-actions :deep(.el-button) { margin-left: 0; gap: 5px; }
 .case-metadata-panel { padding: 0; }
 .case-metadata-panel h2 { margin: 0; font-size: 14px; font-weight: 650; }
 

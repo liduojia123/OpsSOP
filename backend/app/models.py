@@ -135,6 +135,11 @@ class MonitoringConfig(Base):
     prometheus_url: Mapped[str] = mapped_column(String(300), default="")
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=10)
     ai_tools_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 告警转故障:开启后同步 Prometheus 告警,按标签指纹去重生成故障
+    alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    alert_service_label: Mapped[str] = mapped_column(String(64), default="service")
+    alert_owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    alert_last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -155,6 +160,8 @@ class MonitoredServer(Base):
     private_key_encrypted: Mapped[str] = mapped_column(Text, default="")
     host_key_fingerprint: Mapped[str] = mapped_column(String(128), default="")
     prometheus_instance: Mapped[str] = mapped_column(String(128), default="")
+    # 本机承载的业务服务名(与故障/案例的 service 字段匹配,用于把故障关联到实时指标)
+    service_names: Mapped[list] = mapped_column(JSONB, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -299,6 +306,9 @@ class Fault(Base):
     attempted_actions: Mapped[str] = mapped_column(Text, default="")
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
     tags: Mapped[list] = mapped_column(JSONB, default=list)
+    source: Mapped[str] = mapped_column(String(16), default="manual")  # manual | alert
+    # 告警来源指纹:同一告警(标签相同)未解决时只生成一条故障
+    alert_fingerprint: Mapped[str] = mapped_column(String(64), default="", index=True)
     status: Mapped[FaultStatus] = mapped_column(
         _enum_column(FaultStatus, "fault_status"), default=FaultStatus.draft
     )
@@ -439,6 +449,31 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     actor: Mapped[User | None] = relationship()
+
+
+class Notification(Base):
+    """站内通知:审核流转与告警转故障等事件,只发给当事人/审核人。
+
+    与审计分开:审计保留全部操作事实,通知只保留"需要某人处理"的提醒,
+    已读时间用于顶部铃铛未读计数。
+    """
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    title: Mapped[str] = mapped_column(String(255), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    link: Mapped[str] = mapped_column(String(255), default="")
+    entity_type: Mapped[str] = mapped_column(String(16), default="")
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+
+    user: Mapped[User] = relationship()
 
 
 class AiAnalysisStatus(str, enum.Enum):

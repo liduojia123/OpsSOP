@@ -135,6 +135,9 @@ def test_specs_depend_on_context_and_monitoring_config(db, operator):
         "list_faults",
         "list_todos",
         "get_fault",
+        "get_case",
+        "get_sop",
+        "search_all",
     }
 
     db.add(MonitoringConfig(id=1, enabled=True, prometheus_url="http://127.0.0.1:9090"))
