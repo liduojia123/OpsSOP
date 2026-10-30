@@ -58,36 +58,50 @@ function clearAvatar() {
   if (avatarInput.value) avatarInput.value.value = ''
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      if (!result.startsWith('data:image/')) {
+        reject(new Error('图片读取失败，请换一张 JPG、PNG 或 WebP 图片'))
+        return
+      }
+      resolve(result)
+    }
+    reader.onerror = () => reject(new Error('图片读取失败，请检查文件是否损坏'))
+    reader.readAsDataURL(file)
+  })
+}
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('图片读取失败'))
+    image.onerror = () => reject(new Error('浏览器无法解码该图片，请换 JPG、PNG 或 WebP 格式'))
     image.src = url
   })
 }
 
 async function resizeAvatar(file: File): Promise<string> {
-  const url = URL.createObjectURL(file)
-  try {
-    const image = await loadImage(url)
-    const size = 160
-    const canvas = document.createElement('canvas')
-    canvas.width = size
-    canvas.height = size
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('当前浏览器不支持图片裁剪')
-    // 居中裁成正方形,透明区域填暖白,避免转 JPEG 后变黑
-    context.fillStyle = '#f8f6f0'
-    context.fillRect(0, 0, size, size)
-    const side = Math.min(image.width, image.height)
-    const sx = (image.width - side) / 2
-    const sy = (image.height - side) / 2
-    context.drawImage(image, sx, sy, side, side, 0, 0, size, size)
-    return canvas.toDataURL('image/jpeg', 0.86)
-  } finally {
-    URL.revokeObjectURL(url)
-  }
+  // 用 data URL 而不是 blob URL:生产 CSP 为 img-src 'self' data:,
+  // blob: 会被拦截并表现为“图片读取失败”。
+  const source = await readFileAsDataUrl(file)
+  const image = await loadImage(source)
+  const size = 160
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('当前浏览器不支持图片裁剪')
+  // 居中裁成正方形,透明区域填暖白,避免转 JPEG 后变黑
+  context.fillStyle = '#f8f6f0'
+  context.fillRect(0, 0, size, size)
+  const side = Math.min(image.width, image.height)
+  const sx = (image.width - side) / 2
+  const sy = (image.height - side) / 2
+  context.drawImage(image, sx, sy, side, side, 0, 0, size, size)
+  return canvas.toDataURL('image/jpeg', 0.86)
 }
 
 async function onAvatarChange(event: Event) {
