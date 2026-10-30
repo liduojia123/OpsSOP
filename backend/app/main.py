@@ -50,23 +50,28 @@ async def lifespan(app: FastAPI):
     setup_file_logging(settings)
     seed_fn()
     maintenance_task: asyncio.Task | None = None
+    alerts_task: asyncio.Task | None = None
     if settings.is_production:
         from app.maintenance import maintenance_loop
+        from app.monitoring.alerts import alerts_loop
 
         maintenance_task = asyncio.create_task(maintenance_loop(settings))
+        # 告警转故障未开启时循环只做一次配置查询;开启后每 60 秒同步
+        alerts_task = asyncio.create_task(alerts_loop())
     try:
         yield
     finally:
-        if maintenance_task is not None:
-            maintenance_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await maintenance_task
+        for task in (maintenance_task, alerts_task):
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
 
 app = FastAPI(
     title="OpsSOP",
     description="运维故障知识库与 SOP 管理系统",
-    version="3.5.0",
+    version="3.5.1",
     lifespan=lifespan,
 )
 

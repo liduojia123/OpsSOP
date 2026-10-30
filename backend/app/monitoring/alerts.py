@@ -11,19 +11,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.sanitize import sanitize_text
+from app.database import SessionLocal
 from app.deps import record_audit
 from app.models import Fault, FaultStatus, MonitoringConfig, Role, User
 from app.monitoring.defaults import resolve_client
 from app.monitoring.prometheus import MonitoringError
 from app.notifications import notify, reviewer_ids
+
+logger = logging.getLogger("opssop.monitoring.alerts")
 
 SYNC_INTERVAL_SECONDS = 60
 MAX_NEW_FAULTS = 20
@@ -239,3 +244,30 @@ def sync_alerts(db: Session, *, force: bool = False) -> dict:
         "synced_at": now.isoformat(timespec="seconds"),
         "error": "",
     }
+
+
+def sync_alerts_once() -> dict:
+    """在独立会话中同步一次告警,供后台任务使用。"""
+    db = SessionLocal()
+    try:
+        return sync_alerts(db)
+    finally:
+        db.close()
+
+
+async def alerts_loop(interval: float = 60.0) -> None:
+    """生产模式后台告警同步:每 60 秒一次。
+
+    告警转故障未开启、监控未配置或上游不可达时只跳过/记日志,不中断循环;
+    与页面触发的同步共用节流与指纹去重,不会重复建单。
+    """
+    while True:
+        try:
+            await asyncio.sleep(max(10.0, float(interval)))
+            result = await asyncio.to_thread(sync_alerts_once)
+            if result.get("created"):
+                logger.info("告警同步生成 %s 条故障", len(result["created"]))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - 单轮失败不能让后台任务停摆
+            logger.exception("告警同步失败,下一轮继续")
