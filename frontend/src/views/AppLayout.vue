@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import AppLogo from '../components/AppLogo.vue'
 import NotificationBell from '../components/NotificationBell.vue'
+import ProfileDialog from '../components/ProfileDialog.vue'
 import client, { errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { roleMap } from '../labels'
-import type { AiStatus } from '../types'
+import type { AiStatus, User } from '../types'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -17,10 +18,9 @@ const aiStatus = ref<AiStatus | null>(null)
 const statusLoading = ref(true)
 const mobileMenuOpen = ref(false)
 const mainEl = ref<HTMLElement | null>(null)
-const passwordDialog = ref(false)
-const passwordSaving = ref(false)
+const profileDialog = ref(false)
 const loggingOut = ref(false)
-const passwordForm = reactive({ current: '', next: '', confirm: '' })
+const isAdmin = computed(() => auth.user?.role === 'admin')
 
 const menuGroups = computed(() => [
   {
@@ -41,7 +41,7 @@ const menuGroups = computed(() => [
       { name: 'sops', title: 'SOP 知识库', path: '/sops', icon: 'book' },
     ],
   },
-  ...(auth.role === 'admin' ? [{
+  ...(isAdmin.value ? [{
     title: '管理',
     items: [{ name: 'admin', title: '系统管理', path: '/admin', icon: 'settings' }],
   }] : []),
@@ -81,11 +81,23 @@ const aiModeLabel = computed(() => {
 })
 
 const userInitial = computed(() => auth.user?.display_name?.trim().slice(0, 1) || 'U')
+const accountSubtitle = computed(
+  () => auth.user?.signature?.trim() || (auth.user ? roleMap[auth.user.role] : ''),
+)
 watch(() => route.fullPath, () => {
   mobileMenuOpen.value = false
   // 内容区独立滚动:切换页面后从顶部开始,避免沿用上一页的滚动位置
   mainEl.value?.scrollTo({ top: 0 })
 })
+// 角色以后端为准:被降级或停用后不再保留管理员入口
+watch(
+  () => auth.user?.role,
+  (role) => {
+    if (route.meta.requiresAdmin && role !== 'admin') {
+      void router.replace({ name: 'workbench' })
+    }
+  },
+)
 
 onMounted(async () => {
   try {
@@ -95,6 +107,16 @@ onMounted(async () => {
     aiStatus.value = null
   } finally {
     statusLoading.value = false
+  }
+  try {
+    // 每次进入工作区向后端复核资料/角色,避免本地缓存里的旧角色长期生效
+    const { data } = await client.get<User>('/api/auth/me')
+    auth.updateUser(data)
+    if (route.meta.requiresAdmin && data.role !== 'admin') {
+      await router.replace({ name: 'workbench' })
+    }
+  } catch {
+    // 401 由全局拦截器处理;网络异常时保留当前会话,不阻断页面
   }
 })
 
@@ -112,31 +134,6 @@ async function logout() {
   }
 }
 
-function openPasswordDialog() {
-  Object.assign(passwordForm, { current: '', next: '', confirm: '' })
-  passwordDialog.value = true
-}
-
-async function changePassword() {
-  if (passwordSaving.value) return
-  if (!passwordForm.current || passwordForm.next.length < 8 || passwordForm.next !== passwordForm.confirm) {
-    ElMessage.warning('请填写当前密码，并确认新密码至少 8 个字符且两次一致')
-    return
-  }
-  passwordSaving.value = true
-  try {
-    await client.post('/api/auth/change-password', { current_password: passwordForm.current, new_password: passwordForm.next })
-    passwordDialog.value = false
-    Object.assign(passwordForm, { current: '', next: '', confirm: '' })
-    auth.logout()
-    ElMessage.success('密码已修改，请重新登录')
-    await router.replace({ name: 'login' })
-  } catch (e) {
-    ElMessage.error(errMsg(e))
-  } finally {
-    passwordSaving.value = false
-  }
-}
 </script>
 
 <template>
@@ -171,12 +168,17 @@ async function changePassword() {
           <AppIcon name="bot" :size="17" /><span>{{ aiModeLabel }}</span>
         </div>
         <div class="ops-account">
-          <div class="ops-avatar" aria-hidden="true">{{ userInitial }}</div>
-          <div class="ops-account-copy">
-            <strong>{{ auth.user?.display_name }}</strong>
-            <span>{{ auth.user ? roleMap[auth.user.role] : '' }}</span>
-          </div>
-          <button class="ops-logout-button" title="修改密码" aria-label="修改密码" @click="openPasswordDialog"><AppIcon name="lock" :size="18" /></button>
+          <button type="button" class="ops-account-main" title="个人资料：头像、签名与密码" @click="profileDialog = true">
+            <span class="ops-avatar" aria-hidden="true">
+              <img v-if="auth.user?.avatar" :src="auth.user.avatar" alt="" />
+              <template v-else>{{ userInitial }}</template>
+            </span>
+            <span class="ops-account-copy">
+              <strong>{{ auth.user?.display_name }}</strong>
+              <span :title="accountSubtitle">{{ accountSubtitle }}</span>
+            </span>
+            <AppIcon name="chevron-right" :size="14" class="ops-account-chevron" />
+          </button>
           <button class="ops-logout-button" title="退出登录" aria-label="退出登录" :disabled="loggingOut" @click="logout">
             <AppIcon name="logout" :size="18" />
           </button>
@@ -184,15 +186,7 @@ async function changePassword() {
       </div>
     </aside>
 
-    <el-dialog v-model="passwordDialog" title="修改密码" width="min(480px, 94vw)" class="ops-dialog" :close-on-click-modal="!passwordSaving" @closed="Object.assign(passwordForm, { current: '', next: '', confirm: '' })">
-      <p class="ops-page-description mb-5">修改后所有已登录会话将失效，请使用新密码重新登录。</p>
-      <el-form label-position="top" @submit.prevent="changePassword">
-        <el-form-item label="当前密码"><el-input v-model="passwordForm.current" type="password" show-password autocomplete="current-password" /></el-form-item>
-        <el-form-item label="新密码"><el-input v-model="passwordForm.next" type="password" show-password autocomplete="new-password" /></el-form-item>
-        <el-form-item label="确认新密码"><el-input v-model="passwordForm.confirm" type="password" show-password autocomplete="new-password" /></el-form-item>
-      </el-form>
-      <template #footer><el-button :disabled="passwordSaving" @click="passwordDialog = false">取消</el-button><el-button type="primary" :loading="passwordSaving" @click="changePassword">修改密码</el-button></template>
-    </el-dialog>
+    <ProfileDialog v-model="profileDialog" />
 
     <div class="ops-workspace">
       <header class="ops-topbar">
@@ -243,8 +237,13 @@ async function changePassword() {
 .ops-sidebar-footer { padding: 16px; }
 .ops-sidebar-mode { display: flex; align-items: center; gap: 8px; margin-bottom: 17px; padding: 11px 12px; border: 1px solid var(--ops-sidebar-line); border-radius: 4px; background: var(--ops-sidebar-raised); color: var(--ops-sidebar-muted); font-size: 10px; line-height: 1.5; }
 .ops-sidebar-mode.is-demo { color: #d7b493; border-color: #4a4239; }
-.ops-account { display: flex; align-items: center; gap: 10px; padding: 16px 5px 2px; border-top: 1px solid var(--ops-sidebar-line); }
-.ops-avatar { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border: 1px solid #47474b; border-radius: 5px; background: #35363a; color: #eedec4; font-size: 12px; font-weight: 600; }
+.ops-account { display: flex; align-items: center; gap: 4px; padding: 16px 5px 2px; border-top: 1px solid var(--ops-sidebar-line); }
+.ops-account-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 4px 5px; border: 0; border-radius: 5px; background: transparent; color: inherit; text-align: left; cursor: pointer; transition: background-color var(--ops-duration-fast) var(--ops-ease-standard); }
+.ops-account-main:hover { background: #35363a; }
+.ops-account-main:focus-visible { outline: 2px solid var(--ops-brand-mark); outline-offset: 1px; }
+.ops-account-chevron { flex-shrink: 0; color: var(--ops-sidebar-muted); opacity: 0.7; }
+.ops-avatar { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; overflow: hidden; border: 1px solid #47474b; border-radius: 5px; background: #35363a; color: #eedec4; font-size: 12px; font-weight: 600; }
+.ops-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ops-account-copy { min-width: 0; flex: 1; }
 .ops-account-copy strong, .ops-account-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ops-account-copy strong { color: #e9e5dc; font-size: 12px; font-weight: 600; }

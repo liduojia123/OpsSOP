@@ -43,10 +43,29 @@ class ChangePasswordRequest(BaseModel):
         return _check_password_bytes(v)
 
 
+class ProfileUpdate(BaseModel):
+    """本人资料:显示名、签名、头像。
+
+    avatar 为空表示恢复默认;非空必须是 PNG/JPEG/WebP 的 data URL,
+    具体大小与文件头校验在 auth 路由中执行(错误信息更明确)。
+    """
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    signature: str | None = Field(default=None, max_length=200)
+    avatar: str | None = Field(default=None, max_length=400_000)
+
+    @field_validator("display_name")
+    @classmethod
+    def _display_name_not_blank(cls, v: str | None) -> str | None:
+        return _check_not_blank(v) if v is not None else v
+
+
 class UserOut(ORMModel):
     id: int
     username: str
     display_name: str
+    signature: str = ""
+    avatar: str = ""
     role: Role
     is_active: bool
     created_at: datetime

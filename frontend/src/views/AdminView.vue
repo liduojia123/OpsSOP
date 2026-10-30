@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
@@ -10,6 +10,8 @@ import type { AuditEvent, BackupConfig, BackupInfo, Category, Role, User } from 
 
 const auth = useAuthStore()
 const router = useRouter()
+// 页面级兜底:即使路由被绕过(或角色在页面打开后被降级),也不加载管理员数据
+const isAdmin = computed(() => auth.user?.role === 'admin')
 const users = ref<User[]>([])
 const categories = ref<Category[]>([])
 const tab = ref('users')
@@ -294,8 +296,21 @@ async function removeCat(c: Category) {
   }
 }
 
+watch(isAdmin, (allowed) => {
+  if (!allowed && router.currentRoute.value.name === 'admin') {
+    void router.replace({ name: 'workbench' })
+  }
+})
+
 onMounted(async () => {
   try {
+    // 以后端返回的角色为准,避免本地缓存中的旧角色直接放行管理员页面
+    const { data } = await client.get<User>('/api/auth/me')
+    auth.updateUser(data)
+    if (data.role !== 'admin') {
+      await router.replace({ name: 'workbench' })
+      return
+    }
     await loadAll()
   } catch (e) {
     ElMessage.error(errMsg(e))
@@ -304,7 +319,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="ops-page">
+  <div v-if="!isAdmin" class="ops-page">
+    <div class="ops-panel admin-denied">
+      <span class="admin-denied-icon"><AppIcon name="shield" :size="24" /></span>
+      <h1>无权访问系统管理</h1>
+      <p>系统管理仅对管理员开放。如需调整团队账号、分类或备份，请联系管理员。</p>
+      <el-button type="primary" plain @click="router.push('/')">返回工作台</el-button>
+    </div>
+  </div>
+  <div v-else class="ops-page">
     <header class="ops-page-header">
       <div>
         <div class="ops-eyebrow">WORKSPACE / 团队设置</div>
@@ -340,7 +363,10 @@ onMounted(async () => {
             <el-table-column label="账号" min-width="230">
               <template #default="{ row }">
                 <div class="admin-member">
-                  <span class="ops-initial">{{ (row.display_name || row.username).slice(0, 1).toUpperCase() }}</span>
+                  <span class="ops-initial admin-member-avatar">
+                    <img v-if="row.avatar" :src="row.avatar" alt="" />
+                    <template v-else>{{ (row.display_name || row.username).slice(0, 1).toUpperCase() }}</template>
+                  </span>
                   <div><div class="admin-member-name">{{ row.display_name || row.username }}</div><div class="ops-id mt-0.5">{{ row.username }}</div></div>
                 </div>
               </template>
@@ -456,6 +482,12 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.admin-denied { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 560px; margin: 8vh auto 0; padding: 32px; }
+.admin-denied-icon { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid var(--ops-border); border-radius: 6px; background: var(--ops-surface-warm); color: var(--ops-muted); }
+.admin-denied h1 { margin: 4px 0 0; color: var(--ops-text); font-size: 22px; }
+.admin-denied p { margin: 0 0 10px; color: var(--ops-muted); font-size: 13px; line-height: 1.7; }
+.admin-member-avatar { overflow: hidden; }
+.admin-member-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .admin-stat { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
 .admin-stat-label { margin: 0; color: var(--ops-muted); font-size: 11px; }
 .admin-stat-value { margin: 8px 0 0; color: var(--ops-text); font-family: var(--ops-font-mono); font-size: 26px; font-weight: 500; letter-spacing: -1px; line-height: 1.2; }

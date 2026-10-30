@@ -1,3 +1,5 @@
+import base64
+import binascii
 import hashlib
 import hmac
 import math
@@ -13,13 +15,51 @@ from app.config import get_settings
 from app.database import get_db
 from app.deps import bearer_scheme, get_current_user, record_audit
 from app.models import LoginAttempt, RevokedSession, User
-from app.schemas import ChangePasswordRequest, LoginRequest, LoginResponse, UserOut
+from app.schemas import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
+    ProfileUpdate,
+    UserOut,
+)
 from app.security import create_session_token, decode_session_token, hash_password, session_token_hash, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _LOGIN_WINDOW_SECONDS = 60
 _ACCOUNT_LIMIT = 10
 _SOURCE_LIMIT = 120
+_MAX_AVATAR_BYTES = 256 * 1024
+
+
+def _normalize_avatar(value: str) -> str:
+    """只接受 PNG/JPEG/WebP 的 data URL;空串表示恢复默认头像。
+
+    除前缀外校验解码长度与文件头,避免把任意内容当图片存储/渲染。
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    formats = {
+        "data:image/png;base64,": lambda data: data.startswith(b"\x89PNG\r\n\x1a\n"),
+        "data:image/jpeg;base64,": lambda data: data.startswith(b"\xff\xd8\xff"),
+        "data:image/webp;base64,": lambda data: data[:4] == b"RIFF" and data[8:12] == b"WEBP",
+    }
+    for prefix, check in formats.items():
+        if not raw.startswith(prefix):
+            continue
+        try:
+            decoded = base64.b64decode(raw[len(prefix):], validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "头像数据不是有效的 Base64") from exc
+        if not decoded or len(decoded) > _MAX_AVATAR_BYTES:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"头像大小必须在 1 字节到 {_MAX_AVATAR_BYTES // 1024}KB 之间",
+            )
+        if not check(decoded):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "头像文件头与声明的格式不符")
+        return raw
+    raise HTTPException(status.HTTP_400_BAD_REQUEST, "头像仅支持 PNG、JPEG 或 WebP 图片")
 
 
 def _rate_key(kind: str, value: str) -> str:
@@ -71,6 +111,33 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> UserOut:
+    return UserOut.model_validate(user)
+
+
+@router.patch("/profile", response_model=UserOut)
+def update_profile(
+    body: ProfileUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserOut:
+    """本人可改显示名、签名与头像;不允许改角色/启用状态/密码(密码走单独接口)。"""
+    changes: dict = {}
+    if body.display_name is not None and body.display_name != user.display_name:
+        changes["display_name"] = {"from": user.display_name, "to": body.display_name}
+        user.display_name = body.display_name
+    if body.signature is not None:
+        signature = body.signature.strip()
+        if signature != user.signature:
+            changes["signature"] = "updated" if signature else "cleared"
+            user.signature = signature
+    if body.avatar is not None:
+        avatar = _normalize_avatar(body.avatar)
+        if avatar != user.avatar:
+            changes["avatar"] = "updated" if avatar else "cleared"
+            user.avatar = avatar
+    if changes:
+        record_audit(db, user, "user.update_profile", "user", user.id, changes)
+        db.commit()
     return UserOut.model_validate(user)
 
 

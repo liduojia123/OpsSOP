@@ -25,11 +25,23 @@ const router = createRouter({
         { path: 'monitoring', name: 'monitoring', component: () => import('../views/MonitoringView.vue') },
         { path: 'chat', name: 'chat', component: () => import('../views/ChatView.vue') },
         { path: 'sops/:id', name: 'sop-detail', component: () => import('../views/SopDetailView.vue') },
-        { path: 'admin', name: 'admin', component: () => import('../views/AdminView.vue') },
+        {
+          path: 'admin',
+          name: 'admin',
+          component: () => import('../views/AdminView.vue'),
+          meta: { requiresAdmin: true },
+        },
       ],
     },
   ],
 })
+
+// 路由 meta 声明权限;页面内仍会再校验一次,后端接口始终 require_admin
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAdmin?: boolean
+  }
+}
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
@@ -37,7 +49,7 @@ router.beforeEach((to) => {
     // 未登录直接打开来源(如 /cases/12、/sops/3)时,登录后回到同一来源
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  if (to.name === 'admin' && auth.role !== 'admin') {
+  if (to.meta.requiresAdmin && auth.role !== 'admin') {
     return { name: 'workbench' }
   }
   return true

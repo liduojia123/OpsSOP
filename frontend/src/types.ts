@@ -15,6 +15,8 @@ export interface User {
   id: number
   username: string
   display_name: string
+  signature?: string
+  avatar?: string
   role: Role
   is_active: boolean
   created_at: string

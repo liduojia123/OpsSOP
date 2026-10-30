@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), post: vi.fn() },
-  auth: { token: 'session', user: { id: 1, display_name: 'User', role: 'operator' }, role: 'operator', logout: vi.fn() },
+  auth: { token: 'session', user: { id: 1, display_name: 'User', role: 'operator' }, role: 'operator', logout: vi.fn(), updateUser: vi.fn() },
   router: { replace: vi.fn(), push: vi.fn() },
   message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }))
@@ -30,6 +30,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.api.get.mockImplementation((url: string) => {
     if (url === '/api/users' || url === '/api/categories') return Promise.resolve({ data: [] })
+    if (url === '/api/auth/me') {
+      return Promise.resolve({ data: { ...mocks.auth.user, signature: '', avatar: '' } })
+    }
     return Promise.resolve({ data: { ai_mode: 'disabled' } })
   })
   mocks.api.post.mockResolvedValue({ data: null })
@@ -55,15 +58,26 @@ describe('account actions', () => {
     expect(mocks.message.error).toHaveBeenCalled()
   })
 
-  it('submits password change and requires a new login', async () => {
+  it('opens the profile dialog from the identity card', async () => {
     const wrapper = mount(AppLayout, { global })
     await flushPromises()
     const state = setupState(wrapper)
-    Object.assign(state.passwordForm, { current: 'old-password', next: 'new-password', confirm: 'new-password' })
-    await state.changePassword()
-    expect(mocks.api.post).toHaveBeenCalledWith('/api/auth/change-password', { current_password: 'old-password', new_password: 'new-password' })
-    expect(mocks.auth.logout).toHaveBeenCalledOnce()
-    expect(state.passwordForm.current).toBe('')
+    expect(state.profileDialog).toBe(false)
+    await wrapper.find('.ops-account-main').trigger('click')
+    expect(state.profileDialog).toBe(true)
+  })
+
+  it('falls back to the role when the user has no signature', async () => {
+    const wrapper = mount(AppLayout, { global })
+    await flushPromises()
+    expect(wrapper.find('.ops-account-copy span').text()).toBe('运维人员')
+  })
+
+  it('denies the system management page to non-admins', async () => {
+    const wrapper = mount(AdminView, { global })
+    await flushPromises()
+    expect(wrapper.text()).toContain('无权访问系统管理')
+    expect(mocks.router.replace).toHaveBeenCalledWith({ name: 'workbench' })
   })
 
   it('keeps applied audit filters while paging', async () => {
