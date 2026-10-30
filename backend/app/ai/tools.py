@@ -26,6 +26,7 @@ from app.models import (
     CaseStatus,
     Category,
     Fault,
+    FaultRecord,
     FaultStatus,
     MonitoredServer,
     Role,
@@ -156,6 +157,28 @@ TOOL_SPECS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_fault",
+            "description": (
+                "按故障 ID 读取详情(只读,仅限当前用户有权访问):标题、状态、环境/服务、描述、"
+                "人工确认根因与处理步骤、最近处理记录、关联案例与衍生 SOP。"
+                "用户提到具体故障编号，或从故障页进入对话询问“这个故障怎么处理”时使用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fault_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "故障 ID",
+                    }
+                },
+                "required": ["fault_id"],
+            },
+        },
+    },
 ]
 
 
@@ -215,7 +238,7 @@ class ToolExecutor:
         """按上下文返回可用工具:业务数据仅对话;监控工具需已配置数据源或服务器。"""
         names: set[str] = set()
         if self.conversation_id is not None:
-            names.update({"list_faults", "list_todos"})
+            names.update({"list_faults", "list_todos", "get_fault"})
         if self.available():
             names.update({"prometheus_query", "ssh_run"})
         return [spec for spec in TOOL_SPECS if spec["function"]["name"] in names]
@@ -224,7 +247,7 @@ class ToolExecutor:
         """后端实际允许调用的工具:监控工具在分析和对话中都允许(未配置时由工具自身报错)。"""
         names = {"prometheus_query", "ssh_run"}
         if self.conversation_id is not None:
-            names.update({"list_faults", "list_todos"})
+            names.update({"list_faults", "list_todos", "get_fault"})
         return names
 
     def _check_rate(self) -> None:
@@ -270,6 +293,8 @@ class ToolExecutor:
                 text = self._list_faults(arguments)
             elif name == "list_todos":
                 text = self._list_todos(arguments)
+            elif name == "get_fault":
+                text = self._get_fault(arguments)
             else:
                 raise ToolDenied(f"未知工具: {name}")
         except ToolDenied as exc:
@@ -379,6 +404,7 @@ class ToolExecutor:
             if row.category_id in categories:
                 parts.append(f"分类={categories[row.category_id]}")
             parts.append(f"更新={_fmt_time(row.updated_at)}")
+            parts.append(f"链接=/faults/{row.id}")
             lines.append(" · ".join(parts))
         return "\n".join(lines)
 
@@ -471,26 +497,95 @@ class ToolExecutor:
         for row in my_faults:
             lines.append(
                 f"  #{row.id} [{_text(row.status)}] {(row.title or '')[:80]}"
-                f" · 更新={_fmt_time(row.updated_at)}"
+                f" · 更新={_fmt_time(row.updated_at)} · 链接=/faults/{row.id}"
             )
         if reviewer:
             lines.append(f"待我审核的案例: {pending_case_total} 条")
             for row in pending_cases:
                 lines.append(
-                    f"  案例 #{row.id} {row.title[:80]} · 更新={_fmt_time(row.updated_at)}"
+                    f"  案例 #{row.id} {row.title[:80]} · 更新={_fmt_time(row.updated_at)} · 链接=/cases/{row.id}"
                 )
             lines.append(f"待我审核的 SOP: {pending_sop_total} 条")
             for row in pending_sops:
                 lines.append(
                     f"  SOP #{row.id} v{row.version} {row.title[:80]}"
-                    f" · 更新={_fmt_time(row.updated_at)}"
+                    f" · 更新={_fmt_time(row.updated_at)} · 链接=/sops/{row.id}"
                 )
         lines.append(f"被退回给我的案例: {returned_case_total} 条")
         for row in returned_cases:
-            lines.append(f"  案例 #{row.id} {row.title[:80]}")
+            lines.append(f"  案例 #{row.id} {row.title[:80]} · 链接=/cases/{row.id}")
         lines.append(f"被退回给我的 SOP: {returned_sop_total} 条")
         for row in returned_sops:
-            lines.append(f"  SOP #{row.id} v{row.version} {row.title[:80]}")
+            lines.append(f"  SOP #{row.id} v{row.version} {row.title[:80]} · 链接=/sops/{row.id}")
+        return "\n".join(lines)
+
+    def _get_fault(self, arguments: dict) -> str:
+        """单个故障详情:权限与故障页一致,附关联案例/衍生 SOP 的跳转路径。"""
+        try:
+            fault_id = int(arguments.get("fault_id"))
+        except (TypeError, ValueError) as exc:
+            raise ToolDenied("fault_id 必须是正整数") from exc
+        if fault_id <= 0:
+            raise ToolDenied("fault_id 必须是正整数")
+
+        with self.db.begin_nested():
+            fault = self.db.get(Fault, fault_id)
+            if fault is None:
+                raise ToolDenied("故障不存在")
+            if self.user.role == Role.operator and fault.created_by != self.user.id:
+                raise ToolDenied("无权查看该故障")
+            records = list(
+                self.db.scalars(
+                    select(FaultRecord)
+                    .where(FaultRecord.fault_id == fault_id)
+                    .order_by(FaultRecord.created_at.desc())
+                    .limit(5)
+                )
+            )
+            case = self.db.scalar(select(Case).where(Case.fault_id == fault_id))
+            sops = []
+            if case is not None:
+                sops = list(
+                    self.db.scalars(
+                        select(Sop)
+                        .where(Sop.source_case_id == case.id)
+                        .order_by(Sop.version.desc())
+                    )
+                )
+
+        lines = [
+            f"故障 #{fault.id} [{_text(fault.status)}] {fault.title}",
+            f"环境={fault.environment or '-'} · 服务={fault.service or '-'} · "
+            f"更新时间={_fmt_time(fault.updated_at)} · 链接=/faults/{fault.id}",
+            "描述: " + ((fault.description or "").strip()[:500] or "(无)"),
+        ]
+        if fault.actual_root_cause:
+            lines.append("人工确认根因: " + fault.actual_root_cause[:300])
+        if fault.handling_steps:
+            lines.append("人工处理步骤: " + fault.handling_steps[:300])
+        if records:
+            lines.append("最近处理记录(最多 5 条):")
+            for row in records:
+                lines.append(f"  [{_text(row.kind)}] {(row.content or '').strip()[:200]}")
+        if case is not None:
+            lines.append(
+                f"关联案例: #{case.id} [{_text(case.status)}] {case.title[:80]}"
+                f" · 链接=/cases/{case.id}"
+            )
+            for sop in sops:
+                if (
+                    self.user.role == Role.operator
+                    and sop.created_by != self.user.id
+                    and sop.status
+                    not in (SopStatus.published, SopStatus.superseded, SopStatus.deprecated)
+                ):
+                    continue
+                lines.append(
+                    f"衍生 SOP: #{sop.id} v{sop.version} [{_text(sop.status)}] "
+                    f"{sop.title[:80]} · 链接=/sops/{sop.id}"
+                )
+        else:
+            lines.append("关联案例: 无(人工确认解决后自动生成)")
         return "\n".join(lines)
 
     def _record(

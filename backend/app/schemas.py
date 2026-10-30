@@ -198,8 +198,34 @@ class FaultOut(ORMModel):
     updated_at: datetime
 
 
+class LinkedCaseOut(ORMModel):
+    """关联摘要:只含跳转所需字段,不带正文/日志。"""
+
+    id: int
+    title: str
+    status: CaseStatus
+    updated_at: datetime
+
+
+class LinkedFaultOut(ORMModel):
+    id: int
+    title: str
+    status: FaultStatus
+    updated_at: datetime
+
+
+class LinkedSopOut(ORMModel):
+    id: int
+    doc_id: str
+    version: int
+    title: str
+    status: SopStatus
+    updated_at: datetime
+
+
 class FaultDetailOut(FaultOut):
     records: list[FaultRecordOut] = Field(default_factory=list)
+    related_case: LinkedCaseOut | None = None
 
 
 class ResolveFaultRequest(BaseModel):
@@ -237,6 +263,12 @@ class CaseOut(ORMModel):
     created_by: int
     created_at: datetime
     updated_at: datetime
+
+
+class CaseDetailOut(CaseOut):
+    # 来源故障与衍生 SOP:按当前用户权限裁剪,无权查看的不返回
+    source_fault: LinkedFaultOut | None = None
+    related_sops: list[LinkedSopOut] = Field(default_factory=list)
 
 
 class CaseUpdate(BaseModel):
@@ -322,6 +354,10 @@ class SopOut(ORMModel):
     created_at: datetime
     updated_at: datetime
     published_at: datetime | None
+
+
+class SopDetailOut(SopOut):
+    source_case: LinkedCaseOut | None = None
 
 
 class SopFeedbackCreate(BaseModel):

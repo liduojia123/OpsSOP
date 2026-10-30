@@ -27,7 +27,7 @@ services:
       com.opssop.run_id: ${OPS_RUN_ID:-}
 
   backend:
-    image: opssop-backend:3.2.1
+    image: opssop-backend:3.3.0
     working_dir: /srv/opssop
     command: ["sh", "scripts/start.sh"]
     env_file:

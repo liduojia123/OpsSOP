@@ -5,20 +5,20 @@
  * - 直接按路由 ID 调用 GET /api/cases/{id},不依赖案例列表、筛选结果或缓存;
  * - 支持直接打开、刷新、登录后回跳与前后退;切换 ID 时旧响应不得覆盖新记录;
  * - 403/404/非法 ID/网络错误分别展示清晰状态,失败时不残留上一个案例正文;
- * - 只读展示案例本身,不打开来源故障的原始日志、描述或生成历史(权限边界不变)。
+ * - 只读展示案例本身;来源故障与衍生 SOP 只提供跳转,是否可见仍由后端按权限返回。
  */
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
-import { caseStatusMap, fmtTime } from '../labels'
-import type { Case, CaseStatus } from '../types'
+import { caseStatusMap, fmtTime, sopStatusMap } from '../labels'
+import type { CaseDetail, CaseStatus } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 
-const item = ref<Case | null>(null)
+const item = ref<CaseDetail | null>(null)
 const loading = ref(false)
 const error = ref<{ kind: 'invalid' | 'forbidden' | 'not-found' | 'network' | 'server'; message: string } | null>(null)
 
@@ -45,7 +45,7 @@ async function load() {
 
   loading.value = true
   try {
-    const { data } = await client.get<Case>(`/api/cases/${id}`)
+    const { data } = await client.get<CaseDetail>(`/api/cases/${id}`)
     if (seq !== loadSeq) return
     item.value = data
   } catch (e) {
@@ -173,13 +173,38 @@ const canRetry = computed(
               <div><dt>组件版本</dt><dd>{{ item.component_version || '-' }}</dd></div>
               <div><dt>更新时间</dt><dd>{{ fmtTime(item.updated_at) }}</dd></div>
               <div><dt>审核时间</dt><dd>{{ fmtTime(item.reviewed_at) }}</dd></div>
+              <div v-if="item.source_fault">
+                <dt>来源故障</dt>
+                <dd>
+                  <router-link class="case-entity-link" :to="`/faults/${item.source_fault.id}`">
+                    #{{ item.source_fault.id }} {{ item.source_fault.title }}
+                  </router-link>
+                </dd>
+              </div>
             </dl>
+          </section>
+          <section v-if="item.related_sops?.length" class="ops-panel case-metadata-panel">
+            <div class="ops-section-header"><h2>衍生 SOP</h2><AppIcon name="book" :size="17" /></div>
+            <div class="case-sop-links">
+              <router-link
+                v-for="sop in item.related_sops"
+                :key="sop.id"
+                :to="`/sops/${sop.id}`"
+                class="case-sop-link"
+              >
+                <span class="case-sop-version">v{{ sop.version }}</span>
+                <span class="case-sop-title">{{ sop.title }}</span>
+                <el-tag size="small" :type="(sopStatusMap[sop.status].type as any)">
+                  {{ sopStatusMap[sop.status].label }}
+                </el-tag>
+              </router-link>
+            </div>
           </section>
           <section v-if="item.review_comment" class="ops-panel case-metadata-panel">
             <div class="ops-section-header"><h2>审核意见</h2><AppIcon name="shield" :size="17" /></div>
             <p class="case-review-comment">{{ item.review_comment }}</p>
           </section>
-          <div class="case-reading-note"><AppIcon name="lock" :size="18" /><p>只读知识来源<br /><span>审核和内容维护请从案例库进入。原始故障的私有日志不在此页展示。</span></p></div>
+          <div class="case-reading-note"><AppIcon name="lock" :size="18" /><p>只读知识来源<br /><span>审核和内容维护请从案例库进入。来源故障仅提供跳转，原始日志仍按故障页权限访问。</span></p></div>
         </aside>
       </div>
     </template>
@@ -238,6 +263,13 @@ const canRetry = computed(
   .case-metadata-column { grid-template-columns: minmax(0, 1fr); }
   .case-detail-page .ops-page-header { align-items: flex-start; }
 }
+.case-entity-link { color: var(--ops-brand); text-decoration: none; overflow-wrap: anywhere; }
+.case-entity-link:hover { text-decoration: underline; }
+.case-sop-links { display: flex; flex-direction: column; gap: 8px; }
+.case-sop-link { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--ops-border-light); border-radius: var(--ops-radius-control); color: var(--ops-text-soft); text-decoration: none; }
+.case-sop-link:hover { border-color: var(--ops-brand-line); background: var(--ops-surface-muted); }
+.case-sop-version { flex: none; color: var(--ops-muted); font-family: var(--ops-font-mono); font-size: 10px; }
+.case-sop-title { flex: 1; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 </style>
 
 

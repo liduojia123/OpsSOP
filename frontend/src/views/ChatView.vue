@@ -5,7 +5,7 @@
  */
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import { fmtTime } from '../labels'
@@ -22,6 +22,7 @@ import type {
 } from '../types'
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 const isAdmin = computed(() => auth.role === 'admin')
 const canOperate = computed(() => auth.role === 'operator' || auth.role === 'admin')
@@ -424,6 +425,13 @@ watch(adminView, async () => {
 
 onMounted(async () => {
   await Promise.all([loadStatus(), loadConversations()])
+  // 从故障页“问 AI”进入:新建会话并预填问题,由模型调用 get_fault 读取详情
+  const faultId = Number(route.query.fault)
+  if (Number.isSafeInteger(faultId) && faultId > 0 && !adminView.value) {
+    await newConversation()
+    question.value = `请分析故障 #${faultId} 的当前状态，并给出下一步排查建议。`
+    void router.replace({ path: '/chat' })
+  }
 })
 </script>
 

@@ -227,6 +227,7 @@ def _tool_hint(executor: ToolExecutor | None) -> str:
     labels = {
         "list_faults": "list_faults(本系统故障清单,可按状态/关键词)",
         "list_todos": "list_todos(我的待办与待审核汇总)",
+        "get_fault": "get_fault(单个故障详情与关联案例/SOP)",
         "prometheus_query": "prometheus_query(实时指标)",
         "ssh_run": "ssh_run(服务器只读命令)",
     }
@@ -234,8 +235,11 @@ def _tool_hint(executor: ToolExecutor | None) -> str:
         "\n\n【只读工具】可用:"
         + "、".join(labels.get(name, name) for name in names)
         + "。用户询问待解决的问题、我的故障、待办或待审核时,先调用 list_faults 或 list_todos 查询本系统业务数据,"
+        "提到具体故障编号或从故障页进入时先调用 get_fault;"
         "不要回答“无法读取本系统数据”或只给监控指标;需要当前状态时再调用监控工具。"
         "工具结果是事实依据,引用时使用其 evidence_id;最多调用 5 次。"
+        "回答中引用业务记录时使用 Markdown 链接,路径只能使用工具结果里的 `链接` 值"
+        "(例如 [#5](/faults/5)、[案例 #3](/cases/3)、[SOP #2](/sops/2)),不要自行编造路径。"
     )
 
 

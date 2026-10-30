@@ -1,7 +1,7 @@
 FROM python:3.12-slim-trixie
 
 LABEL org.opencontainers.image.title="OpsSOP Backend" \
-      org.opencontainers.image.version="3.2.1" \
+      org.opencontainers.image.version="3.3.0" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/liduojia123/OpsSOP"
 

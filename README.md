@@ -6,7 +6,7 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [AI 对话](docs/chat.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **3.2.1**：AI 对话接入本系统业务数据（故障清单与待办，数据范围与页面权限一致），回答改为 SSE 流式输出并实时渲染 Markdown；沿用 3.1.0 起的 AI 对话（会话隔离、90 天留存、引用校验、人工沉淀）、Prometheus 监控面板、SSH 只读诊断与 AI 实时工具调用（PromQL / 白名单命令，结果作为证据写回分析报告）；保留平台内置备份（每日自动、保留 30 天、管理员可下载、失败告警、异地副本）、生产加固、维护任务韧性、可选应用日志 30 天轮转与列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **3.3.0**：打通故障 ↔ 案例 ↔ SOP ↔ AI：详情页互链（故障看关联案例、案例看来源故障与衍生 SOP、SOP 回跳来源案例）、工作台直达详情；故障页「问 AI」带入故障上下文，对话可查询故障清单、待办与单故障详情，回答带可点击的站内链接。AI 对话继续使用 SSE 流式输出并实时渲染 Markdown；沿用 3.1.0 起的会话隔离、90 天留存、引用校验与人工沉淀、Prometheus 监控面板、SSH 只读诊断与 AI 实时工具调用（PromQL / 白名单命令，结果作为证据写回分析报告）；保留平台内置备份（每日自动、保留 30 天、管理员可下载、失败告警、异地副本）、生产加固、维护任务韧性、可选应用日志 30 天轮转与列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -39,7 +39,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v3.2.1
+git checkout v3.3.0
 ```
 
 复制环境变量示例：

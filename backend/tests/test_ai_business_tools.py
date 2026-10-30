@@ -134,6 +134,7 @@ def test_specs_depend_on_context_and_monitoring_config(db, operator):
     assert {spec["function"]["name"] for spec in chat.specs()} == {
         "list_faults",
         "list_todos",
+        "get_fault",
     }
 
     db.add(MonitoringConfig(id=1, enabled=True, prometheus_url="http://127.0.0.1:9090"))

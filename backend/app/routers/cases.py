@@ -7,10 +7,13 @@ from app.config import get_settings
 from app.concurrency import advance_version, require_current_version
 from app.database import get_db
 from app.deps import get_current_user, record_audit, require_operator, require_reviewer
-from app.models import Case, CaseStatus, Role, Sop, SopAiGenerationRun, SopStatus, User, utcnow
+from app.models import Case, CaseStatus, Fault, Role, Sop, SopAiGenerationRun, SopStatus, User, utcnow
 from app.schemas import (
+    CaseDetailOut,
     CaseOut,
     CaseUpdate,
+    LinkedFaultOut,
+    LinkedSopOut,
     ReviewRequest,
     SopGenerateAiRequest,
     SopGenerateAiResponse,
@@ -100,18 +103,35 @@ def list_cases(
     return [CaseOut.model_validate(c) for c in db.scalars(stmt).all()]
 
 
-@router.get("/{case_id}", response_model=CaseOut)
+@router.get("/{case_id}", response_model=CaseDetailOut)
 def get_case(
     case_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> CaseOut:
+) -> CaseDetailOut:
     case = db.get(Case, case_id)
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "案例不存在")
     if not _can_view_case(user, case):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该案例")
-    return CaseOut.model_validate(case)
+    out = CaseDetailOut.model_validate(case)
+    # 来源故障按故障页权限裁剪:运维只能看到自己创建的故障
+    fault = db.get(Fault, case.fault_id)
+    if fault is not None and (user.role != Role.operator or fault.created_by == user.id):
+        out.source_fault = LinkedFaultOut.model_validate(fault)
+    # 衍生 SOP 按 SOP 页权限裁剪:运维只能看到自己创建或已正式发布的版本
+    visible_sops = []
+    for sop in db.scalars(
+        select(Sop).where(Sop.source_case_id == case.id).order_by(Sop.version.desc())
+    ):
+        if user.role != Role.operator or sop.created_by == user.id or sop.status in (
+            SopStatus.published,
+            SopStatus.superseded,
+            SopStatus.deprecated,
+        ):
+            visible_sops.append(LinkedSopOut.model_validate(sop))
+    out.related_sops = visible_sops
+    return out
 
 
 @router.patch("/{case_id}", response_model=CaseOut)

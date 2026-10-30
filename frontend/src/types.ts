@@ -80,6 +80,30 @@ export interface Fault {
 
 export interface FaultDetail extends Fault {
   records: FaultRecord[]
+  related_case: LinkedCase | null
+}
+
+export interface LinkedCase {
+  id: number
+  title: string
+  status: CaseStatus
+  updated_at: string
+}
+
+export interface LinkedFault {
+  id: number
+  title: string
+  status: FaultStatus
+  updated_at: string
+}
+
+export interface LinkedSop {
+  id: number
+  doc_id: string
+  version: number
+  title: string
+  status: SopStatus
+  updated_at: string
 }
 
 export interface Case {
@@ -102,6 +126,11 @@ export interface Case {
   created_by: number
   created_at: string
   updated_at: string
+}
+
+export interface CaseDetail extends Case {
+  source_fault: LinkedFault | null
+  related_sops: LinkedSop[]
 }
 
 export interface Sop {
@@ -129,6 +158,10 @@ export interface Sop {
   created_at: string
   updated_at: string
   published_at: string | null
+}
+
+export interface SopDetail extends Sop {
+  source_case: LinkedCase | null
 }
 
 export interface SopFeedback {

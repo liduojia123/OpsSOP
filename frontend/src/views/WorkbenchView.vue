@@ -112,7 +112,7 @@ onMounted(loadWorkbench)
             <div><strong>暂无待审核任务</strong><span>审核通过后进入正式知识。</span></div>
           </div>
           <div v-else class="ops-review-list">
-            <router-link v-for="item in wb.pending_case_reviews" :key="'case-' + item.id" to="/cases" class="ops-review-row ops-row-hover">
+            <router-link v-for="item in wb.pending_case_reviews" :key="'case-' + item.id" :to="'/cases/' + item.id" class="ops-review-row ops-row-hover">
               <span class="ops-review-kind"><AppIcon name="files" :size="15" />案例</span>
               <strong>{{ item.title }}</strong>
               <span class="ops-review-state">{{ caseStatusMap[item.status].label }}<AppIcon name="chevron-right" :size="14" /></span>
@@ -170,7 +170,7 @@ onMounted(loadWorkbench)
           <div class="ops-dashboard-section-title"><AppIcon name="alert" :size="18" /><h2>被退回，待我修改</h2><span class="ops-count">{{ returnedCount }}</span></div>
         </div>
         <div class="ops-returned-list">
-          <router-link v-for="item in wb.my_returned_cases" :key="'returned-case-' + item.id" to="/cases" class="ops-returned-row ops-row-hover">
+          <router-link v-for="item in wb.my_returned_cases" :key="'returned-case-' + item.id" :to="'/cases/' + item.id" class="ops-returned-row ops-row-hover">
             <span class="ops-review-kind">案例</span><div><strong>{{ item.title }}</strong><p>审核意见：{{ item.review_comment }}</p></div><AppIcon name="arrow-right" :size="16" class="ops-row-arrow" />
           </router-link>
           <router-link v-for="item in wb.my_returned_sops" :key="'returned-sop-' + item.id" :to="'/sops/' + item.id" class="ops-returned-row ops-row-hover">

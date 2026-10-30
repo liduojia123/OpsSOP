@@ -15,6 +15,7 @@ from app.schemas import (
     FaultRecordCreate,
     FaultRecordOut,
     FaultUpdate,
+    LinkedCaseOut,
     ResolveFaultRequest,
 )
 
@@ -102,6 +103,15 @@ def create_fault(
     return FaultOut.model_validate(fault)
 
 
+def _fault_detail(db: Session, fault: Fault) -> FaultDetailOut:
+    """详情附关联案例摘要:前端可直接从故障跳到案例,不必再查列表。"""
+    case = db.scalar(select(Case).where(Case.fault_id == fault.id))
+    out = FaultDetailOut.model_validate(fault)
+    if case is not None:
+        out.related_case = LinkedCaseOut.model_validate(case)
+    return out
+
+
 @router.get("/{fault_id}", response_model=FaultDetailOut)
 def get_fault(
     fault_id: int,
@@ -115,7 +125,7 @@ def get_fault(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "故障不存在")
     if not _can_view_fault(user, fault):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该故障")
-    return FaultDetailOut.model_validate(fault)
+    return _fault_detail(db, fault)
 
 
 @router.patch("/{fault_id}", response_model=FaultOut)
@@ -235,7 +245,7 @@ def resolve_fault(
     fault = db.scalar(
         select(Fault).options(selectinload(Fault.records)).where(Fault.id == fault_id)
     )
-    return FaultDetailOut.model_validate(fault)
+    return _fault_detail(db, fault)
 
 
 @router.get("/{fault_id}/records", response_model=list[FaultRecordOut])

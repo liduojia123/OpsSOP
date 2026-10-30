@@ -48,6 +48,17 @@ const canEdit = computed(
       (auth.role === 'operator' && fault.value.created_by === auth.user?.id)),
 )
 
+const relatedCase = computed(() => fault.value?.related_case ?? null)
+
+function askAi() {
+  if (!fault.value) return
+  router.push({ path: '/chat', query: { fault: String(fault.value.id) } })
+}
+
+function openCase() {
+  if (relatedCase.value) router.push(`/cases/${relatedCase.value.id}`)
+}
+
 function fillForm(data: FaultDetail) {
   form.title = data.title
   form.description = data.description
@@ -227,6 +238,12 @@ onMounted(async () => {
         <p class="ops-page-description">保留原始证据，记录每一步排查，让结论有据可循。</p>
       </div>
       <div class="ops-page-actions fault-page-actions">
+        <el-button v-if="fault" plain @click="askAi">
+          <AppIcon name="bot" :size="15" /> 问 AI
+        </el-button>
+        <el-button v-if="relatedCase" plain @click="openCase">
+          <AppIcon name="files" :size="15" /> 查看案例
+        </el-button>
         <el-button v-if="canEdit && fault?.status === 'draft'" :loading="toggling" @click="toggleStatus">开始处理</el-button>
         <el-button v-if="canEdit && fault?.status === 'open'" :loading="toggling" @click="toggleStatus">转为草稿</el-button>
         <el-button v-if="canEdit" type="primary" :loading="saving" @click="save">保存</el-button>

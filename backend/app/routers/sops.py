@@ -8,6 +8,8 @@ from app.database import get_db
 from app.concurrency import advance_version, require_current_version
 from app.deps import get_current_user, record_audit, require_operator, require_reviewer
 from app.models import (
+    Case,
+    CaseStatus,
     FeedbackKind,
     Role,
     Sop,
@@ -17,8 +19,10 @@ from app.models import (
     utcnow,
 )
 from app.schemas import (
+    LinkedCaseOut,
     ReviewRequest,
     SopCreate,
+    SopDetailOut,
     SopFeedbackCreate,
     SopFeedbackOut,
     SopOut,
@@ -118,18 +122,28 @@ def list_sops(
     return [SopOut.model_validate(s) for s in db.scalars(stmt).all()]
 
 
-@router.get("/{sop_id}", response_model=SopOut)
+@router.get("/{sop_id}", response_model=SopDetailOut)
 def get_sop(
     sop_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> SopOut:
+) -> SopDetailOut:
     sop = db.get(Sop, sop_id)
     if sop is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "SOP 不存在")
     if not _can_view_sop(user, sop):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "无权查看该 SOP")
-    return SopOut.model_validate(sop)
+    out = SopDetailOut.model_validate(sop)
+    if sop.source_case_id:
+        case = db.get(Case, sop.source_case_id)
+        # 来源案例按案例页权限裁剪:运维只能看到自己创建或已通过的案例
+        if case is not None and (
+            user.role != Role.operator
+            or case.created_by == user.id
+            or case.status == CaseStatus.approved
+        ):
+            out.source_case = LinkedCaseOut.model_validate(case)
+    return out
 
 
 @router.get("/{sop_id}/history", response_model=list[SopOut])

@@ -28,7 +28,7 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
   backend:
-    image: opssop-backend:3.2.1
+    image: opssop-backend:3.3.0
     build:
       context: ./backend
       args:
@@ -114,7 +114,7 @@ services:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
 
   frontend:
-    image: opssop-frontend:3.2.1
+    image: opssop-frontend:3.3.0
     build: ./frontend
     restart: unless-stopped
     stop_grace_period: 10s

@@ -7,12 +7,20 @@ import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
 import { fmtTime, sopStatusMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
-import type { Category, FeedbackKind, Sop, SopFeedback, SopStatus, UserOption } from '../types'
+import type {
+  Category,
+  FeedbackKind,
+  Sop,
+  SopDetail,
+  SopFeedback,
+  SopStatus,
+  UserOption,
+} from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const sop = ref<Sop | null>(null)
+const sop = ref<SopDetail | null>(null)
 const history = ref<Sop[]>([])
 const feedbacks = ref<SopFeedback[]>([])
 const categories = ref<Category[]>([])
@@ -493,7 +501,13 @@ onMounted(async () => {
             <div>发布时间: {{ fmtTime(sop.published_at) }}</div>
             <div>维护人: {{ maintainerLabel(sop.maintainer_id) }}</div>
             <div v-if="sop.tags?.length">标签: {{ sop.tags.join('、') }}</div>
-            <div v-if="sop.source_case_id">来源案例 ID: {{ sop.source_case_id }}</div>
+            <div v-if="sop.source_case">
+              来源案例:
+              <router-link class="sop-entity-link" :to="`/cases/${sop.source_case.id}`">
+                #{{ sop.source_case.id }} {{ sop.source_case.title }}
+              </router-link>
+            </div>
+            <div v-else-if="sop.source_case_id">来源案例 ID: {{ sop.source_case_id }}</div>
           </div>
         </div>
 
@@ -594,6 +608,8 @@ onMounted(async () => {
   .sop-document-intro h2 { font-size: 21px; }
   .sop-title-mode { flex-basis: 100%; margin: 2px 0 0; }
 }
+.sop-entity-link { color: var(--ops-brand); text-decoration: none; overflow-wrap: anywhere; }
+.sop-entity-link:hover { text-decoration: underline; }
 </style>
 
 
