@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
+import AppLogo from '../components/AppLogo.vue'
 import client, { errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { roleMap } from '../labels'
@@ -25,6 +26,7 @@ const menuGroups = computed(() => [
     title: '工作空间',
     items: [
       { name: 'workbench', title: '工作台', path: '/', icon: 'grid' },
+      { name: 'search', title: '搜索', path: '/search', icon: 'search' },
       { name: 'faults', title: '故障处理', path: '/faults', icon: 'activity' },
       { name: 'ai-settings', title: 'AI 设置', path: '/ai-settings', icon: 'bot' },
       { name: 'monitoring', title: '监控', path: '/monitoring', icon: 'activity' },
@@ -141,8 +143,8 @@ async function changePassword() {
     <button v-if="mobileMenuOpen" class="ops-sidebar-scrim" aria-label="关闭导航菜单" @click="mobileMenuOpen = false"></button>
     <aside id="ops-navigation" class="ops-sidebar" :class="{ 'is-open': mobileMenuOpen }">
       <router-link to="/" class="ops-brand-link" aria-label="OpsSOP 工作台">
-        <span class="ops-brand-mark"><AppIcon name="workflow" :size="22" /></span>
-        <span class="ops-brand-wordmark">OpsSOP<span>运维知识工作空间</span></span>
+        <AppLogo dark />
+        <span class="ops-brand-caption">运维知识工作空间</span>
       </router-link>
 
       <nav class="ops-navigation" aria-label="主导航">
@@ -221,10 +223,8 @@ async function changePassword() {
 <style scoped>
 .ops-layout { display: flex; height: 100%; min-height: 0; color: var(--ops-text); }
 .ops-sidebar { display: flex; flex-direction: column; flex: 0 0 var(--ops-sidebar-width); width: var(--ops-sidebar-width); background: var(--ops-sidebar); z-index: 40; }
-.ops-brand-link { display: flex; align-items: center; gap: 11px; min-height: 110px; padding: 24px 22px; color: #f8f5eb; text-decoration: none; }
-.ops-brand-mark { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; border-radius: 3px; background: var(--ops-brand-mark); color: #191b1f; transform: rotate(-5deg); }
-.ops-brand-wordmark { color: #f8f5eb; font-size: 25px; font-weight: 750; letter-spacing: -1.3px; line-height: 1.15; }
-.ops-brand-wordmark > span { display: block; margin-top: 7px; color: var(--ops-sidebar-muted); font-size: 9px; font-weight: 400; letter-spacing: 1px; }
+.ops-brand-link { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 110px; padding: 24px 22px; color: #f8f5eb; text-decoration: none; }
+.ops-brand-caption { margin-left: 66px; color: var(--ops-sidebar-muted); font-size: 9px; letter-spacing: 1px; white-space: nowrap; }
 .ops-navigation { flex: 1; overflow-y: auto; padding: 6px 16px 24px; }
 .ops-nav-group + .ops-nav-group { margin-top: 34px; }
 .ops-nav-caption { margin: 0 12px 10px; color: #797c80; font-size: 10px; letter-spacing: 2px; }

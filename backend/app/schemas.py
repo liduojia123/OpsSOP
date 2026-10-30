@@ -835,6 +835,30 @@ class SearchResponse(BaseModel):
     degrade_reason: str = ""  # 安全的降级原因(不含密钥/堆栈)
 
 
+class UnifiedHitOut(BaseModel):
+    """统一检索命中:只含跳转与识别所需字段,不带正文/日志。"""
+
+    type: str  # fault | case | sop
+    id: int
+    title: str
+    status: str
+    subtitle: str = ""
+    link: str
+    updated_at: datetime
+
+
+class UnifiedGroupOut(BaseModel):
+    type: str
+    total: int
+    truncated: bool = False
+    items: list[UnifiedHitOut] = Field(default_factory=list)
+
+
+class UnifiedSearchOut(BaseModel):
+    query: str
+    groups: list[UnifiedGroupOut] = Field(default_factory=list)
+
+
 # ===== AI 生成 SOP 草稿=====
 
 class SopGenerateAiRequest(BaseModel):

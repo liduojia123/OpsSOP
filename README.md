@@ -4,9 +4,9 @@
 
 OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题记录、证据补充、人工确认、案例审核和 SOP 发布连接起来，并提供可选的 AI 排查助手与知识检索。
 
-[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [AI 对话](docs/chat.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
+[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [统一检索](docs/search.md) · [AI 对话](docs/chat.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **3.3.0**：打通故障 ↔ 案例 ↔ SOP ↔ AI：详情页互链（故障看关联案例、案例看来源故障与衍生 SOP、SOP 回跳来源案例）、工作台直达详情；故障页「问 AI」带入故障上下文，对话可查询故障清单、待办与单故障详情，回答带可点击的站内链接。AI 对话继续使用 SSE 流式输出并实时渲染 Markdown；沿用 3.1.0 起的会话隔离、90 天留存、引用校验与人工沉淀、Prometheus 监控面板、SSH 只读诊断与 AI 实时工具调用（PromQL / 白名单命令，结果作为证据写回分析报告）；保留平台内置备份（每日自动、保留 30 天、管理员可下载、失败告警、异地副本）、生产加固、维护任务韧性、可选应用日志 30 天轮转与列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **3.4.0**：新增统一检索——一个入口搜索故障、案例与 SOP，权限与各页面一致，结果按类型分组并直达详情；同时打通故障 ↔ 案例 ↔ SOP ↔ AI：详情页互链、工作台直达详情；故障页「问 AI」带入故障上下文，对话可查询故障清单、待办与单故障详情，回答带可点击的站内链接。AI 对话继续使用 SSE 流式输出并实时渲染 Markdown；沿用 3.1.0 起的会话隔离、90 天留存、引用校验与人工沉淀、Prometheus 监控面板、SSH 只读诊断与 AI 实时工具调用（PromQL / 白名单命令，结果作为证据写回分析报告）；保留平台内置备份（每日自动、保留 30 天、管理员可下载、失败告警、异地副本）、生产加固、维护任务韧性、可选应用日志 30 天轮转与列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
 
 ## 产品能力
 
@@ -18,6 +18,7 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 | 案例沉淀 | 人工确认实际根因、处理方法与恢复结果，审核后进入正式案例库 |
 | SOP 管理 | 手工编写、模板生成或 AI 辅助起草，支持审核、发布、历史版本、废弃与反馈 |
 | 知识检索 | 中文关键词检索独立可用，可接入 embedding 与 pgvector 混合检索 |
+| 统一检索 | 一个入口搜索故障、案例与 SOP，按类型分组、权限裁剪并直达详情；支持关键词示例与类型筛选 |
 | 权限与审计 | 运维、审核、管理员三类角色，后端权限控制，关键状态变更留痕；审计记录默认保留 30 天 |
 | 平台备份 | 平台每日自动备份数据库到指定目录，保留 30 天；管理员可查看、手动触发和下载 |
 | 自托管交付 | Docker Compose 部署、数据卷持久化、数据库迁移、备份恢复及隔离运维演练 |
@@ -39,7 +40,7 @@ AI 建议与人工确认结果分别保存。AI 不执行运维命令，不自�
 ```text
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v3.3.0
+git checkout v3.4.0
 ```
 
 复制环境变量示例：

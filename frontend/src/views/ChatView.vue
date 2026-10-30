@@ -169,7 +169,26 @@ async function send() {
   sending.value = true
   error.value = ''
   pendingText = ''
-  const state: StreamState = { content: '', tools: [], phase: '正在连接…', seenUser: false, done: false }
+  const state: StreamState = { content: '', tools: [], phase: '已发送，正在处理…', seenUser: false, done: false }
+  // 先上屏:不依赖 SSE 首个事件何时到达,避免用户以为没有发出去
+  messages.value.push({
+    id: -Date.now(),
+    conversation_id: currentId.value ?? 0,
+    role: 'user',
+    content,
+    citations: [],
+    tool_calls: [],
+    notes: [],
+    status: 'ok',
+    error_code: '',
+    error_message: '',
+    usage: null,
+    model_config_version: '',
+    knowledge_version: '',
+    latency_ms: 0,
+    created_at: new Date().toISOString(),
+  })
+  void nextTick(() => scrollToBottom())
   stream.value = state
   // ref 会把对象包成响应式代理:后续事件必须改代理,改原始对象不会触发渲染
   const live = stream.value as StreamState
@@ -186,8 +205,12 @@ async function send() {
     scrollToBottom()
     await streamAsk(conversationId, content, live)
   } catch (e) {
-    // 请求未落到服务端(限流/AI 未启用/网络失败)时恢复输入,避免内容丢失
-    if (!live.seenUser) question.value = content
+    // 请求未落到服务端(限流/AI 未启用/网络失败)时移除临时气泡并恢复输入
+    if (!live.seenUser) {
+      const index = messages.value.findIndex((row) => row.id < 0)
+      if (index >= 0) messages.value.splice(index, 1)
+      question.value = content
+    }
     error.value = e instanceof Error ? e.message : errMsg(e)
   } finally {
     sending.value = false
@@ -275,8 +298,11 @@ function handleStreamEvent(event: StreamEvent, state: StreamState) {
     case 'user_message':
       if (!state.seenUser) {
         state.seenUser = true
-        messages.value.push(event.message)
-        scrollToBottom()
+        // 用服务端正式消息替换临时气泡(同一位置,不闪烁)
+        const index = messages.value.findIndex((row) => row.id < 0)
+        if (index >= 0) messages.value.splice(index, 1, event.message)
+        else messages.value.push(event.message)
+        void nextTick(() => scrollToBottom())
       }
       break
     case 'status':
@@ -294,6 +320,8 @@ function handleStreamEvent(event: StreamEvent, state: StreamState) {
       state.tools.push(event.call)
       break
     case 'done': {
+      const tempIndex = messages.value.findIndex((row) => row.id < 0)
+      if (tempIndex >= 0) messages.value.splice(tempIndex, 1)
       if (!messages.value.some((row) => row.id === event.user_message.id)) {
         messages.value.push(event.user_message)
       }

@@ -568,3 +568,27 @@ export interface SopGenerateAiResponse {
   sop: Sop | null
   reused: boolean
 }
+
+// ===== 统一检索 =====
+
+export interface UnifiedHit {
+  type: 'fault' | 'case' | 'sop'
+  id: number
+  title: string
+  status: string
+  subtitle: string
+  link: string
+  updated_at: string
+}
+
+export interface UnifiedGroup {
+  type: 'fault' | 'case' | 'sop'
+  total: number
+  truncated: boolean
+  items: UnifiedHit[]
+}
+
+export interface UnifiedSearchResult {
+  query: string
+  groups: UnifiedGroup[]
+}

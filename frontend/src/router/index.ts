@@ -10,6 +10,7 @@ const router = createRouter({
       component: () => import('../views/AppLayout.vue'),
       children: [
         { path: '', name: 'workbench', component: () => import('../views/WorkbenchView.vue') },
+        { path: 'search', name: 'search', component: () => import('../views/SearchView.vue') },
         { path: 'faults', name: 'faults', component: () => import('../views/FaultListView.vue') },
         { path: 'faults/:id', name: 'fault-detail', component: () => import('../views/FaultDetailView.vue') },
         { path: 'cases', name: 'cases', component: () => import('../views/CaseListView.vue') },
