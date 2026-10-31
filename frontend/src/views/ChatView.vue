@@ -501,9 +501,6 @@ onMounted(async () => {
           <span>查看全部用户会话</span>
           <el-switch v-model="adminView" />
         </label>
-        <el-button v-if="!adminView" type="primary" plain @click="newConversation">
-          <AppIcon name="plus" :size="15" />新对话
-        </el-button>
       </div>
     </header>
 
@@ -523,29 +520,37 @@ onMounted(async () => {
           <span>会话</span>
           <span class="ops-section-caption">{{ conversations.length }}</span>
         </div>
-        <div v-if="loading" class="chat-list-empty">加载中…</div>
-        <div v-else-if="!conversations.length" class="chat-list-empty">暂无会话</div>
-        <button
-          v-for="row in conversations"
-          :key="row.id"
-          type="button"
-          class="chat-list-item"
-          :class="{ 'is-active': row.id === currentId }"
-          @click="selectConversation(row.id)"
-        >
-          <span class="chat-list-title">{{ row.title || '新对话' }}</span>
-          <span class="chat-list-meta">
-            {{ row.username ? `${row.username} · ` : '' }}{{ fmtTime(row.updated_at) }}
-          </span>
-          <span
-            v-if="!adminView"
-            class="chat-list-delete"
-            title="删除会话"
-            @click.stop="removeConversation(row)"
+        <div class="chat-list-scroll">
+          <div v-if="loading" class="chat-list-empty">加载中…</div>
+          <div v-else-if="!conversations.length" class="chat-list-empty">暂无会话</div>
+          <button
+            v-for="row in conversations"
+            :key="row.id"
+            type="button"
+            class="chat-list-item"
+            :class="{ 'is-active': row.id === currentId }"
+            @click="selectConversation(row.id)"
           >
-            <AppIcon name="close" :size="13" />
-          </span>
-        </button>
+            <span class="chat-list-title">{{ row.title || '新对话' }}</span>
+            <span class="chat-list-meta">
+              {{ row.username ? `${row.username} · ` : '' }}{{ fmtTime(row.updated_at) }}
+            </span>
+            <span
+              v-if="!adminView"
+              class="chat-list-delete"
+              title="删除会话"
+              @click.stop="removeConversation(row)"
+            >
+              <AppIcon name="close" :size="13" />
+            </span>
+          </button>
+        </div>
+        <div v-if="!adminView" class="chat-list-footer">
+          <button type="button" class="chat-new-button" aria-label="新建会话" @click="newConversation">
+            <AppIcon name="plus" :size="16" />
+            <span>新会话</span>
+          </button>
+        </div>
       </aside>
 
       <section class="chat-main">
@@ -741,6 +746,40 @@ onMounted(async () => {
   border-bottom: 1px solid var(--ops-border-light);
   color: var(--ops-muted);
   font-size: 11px;
+}
+.chat-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.chat-list-footer {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--ops-border-light);
+}
+.chat-new-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  padding: 14px 12px;
+  border: 1px solid var(--ops-border);
+  border-radius: 4px;
+  background: var(--ops-surface-warm);
+  color: var(--ops-brand);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: var(--ops-weight-semibold, 650);
+  transition: background-color var(--ops-duration-fast) var(--ops-ease-standard), border-color var(--ops-duration-fast) var(--ops-ease-standard);
+}
+.chat-new-button:hover {
+  border-color: var(--ops-brand);
+  background: var(--ops-brand-soft);
+}
+.chat-new-button:focus-visible {
+  outline: 2px solid var(--ops-brand);
+  outline-offset: 2px;
 }
 .chat-list-empty {
   padding: 20px 16px;
@@ -1044,8 +1083,8 @@ onMounted(async () => {
     height: auto;
   }
   .chat-list {
-    max-height: 220px;
-    overflow-y: auto;
+    max-height: 300px;
+    overflow: hidden;
     border-right: 0;
     border-bottom: 1px solid var(--ops-border-light);
   }
