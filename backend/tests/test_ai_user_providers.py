@@ -420,6 +420,76 @@ def test_disabled_user_config_is_not_used(db, operator):
     assert resolve_user_config(db, operator, settings) is None
 
 
+# ===== 切换生效厂商(对话页下拉) =====
+
+def test_activate_key_switches_effective_provider(client, adm_headers):
+    client.put(
+        "/api/ai/providers/deepseek/key",
+        json={"api_key": "sk-a", "model": "deepseek-flash"},
+        headers=adm_headers,
+    )
+    client.put(
+        "/api/ai/providers/minimax/key",
+        json={"api_key": "sk-b", "model": "MiniMax-M3"},
+        headers=adm_headers,
+    )
+    # 保存后两行都启用:生效的是字典序第一条,这正是下拉切换要消除的含糊状态
+    status = client.get("/api/system/ai-status", headers=adm_headers).json()
+    assert status["user_provider"] == "deepseek"
+
+    resp = client.put("/api/ai/keys/minimax/active", headers=adm_headers)
+    assert resp.status_code == 200
+    flags = {item["provider"]: item["enabled"] for item in resp.json()}
+    assert flags == {"deepseek": False, "minimax": True}
+
+    status = client.get("/api/system/ai-status", headers=adm_headers).json()
+    assert status["user_provider"] == "minimax"
+    assert status["user_ai_enabled"] is True
+
+
+def test_activate_key_requires_saved_key(client, adm_headers):
+    resp = client.put("/api/ai/keys/mimo/active", headers=adm_headers)
+    assert resp.status_code == 400
+    assert "API Key" in resp.json()["detail"]
+
+
+def test_activate_unknown_provider_rejected(client, adm_headers):
+    resp = client.put("/api/ai/keys/not-a-provider/active", headers=adm_headers)
+    assert resp.status_code == 400
+
+
+def test_activate_reenables_ai_after_toggle_off(client, adm_headers):
+    client.put(
+        "/api/ai/providers/deepseek/key",
+        json={"api_key": "sk-a", "model": "deepseek-flash"},
+        headers=adm_headers,
+    )
+    off = client.put("/api/ai/enabled", json={"enabled": False}, headers=adm_headers)
+    assert off.status_code == 200
+    status = client.get("/api/system/ai-status", headers=adm_headers).json()
+    assert status["user_ai_enabled"] is False
+
+    resp = client.put("/api/ai/keys/deepseek/active", headers=adm_headers)
+    assert resp.status_code == 200
+    status = client.get("/api/system/ai-status", headers=adm_headers).json()
+    assert status["user_ai_enabled"] is True
+    assert status["user_provider"] == "deepseek"
+
+
+def test_activate_is_scoped_to_own_keys(client, db, op_headers, adm_headers):
+    # 其他用户(管理员)的配置不能被操作者切换,也不会出现在其生效链路里
+    client.put(
+        "/api/ai/providers/deepseek/key",
+        json={"api_key": "sk-admin", "model": "deepseek-flash"},
+        headers=adm_headers,
+    )
+    resp = client.put("/api/ai/keys/deepseek/active", headers=op_headers)
+    assert resp.status_code == 400
+    assert "API Key" in resp.json()["detail"]
+    row = db.query(UserAiKey).filter(UserAiKey.provider == "deepseek").one()
+    assert row.enabled is True  # 管理员自己的行不受影响
+
+
 # ===== 管理员全局配置 =====
 
 def test_global_config_requires_admin(client, op_headers):

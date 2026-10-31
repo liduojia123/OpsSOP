@@ -450,6 +450,17 @@ export interface AiProvider {
   user_base_url: string
 }
 
+/** 用户已保存的厂商配置(GET /api/ai/keys,不含 Key)。 */
+export interface AiKeyItem {
+  provider: string
+  name: string
+  has_key: boolean
+  model: string
+  base_url: string
+  enabled: boolean
+  updated_at: string
+}
+
 /** 管理员全局 AI 配置(不含 Key 明文)。 */
 export interface AiGlobalConfig {
   enabled: boolean

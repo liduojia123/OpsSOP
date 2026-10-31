@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OpsSOP",
     description="运维故障知识库与 SOP 管理系统",
-    version="3.6.2",
+    version="3.6.3",
     lifespan=lifespan,
 )
 

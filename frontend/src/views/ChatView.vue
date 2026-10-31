@@ -13,6 +13,7 @@ import { renderSafeMd } from '../safeMd'
 import { sourcePath, sourceVersionText } from '../sourceLinks'
 import { useAuthStore } from '../stores/auth'
 import type {
+  AiKeyItem,
   AiStatus,
   ChatConversation,
   ChatDetail,
@@ -39,6 +40,10 @@ const question = ref('')
 const scroller = ref<HTMLElement | null>(null)
 const adminView = ref(false)
 const currentOwner = ref('')
+// 对话页直接切换生效模型:只列已配置 Key 的厂商
+const aiKeys = ref<AiKeyItem[]>([])
+const activeProvider = ref('')
+const switchingModel = ref(false)
 
 /** 流式回答的临时状态:delta 累积后实时渲染 Markdown,完成后由正式消息替换。 */
 interface StreamState {
@@ -78,6 +83,12 @@ const readOnly = computed(() => adminView.value && currentOwner.value !== auth.u
 const canSend = computed(
   () => !aiDisabled.value && !readOnly.value && !sending.value && question.value.trim().length > 0,
 )
+// 用户消息头像:只在自己(或管理员查看自己)的会话里用真实头像,查看他人会话时没有头像数据
+const userAvatar = computed(() => {
+  if (!auth.user?.avatar) return ''
+  if (adminView.value && currentOwner.value !== auth.user?.username) return ''
+  return auth.user.avatar
+})
 
 function md(text: string): string {
   return renderSafeMd(text || '')
@@ -89,6 +100,38 @@ async function loadStatus() {
     aiStatus.value = data
   } catch {
     aiStatus.value = null
+  }
+}
+
+async function loadAiKeys() {
+  try {
+    const { data } = await client.get<AiKeyItem[]>('/api/ai/keys')
+    aiKeys.value = data.filter((row) => row.has_key)
+    // 多行同时启用时后端取字典序第一条,这里保持同一判定
+    const active = data.find((row) => row.has_key && row.enabled)
+    activeProvider.value = active?.provider ?? ''
+  } catch {
+    aiKeys.value = []
+  }
+}
+
+async function switchModel(provider: string) {
+  const previous = activeProvider.value
+  if (!provider || provider === previous) return
+  switchingModel.value = true
+  try {
+    const { data } = await client.put<AiKeyItem[]>(`/api/ai/keys/${provider}/active`)
+    aiKeys.value = data.filter((row) => row.has_key)
+    activeProvider.value = provider
+    const target = aiKeys.value.find((row) => row.provider === provider)
+    ElMessage.success(`已切换到 ${target?.name || provider}`)
+    // 切换可能把 AI 总开关从"已关闭"带回来,刷新状态让输入框恢复可用
+    void loadStatus()
+  } catch (e) {
+    activeProvider.value = previous
+    ElMessage.error(errMsg(e))
+  } finally {
+    switchingModel.value = false
   }
 }
 
@@ -121,6 +164,8 @@ async function selectConversation(id: number) {
       : `/api/chat/conversations/${id}`
     const { data } = await client.get<ChatDetail>(url)
     messages.value = data.messages
+    // 先等 Vue 把消息渲染成 DOM 再滚动,否则 scrollHeight 还是旧值,长会话停在最上面
+    await nextTick()
     scrollToBottom()
   } catch (e) {
     messages.value = []
@@ -211,7 +256,10 @@ async function send() {
       if (index >= 0) messages.value.splice(index, 1)
       question.value = content
     }
-    error.value = e instanceof Error ? e.message : errMsg(e)
+    const message = e instanceof Error ? e.message : errMsg(e)
+    error.value = message
+    // 对话面板顶部的 alert 在长会话里容易被忽略:失败必须在输入框附近即时可见
+    ElMessage.error(message)
   } finally {
     sending.value = false
     stream.value = null
@@ -223,59 +271,88 @@ async function send() {
   }
 }
 
-async function streamAsk(conversationId: number, content: string, state: StreamState) {
-  const resp = await fetch(`/api/chat/conversations/${conversationId}/messages/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
-    },
-    body: JSON.stringify({ content }),
-  })
-  if (!resp.ok) {
-    if (resp.status === 401) {
-      // fetch 不经过 axios 拦截器,这里保持与全局一致的过期处理
-      auth.logout()
-      const current = router.currentRoute.value
-      if (current.name !== 'login') {
-        void router.push({ name: 'login', query: { redirect: current.fullPath } })
-      }
-      throw new Error('登录会话已过期,请重新登录')
-    }
-    let detail = `请求失败(HTTP ${resp.status})`
-    try {
-      const body = await resp.json()
-      if (typeof body?.detail === 'string') detail = body.detail
-    } catch {
-      // 非 JSON 错误响应,保留状态码提示
-    }
-    throw new Error(detail)
-  }
-  if (!resp.body) throw new Error('当前浏览器不支持流式响应')
+// 流式回答的空闲上限:链路里最长的单次静默是模型请求超时(后端默认 60s),
+// 超过该值没有任何事件,视为连接已死,主动断开避免输入框永远转圈
+const STREAM_IDLE_MS = 120_000
 
-  const reader = resp.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    let boundary = buffer.indexOf('\n\n')
-    while (boundary >= 0) {
-      const raw = buffer.slice(0, boundary)
-      buffer = buffer.slice(boundary + 2)
-      const event = parseSseEvent(raw)
-      if (event) handleStreamEvent(event, state)
-      boundary = buffer.indexOf('\n\n')
+async function streamAsk(conversationId: number, content: string, state: StreamState) {
+  const controller = new AbortController()
+  let idleTimer: ReturnType<typeof setTimeout> | null = null
+  const armIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_MS)
+  }
+  const idleAbortMessage = '长时间没有收到回答，连接已中断，请重试'
+  try {
+    armIdleTimer()
+    let resp: Response
+    try {
+      resp = await fetch(`/api/chat/conversations/${conversationId}/messages/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
+        },
+        body: JSON.stringify({ content }),
+        signal: controller.signal,
+      })
+    } catch {
+      throw new Error(
+        controller.signal.aborted ? idleAbortMessage : '网络连接失败，请检查网络后重试',
+      )
     }
-  }
-  buffer += decoder.decode()
-  if (buffer.trim()) {
-    const event = parseSseEvent(buffer)
-    if (event) handleStreamEvent(event, state)
-  }
-  if (!state.done) {
-    throw new Error('回答未完整返回,请重试')
+    if (!resp.ok) {
+      if (resp.status === 401) {
+        // fetch 不经过 axios 拦截器,这里保持与全局一致的过期处理
+        auth.logout()
+        const current = router.currentRoute.value
+        if (current.name !== 'login') {
+          void router.push({ name: 'login', query: { redirect: current.fullPath } })
+        }
+        throw new Error('登录会话已过期,请重新登录')
+      }
+      let detail = `请求失败(HTTP ${resp.status})`
+      try {
+        const body = await resp.json()
+        if (typeof body?.detail === 'string') detail = body.detail
+      } catch {
+        // 非 JSON 错误响应,保留状态码提示
+      }
+      throw new Error(detail)
+    }
+    if (!resp.body) throw new Error('当前浏览器不支持流式响应')
+
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read().catch(() => {
+        throw new Error(controller.signal.aborted ? idleAbortMessage : '连接中断，请重试')
+      })
+      armIdleTimer()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let boundary = buffer.indexOf('\n\n')
+      while (boundary >= 0) {
+        const raw = buffer.slice(0, boundary)
+        buffer = buffer.slice(boundary + 2)
+        const event = parseSseEvent(raw)
+        if (event) handleStreamEvent(event, state)
+        boundary = buffer.indexOf('\n\n')
+      }
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      const event = parseSseEvent(buffer)
+      if (event) handleStreamEvent(event, state)
+    }
+    if (!state.done) {
+      throw new Error('回答未完整返回,请重试')
+    }
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer)
+    // 失败或完成后关闭底层连接:后端生成器不再继续白跑
+    controller.abort()
   }
 }
 
@@ -318,6 +395,8 @@ function handleStreamEvent(event: StreamEvent, state: StreamState) {
       break
     case 'tool':
       state.tools.push(event.call)
+      // 工具行让流式气泡变高,渲染后跟随到底部(maybeScroll 内部尊重用户上翻)
+      void nextTick(() => maybeScroll())
       break
     case 'done': {
       const tempIndex = messages.value.findIndex((row) => row.id < 0)
@@ -348,7 +427,8 @@ function queueText(text: string, state: StreamState) {
     if (!pendingText || stream.value !== state) return
     state.content += pendingText
     pendingText = ''
-    maybeScroll()
+    // 等 DOM 渲染后再读 scrollHeight:同步读取拿到的是旧值,流式输出时视口不会跟着下滚
+    void nextTick(() => maybeScroll())
   }, 40)
 }
 
@@ -460,11 +540,13 @@ watch(adminView, async () => {
   currentId.value = null
   messages.value = []
   await loadConversations()
+  if (!adminView.value) void loadAiKeys()
 })
 
 onMounted(async () => {
   await Promise.all([loadStatus(), loadConversations()])
   if (adminView.value) return
+  void loadAiKeys()
   // 从详情页“问 AI”进入:新建会话并预填问题,由模型调用对应详情工具读取数据
   const faultId = Number(route.query.fault)
   const caseId = Number(route.query.case)
@@ -573,7 +655,8 @@ onMounted(async () => {
             :class="message.role === 'user' ? 'is-user' : 'is-assistant'"
           >
             <div class="chat-avatar">
-              <AppIcon :name="message.role === 'user' ? 'user' : 'bot'" :size="16" />
+              <img v-if="message.role === 'user' && userAvatar" :src="userAvatar" alt="用户头像" />
+              <AppIcon v-else :name="message.role === 'user' ? 'user' : 'bot'" :size="16" />
             </div>
             <div class="chat-bubble">
               <div v-if="message.role === 'assistant' && message.status === 'failed'" class="chat-failed">
@@ -679,7 +762,26 @@ onMounted(async () => {
             @keydown="onKeydown"
           />
           <div class="chat-composer-foot">
-            <span class="ops-section-caption">只回答运维问题；不会执行命令或访问无权数据。</span>
+            <div class="chat-composer-left">
+              <el-select
+                v-if="aiKeys.length"
+                v-model="activeProvider"
+                class="chat-model-select"
+                size="small"
+                :disabled="switchingModel"
+                placeholder="使用全局配置"
+                aria-label="切换回答模型"
+                @change="switchModel"
+              >
+                <el-option
+                  v-for="key in aiKeys"
+                  :key="key.provider"
+                  :value="key.provider"
+                  :label="`${key.name} · ${key.model || '默认模型'}`"
+                />
+              </el-select>
+              <span class="ops-section-caption">只回答运维问题；不会执行命令或访问无权数据。</span>
+            </div>
             <el-button type="primary" :loading="sending" :disabled="!canSend" @click="send">
               发送
             </el-button>
@@ -884,6 +986,13 @@ onMounted(async () => {
   background: var(--ops-surface);
   color: var(--ops-brand);
 }
+.chat-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  object-fit: cover;
+  display: block;
+}
 .chat-message.is-user .chat-avatar {
   color: var(--ops-muted);
 }
@@ -1069,6 +1178,27 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 12px;
   margin-top: 8px;
+}
+.chat-composer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.chat-model-select {
+  width: 240px;
+  flex-shrink: 0;
+}
+.chat-composer-left .ops-section-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .chat-model-select {
+    width: 170px;
+  }
 }
 .chat-readonly {
   padding: 14px 16px;

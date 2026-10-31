@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Iterator
@@ -46,6 +47,7 @@ from app.search.hybrid import search_knowledge_hybrid
 
 MAX_QUESTION_CHARS = 8000
 MAX_HISTORY_MESSAGES = 8
+logger = logging.getLogger("opssop.ai.chat")
 _RATE_LIMIT = 10
 _RATE_WINDOW = 60
 _rate_lock = threading.Lock()
@@ -527,92 +529,111 @@ def ask_stream(
         user_row = ChatMessage(conversation_id=conversation.id, role="user", content=question)
         db.add(user_row)
         db.commit()
-        yield {"type": "user_message", "message": _message_event(user_row)}
+        user_event = _message_event(user_row)
+        conversation_id = conversation.id
+        yield {"type": "user_message", "message": user_event}
         yield {"type": "status", "text": "正在检索可引用知识…"}
 
-        hits = []
-        knowledge_ver = ""
+        # 从检索到落库的任何异常都必须给前端一个终止事件:
+        # 生成器直接崩掉会让 SSE 静默断流,前端表现为"发出去了却毫无反应"。
+        assistant_committed = False
         try:
-            retrieval = search_knowledge_hybrid(db, user, question[:500], effective)
-            hits = retrieval.hits
-            knowledge_ver = retrieval.knowledge_version
-        except Exception:  # noqa: BLE001 - 检索失败不阻断问答,只是没有引用
             hits = []
+            knowledge_ver = ""
+            try:
+                retrieval = search_knowledge_hybrid(db, user, question[:500], effective)
+                hits = retrieval.hits
+                knowledge_ver = retrieval.knowledge_version
+            except Exception:  # noqa: BLE001 - 检索失败不阻断问答,只是没有引用
+                hits = []
 
-        history_rows = db.scalars(
-            select(ChatMessage)
-            .where(
-                ChatMessage.conversation_id == conversation.id,
-                ChatMessage.id < user_row.id,
-                ChatMessage.role.in_(("user", "assistant")),
+            history_rows = db.scalars(
+                select(ChatMessage)
+                .where(
+                    ChatMessage.conversation_id == conversation_id,
+                    ChatMessage.id < user_row.id,
+                    ChatMessage.role.in_(("user", "assistant")),
+                )
+                .order_by(ChatMessage.id.desc())
+                .limit(MAX_HISTORY_MESSAGES)
+            ).all()
+            history_block = "\n".join(
+                f"{'用户' if row.role == 'user' else '助手'}: {_clip(row.content, 500)}"
+                for row in reversed(history_rows)
+            ) or "(无)"
+
+            executor = build_executor(
+                db,
+                user,
+                effective,
+                fault_id=None,
+                enabled=ai_tools_configured(db),
+                conversation_id=conversation_id,
             )
-            .order_by(ChatMessage.id.desc())
-            .limit(MAX_HISTORY_MESSAGES)
-        ).all()
-        history_block = "\n".join(
-            f"{'用户' if row.role == 'user' else '助手'}: {_clip(row.content, 500)}"
-            for row in reversed(history_rows)
-        ) or "(无)"
-
-        executor = build_executor(
-            db,
-            user,
-            effective,
-            fault_id=None,
-            enabled=ai_tools_configured(db),
-            conversation_id=conversation.id,
-        )
-        user_prompt = CHAT_USER_TEMPLATE.format(
-            question=question,
-            knowledge_block=_knowledge_block(hits),
-            history_block=history_block,
-        )
-        if executor is not None:
-            user_prompt += _tool_hint(executor)
-        messages = [
-            LLMMessage(role="system", content=CHAT_SYSTEM_PROMPT),
-            LLMMessage(role="user", content=user_prompt),
-        ]
-
-        yield {"type": "status", "text": "正在生成回答…"}
-        extractor = AnswerStreamExtractor()
-        streamed = False  # 当前回答已向前端输出过增量
-        completion: JsonCompletion | None = None
-        try:
+            user_prompt = CHAT_USER_TEMPLATE.format(
+                question=question,
+                knowledge_block=_knowledge_block(hits),
+                history_block=history_block,
+            )
             if executor is not None:
-                loop = None
-                for event in run_tool_loop_stream(
-                    adapter,
-                    messages,
-                    executor,
-                    max_output_tokens=effective.ai_max_output_tokens,
-                ):
-                    kind = event.get("type")
-                    if kind == "text":
-                        piece = extractor.feed(str(event.get("text") or ""))
-                        if piece:
-                            streamed = True
-                            yield {"type": "delta", "text": piece}
-                    elif kind == "tools_start":
-                        if streamed:  # 上一轮文字不是最终回答,清空草稿
-                            streamed = False
-                            yield {"type": "reset"}
+                user_prompt += _tool_hint(executor)
+            messages = [
+                LLMMessage(role="system", content=CHAT_SYSTEM_PROMPT),
+                LLMMessage(role="user", content=user_prompt),
+            ]
+
+            yield {"type": "status", "text": "正在生成回答…"}
+            extractor = AnswerStreamExtractor()
+            streamed = False  # 当前回答已向前端输出过增量
+            completion: JsonCompletion | None = None
+            try:
+                if executor is not None:
+                    loop = None
+                    for event in run_tool_loop_stream(
+                        adapter,
+                        messages,
+                        executor,
+                        max_output_tokens=effective.ai_max_output_tokens,
+                    ):
+                        kind = event.get("type")
+                        if kind == "text":
+                            piece = extractor.feed(str(event.get("text") or ""))
+                            if piece:
+                                streamed = True
+                                yield {"type": "delta", "text": piece}
+                        elif kind == "tools_start":
+                            if streamed:  # 上一轮文字不是最终回答,清空草稿
+                                streamed = False
+                                yield {"type": "reset"}
+                            yield {
+                                "type": "status",
+                                "text": f"正在执行只读查询({event.get('count', 0)} 项)…",
+                            }
+                        elif kind == "tool":
+                            yield {"type": "tool", "call": event.get("call") or {}}
+                        elif kind == "done":
+                            loop = event.get("result")
+                    if loop is None:
+                        raise LLMError("bad_response", "模型未返回最终回答")
+                    if loop.unsupported:
+                        # 厂商不支持 tools:退回普通流式请求(不携带 tools)
                         yield {
                             "type": "status",
-                            "text": f"正在执行只读查询({event.get('count', 0)} 项)…",
+                            "text": "模型不支持工具调用,正在直接生成回答…",
                         }
-                    elif kind == "tool":
-                        yield {"type": "tool", "call": event.get("call") or {}}
-                    elif kind == "done":
-                        loop = event.get("result")
-                if loop is None:
-                    raise LLMError("bad_response", "模型未返回最终回答")
-                if loop.unsupported:
-                    # 厂商不支持 tools:退回普通流式请求(不携带 tools)
-                    yield {
-                        "type": "status",
-                        "text": "模型不支持工具调用,正在直接生成回答…",
-                    }
+                        plain = _stream_plain(adapter, messages, effective, extractor)
+                        while True:
+                            try:
+                                item = next(plain)
+                            except StopIteration as stop:
+                                completion = stop.value
+                                break
+                            if item.get("type") == "delta":
+                                streamed = True
+                            yield item
+                    else:
+                        completion = _completion_from_loop(adapter, loop, effective)
+                else:
                     plain = _stream_plain(adapter, messages, effective, extractor)
                     while True:
                         try:
@@ -623,68 +644,101 @@ def ask_stream(
                         if item.get("type") == "delta":
                             streamed = True
                         yield item
-                else:
-                    completion = _completion_from_loop(adapter, loop, effective)
+            except LLMError as exc:
+                completion = JsonCompletion(
+                    value=None, error_code=exc.code, error_message=exc.message
+                )
+
+            conversation.updated_at = datetime.now(timezone.utc)
+            if conversation.title in ("", "新对话"):
+                conversation.title = question[:40]
+
+            if completion is None or completion.value is None:
+                assistant = ChatMessage(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content="",
+                    status="failed",
+                    error_code=(completion.error_code if completion else "bad_response")
+                    or "bad_response",
+                    error_message=(completion.error_message if completion else "模型未返回回答")
+                    or "模型未返回回答",
+                    model_config_version=effective.ai_config_version,
+                    knowledge_version=knowledge_ver,
+                    latency_ms=completion.latency_ms if completion else 0,
+                )
             else:
-                plain = _stream_plain(adapter, messages, effective, extractor)
-                while True:
-                    try:
-                        item = next(plain)
-                    except StopIteration as stop:
-                        completion = stop.value
-                        break
-                    if item.get("type") == "delta":
-                        streamed = True
-                    yield item
-        except LLMError as exc:
-            completion = JsonCompletion(
-                value=None, error_code=exc.code, error_message=exc.message
-            )
-
-        conversation.updated_at = datetime.now(timezone.utc)
-        if conversation.title in ("", "新对话"):
-            conversation.title = question[:40]
-
-        if completion is None or completion.value is None:
-            assistant = ChatMessage(
-                conversation_id=conversation.id,
-                role="assistant",
-                content="",
-                status="failed",
-                error_code=(completion.error_code if completion else "bad_response")
-                or "bad_response",
-                error_message=(completion.error_message if completion else "模型未返回回答")
-                or "模型未返回回答",
-                model_config_version=effective.ai_config_version,
-                knowledge_version=knowledge_ver,
-                latency_ms=completion.latency_ms if completion else 0,
-            )
-        else:
-            answer, notes = _verify_citations(completion.value, hits)
-            assistant = ChatMessage(
-                conversation_id=conversation.id,
-                role="assistant",
-                content=answer.answer,
-                citations=[c.model_dump() for c in answer.citations],
-                tool_calls=executor.invocations if executor else [],
-                notes=notes,
-                status="ok",
-                usage=completion.usage,
-                model_config_version=effective.ai_config_version,
-                knowledge_version=knowledge_ver,
-                latency_ms=completion.latency_ms,
-            )
-        db.add(assistant)
-        db.commit()
-        if executor is not None and executor.invocations:
-            executor.persist(analysis_id=None)
-        _audit_ask(db, user, conversation, assistant)
-        yield {
-            "type": "done",
-            "user_message": _message_event(user_row),
-            "assistant_message": _message_event(assistant),
-            "title": conversation.title,
-        }
+                answer, notes = _verify_citations(completion.value, hits)
+                assistant = ChatMessage(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=answer.answer,
+                    citations=[c.model_dump() for c in answer.citations],
+                    tool_calls=executor.invocations if executor else [],
+                    notes=notes,
+                    status="ok",
+                    usage=completion.usage,
+                    model_config_version=effective.ai_config_version,
+                    knowledge_version=knowledge_ver,
+                    latency_ms=completion.latency_ms,
+                )
+            db.add(assistant)
+            db.commit()
+            assistant_committed = True
+            if executor is not None and executor.invocations:
+                executor.persist(analysis_id=None)
+            _audit_ask(db, user, conversation, assistant)
+            yield {
+                "type": "done",
+                "user_message": user_event,
+                "assistant_message": _message_event(assistant),
+                "title": conversation.title,
+            }
+        except Exception:  # noqa: BLE001 - 兜底:任何异常都转换为可见的失败结果
+            logger.exception("对话流式回答异常: conversation_id=%s", conversation_id)
+            if assistant_committed:
+                # 答案已落库,只是审计/工具留存等收尾失败:仍把已保存的回答交给前端
+                try:
+                    db.rollback()
+                    yield {
+                        "type": "done",
+                        "user_message": user_event,
+                        "assistant_message": _message_event(assistant),
+                        "title": conversation.title,
+                    }
+                except Exception:  # noqa: BLE001
+                    logger.exception("对话回答推送失败: conversation_id=%s", conversation_id)
+                    yield {
+                        "type": "error",
+                        "code": "internal",
+                        "message": "服务处理异常,请稍后重试",
+                    }
+                return
+            db.rollback()
+            try:
+                assistant = ChatMessage(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content="",
+                    status="failed",
+                    error_code="internal",
+                    error_message="服务处理异常,本次回答失败,请重试",
+                )
+                db.add(assistant)
+                db.commit()
+                yield {
+                    "type": "done",
+                    "user_message": user_event,
+                    "assistant_message": _message_event(assistant),
+                    "title": conversation.title,
+                }
+            except Exception:  # noqa: BLE001 - 数据库也不可用时只能推送错误事件
+                logger.exception("对话失败消息落库失败: conversation_id=%s", conversation_id)
+                yield {
+                    "type": "error",
+                    "code": "internal",
+                    "message": "服务处理异常,请稍后重试",
+                }
     finally:
         db.close()
 

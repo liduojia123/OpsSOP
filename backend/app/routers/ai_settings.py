@@ -36,7 +36,7 @@ from app.ai.providers import (
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, record_audit
-from app.models import Role, User
+from app.models import Role, User, UserAiKey
 from app.schemas import (
     AiKeyOut,
     AiKeyRequest,
@@ -113,27 +113,54 @@ def toggle_ai(
     return AiToggleOut(enabled=enabled, has_key=has_key)
 
 
+def _key_out(row: UserAiKey) -> AiKeyOut:
+    spec = get_provider(row.provider)
+    return AiKeyOut(
+        provider=row.provider,
+        name=spec.name,
+        has_key=bool(row.api_key_encrypted),
+        model=row.model,
+        base_url=row.base_url,
+        enabled=row.enabled,
+        updated_at=row.updated_at,
+    )
+
+
 @router.get("/keys", response_model=list[AiKeyOut])
 def list_my_keys(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[AiKeyOut]:
     """当前用户已保存的厂商配置(只回传是否已配置,不回传 Key)。"""
-    out: list[AiKeyOut] = []
-    for row in list_user_keys(db, user.id):
-        spec = get_provider(row.provider)
-        out.append(
-            AiKeyOut(
-                provider=row.provider,
-                name=spec.name,
-                has_key=bool(row.api_key_encrypted),
-                model=row.model,
-                base_url=row.base_url,
-                enabled=row.enabled,
-                updated_at=row.updated_at,
-            )
+    return [_key_out(row) for row in list_user_keys(db, user.id)]
+
+
+@router.put("/keys/{provider}/active", response_model=list[AiKeyOut])
+def activate_key(
+    provider: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[AiKeyOut]:
+    """切换当前生效的厂商配置:目标行启用,其余行停用(不删除)。
+
+    - resolve_user_config 取"第一条启用的行",多行同时启用时结果含糊;
+      该接口让"当前用哪个模型"成为显式状态,供对话页下拉切换;
+    - 对 AI 总开关关闭的用户,切换即视为要使用该模型(重新启用)。
+    """
+    try:
+        spec = get_provider(provider)
+    except ProviderError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from exc
+    row = get_user_key(db, user.id, spec.id)
+    if row is None or not row.api_key_encrypted:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "请先在「AI 设置」中配置该厂商的 API Key"
         )
-    return out
+    for item in list_user_keys(db, user.id):
+        item.enabled = item.provider == spec.id
+    record_audit(db, user, "ai.key.activate", "ai", spec.id, {"model": row.model})
+    db.commit()
+    return [_key_out(item) for item in list_user_keys(db, user.id)]
 
 
 @router.put("/providers/{provider}/key", response_model=AiKeyOut)
