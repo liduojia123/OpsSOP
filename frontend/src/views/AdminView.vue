@@ -305,8 +305,9 @@ watch(isAdmin, (allowed) => {
 })
 
 onMounted(async () => {
-  // 支持 /admin?tab=ai 之类的直达(如故障助手面板的「模型设置」按钮)
-  const requested = route.query.tab
+  // 支持 /admin?tab=ai 之类的直达(如故障助手面板的「模型设置」按钮);
+  // 测试环境的 router mock 可能没有 query 字段,这里做空值防御
+  const requested = route.query?.tab
   if (typeof requested === 'string' && ['users', 'audit', 'backups', 'categories', 'ai'].includes(requested)) {
     tab.value = requested
   }

@@ -5,7 +5,7 @@
  * - 打开时读取当前启用状态;保存厂商配置后刷新状态并通知父级;
  * - 管理员的全局配置仍在「系统管理 → AI 设置」。
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AiProviderSettings from './AiProviderSettings.vue'
@@ -18,11 +18,16 @@ const emit = defineEmits<{
 }>()
 
 const aiEnabled = ref(false)
+// 内容首次打开才挂载:避免关闭状态下就发起请求
+// (测试环境里未注册的 el-dialog 会被当普通元素渲染,内容会急切挂载偷跑请求)
+const hasOpened = ref(false)
+const showBody = computed(() => props.modelValue || hasOpened.value)
 
 watch(
   () => props.modelValue,
   async (open) => {
     if (!open) return
+    hasOpened.value = true
     try {
       const { data } = await client.get<AiStatus>('/api/system/ai-status')
       aiEnabled.value = Boolean(data.user_ai_enabled)
@@ -63,11 +68,13 @@ function onProviderChanged() {
     append-to-body
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div class="ai-key-toggle">
-      <span>启用 AI（关闭后保留 Key 但不调用）</span>
-      <el-switch v-model="aiEnabled" @change="(v: string | number | boolean) => toggleAi(Boolean(v))" />
-    </div>
-    <AiProviderSettings provider-id="" @changed="onProviderChanged" />
+    <template v-if="showBody">
+      <div class="ai-key-toggle">
+        <span>启用 AI（关闭后保留 Key 但不调用）</span>
+        <el-switch v-model="aiEnabled" @change="(v: string | number | boolean) => toggleAi(Boolean(v))" />
+      </div>
+      <AiProviderSettings provider-id="" @changed="onProviderChanged" />
+    </template>
     <p class="ai-key-note">
       API Key 加密保存在你的账号下，任何页面不回显；管理员的全局配置见「系统管理 → AI 设置」。
     </p>
