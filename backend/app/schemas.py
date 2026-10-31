@@ -531,12 +531,27 @@ class ChatMessageOut(ORMModel):
     model_config_version: str = ""
     knowledge_version: str = ""
     latency_ms: int = 0
+    model_provider: str = ""
+    model_name: str = ""
     created_at: datetime
 
 
 class ChatConversationDetailOut(BaseModel):
     conversation: ChatConversationOut
     messages: list[ChatMessageOut] = []
+    """limit>0 时为最新 limit 条(升序);0 表示全部。"""
+    total_messages: int = 0
+    """会话消息总数;limit>0 时有效,0 表示未统计。"""
+    has_more: bool = False
+    """True 表示还有比 messages[0] 更早的消息未返回。"""
+
+
+class ChatMessagesPageOut(BaseModel):
+    """「加载更早消息」分页响应;messages 升序。"""
+
+    messages: list[ChatMessageOut] = []
+    total_messages: int = 0
+    has_more: bool = False
 
 
 class ChatCreateRequest(BaseModel):

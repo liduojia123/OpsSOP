@@ -344,6 +344,8 @@ def test_stream_endpoint_emits_delta_and_persists(client, db, operator, op_heade
     done = events[-1]
     assert done["assistant_message"]["content"] == answer
     assert done["assistant_message"]["usage"]["total_tokens"] == 20
+    assert done["assistant_message"]["model_provider"] == "deepseek"
+    assert done["assistant_message"]["model_name"] == "fake-model"
     assert done["title"] == "磁盘满了怎么排查?"
 
     detail = client.get(f"/api/chat/conversations/{conversation_id}", headers=op_headers).json()

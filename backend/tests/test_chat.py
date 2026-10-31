@@ -268,3 +268,85 @@ def test_prune_chat_removes_expired_only(db, operator):
     db.expire_all()
     assert db.get(ChatConversation, old_conv.id) is None
     assert db.get(ChatConversation, new_conv.id) is not None
+
+# ===== 消息分页与模型标注(3.6.4) =====
+
+def test_ask_persists_model_labels(client, db, operator, op_headers, monkeypatch):
+    _enable_fake_ai(monkeypatch, [_answer()])
+    cid = _create(client, op_headers)
+    resp = client.post(
+        f"/api/chat/conversations/{cid}/messages",
+        json={"content": "磁盘报警怎么排查"},
+        headers=op_headers,
+    )
+    assert resp.status_code == 201
+    assistant = resp.json()["assistant_message"]
+    assert assistant["model_provider"] == "deepseek"
+    assert assistant["model_name"] == "fake-model"
+
+
+def test_detail_limit_returns_newest_page(client, db, operator, op_headers, monkeypatch):
+    _enable_fake_ai(monkeypatch, [_answer(), _answer(), _answer()])
+    cid = _create(client, op_headers)
+    for _ in range(3):
+        resp = client.post(
+            f"/api/chat/conversations/{cid}/messages", json={"content": "问题"}, headers=op_headers
+        )
+        assert resp.status_code == 201
+
+    full = client.get(f"/api/chat/conversations/{cid}", headers=op_headers)
+    assert full.status_code == 200
+    body = full.json()
+    assert body["total_messages"] == 6
+    assert body["has_more"] is False
+
+    page = client.get(f"/api/chat/conversations/{cid}?limit=2", headers=op_headers)
+    assert page.status_code == 200
+    page_body = page.json()
+    assert page_body["total_messages"] == 6
+    assert page_body["has_more"] is True
+    all_ids = [m["id"] for m in body["messages"]]
+    assert [m["id"] for m in page_body["messages"]] == all_ids[-2:]
+
+
+def test_messages_page_paginates_older(client, db, operator, op_headers, monkeypatch):
+    _enable_fake_ai(monkeypatch, [_answer(), _answer(), _answer()])
+    cid = _create(client, op_headers)
+    for _ in range(3):
+        client.post(
+            f"/api/chat/conversations/{cid}/messages", json={"content": "问题"}, headers=op_headers
+        )
+
+    ids = [
+        m["id"]
+        for m in client.get(f"/api/chat/conversations/{cid}", headers=op_headers).json()["messages"]
+    ]
+
+    page1 = client.get(
+        f"/api/chat/conversations/{cid}/messages?before_id={ids[2]}&limit=2", headers=op_headers
+    )
+    assert page1.status_code == 200
+    body1 = page1.json()
+    assert [m["id"] for m in body1["messages"]] == ids[:2]
+    assert body1["has_more"] is False
+    assert body1["total_messages"] == 6
+
+    page2 = client.get(
+        f"/api/chat/conversations/{cid}/messages?before_id={ids[4]}&limit=2", headers=op_headers
+    )
+    body2 = page2.json()
+    assert [m["id"] for m in body2["messages"]] == ids[2:4]
+    assert body2["has_more"] is True
+
+    oldest = client.get(
+        f"/api/chat/conversations/{cid}/messages?before_id={ids[0]}&limit=5", headers=op_headers
+    )
+    assert oldest.json()["messages"] == []
+    assert oldest.json()["has_more"] is False
+
+
+def test_messages_page_scoped_to_owner(client, db, operator, op_headers, adm_headers, monkeypatch):
+    _enable_fake_ai(monkeypatch, [_answer()])
+    cid = _create(client, op_headers)
+    resp = client.get(f"/api/chat/conversations/{cid}/messages", headers=adm_headers)
+    assert resp.status_code == 404

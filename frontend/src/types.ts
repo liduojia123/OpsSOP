@@ -257,6 +257,10 @@ export interface ChatMessageItem {
   error_message: string
   usage: Record<string, number> | null
   model_config_version: string
+  /** 回答使用的厂商(deepseek/minimax/mimo),全局配置为 global,旧消息为空 */
+  model_provider: string
+  /** 回答使用的模型名,旧消息为空 */
+  model_name: string
   knowledge_version: string
   latency_ms: number
   created_at: string
@@ -270,6 +274,17 @@ export interface ChatAskResponse {
 export interface ChatDetail {
   conversation: ChatConversation
   messages: ChatMessageItem[]
+  /** limit>0 时为消息总数,否则 0 */
+  total_messages: number
+  /** 还有比 messages[0] 更早的消息未返回 */
+  has_more: boolean
+}
+
+/** 「加载更早消息」分页响应 */
+export interface ChatMessagesPage {
+  messages: ChatMessageItem[]
+  total_messages: number
+  has_more: boolean
 }
 
 // ===== 监控 =====

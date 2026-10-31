@@ -123,6 +123,8 @@ class ChatMessage(Base):
     error_message: Mapped[str] = mapped_column(Text, default="")
     usage: Mapped[dict | None] = mapped_column(JSONB)
     model_config_version: Mapped[str] = mapped_column(String(16), default="")
+    model_provider: Mapped[str] = mapped_column(String(32), default="")
+    model_name: Mapped[str] = mapped_column(String(128), default="")
     knowledge_version: Mapped[str] = mapped_column(String(64), default="")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

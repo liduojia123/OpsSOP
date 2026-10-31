@@ -8,8 +8,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import MarkdownBody from '../components/MarkdownBody.vue'
 import { fmtTime } from '../labels'
-import { renderSafeMd } from '../safeMd'
 import { sourcePath, sourceVersionText } from '../sourceLinks'
 import { useAuthStore } from '../stores/auth'
 import type {
@@ -18,6 +18,7 @@ import type {
   ChatConversation,
   ChatDetail,
   ChatMessageItem,
+  ChatMessagesPage,
   ChatToolCall,
   Fault,
 } from '../types'
@@ -44,6 +45,30 @@ const currentOwner = ref('')
 const aiKeys = ref<AiKeyItem[]>([])
 const activeProvider = ref('')
 const switchingModel = ref(false)
+// 分页:首屏只取最新一页,更早的按需加载
+const PAGE_SIZE = 50
+const totalMessages = ref(0)
+const hasMore = ref(false)
+const loadingOlder = ref(false)
+// 停止生成:用户主动中断与空闲看门狗共用 AbortController,但提示不同
+const stopRequested = ref(false)
+const stoppedContent = ref('')
+let activeController: AbortController | null = null
+
+class StreamStopped extends Error {
+  constructor() {
+    super('已停止生成')
+    this.name = 'StreamStopped'
+  }
+}
+
+// 会话列表搜索:客户端按标题过滤
+const listFilter = ref('')
+const filteredConversations = computed(() => {
+  const q = listFilter.value.trim().toLowerCase()
+  if (!q) return conversations.value
+  return conversations.value.filter((row) => (row.title || '').toLowerCase().includes(q))
+})
 
 /** 流式回答的临时状态:delta 累积后实时渲染 Markdown,完成后由正式消息替换。 */
 interface StreamState {
@@ -89,10 +114,6 @@ const userAvatar = computed(() => {
   if (adminView.value && currentOwner.value !== auth.user?.username) return ''
   return auth.user.avatar
 })
-
-function md(text: string): string {
-  return renderSafeMd(text || '')
-}
 
 async function loadStatus() {
   try {
@@ -158,20 +179,62 @@ async function selectConversation(id: number) {
   currentOwner.value = summary?.username ?? auth.user?.username ?? ''
   loadingMessages.value = true
   error.value = ''
+  stoppedContent.value = ''
   try {
     const url = adminView.value
       ? `/api/admin/chat/conversations/${id}`
       : `/api/chat/conversations/${id}`
-    const { data } = await client.get<ChatDetail>(url)
+    const { data } = await client.get<ChatDetail>(url, { params: { limit: PAGE_SIZE } })
     messages.value = data.messages
+    totalMessages.value = data.total_messages
+    hasMore.value = data.has_more
     // 先等 Vue 把消息渲染成 DOM 再滚动,否则 scrollHeight 还是旧值,长会话停在最上面
     await nextTick()
     scrollToBottom()
   } catch (e) {
     messages.value = []
+    totalMessages.value = 0
+    hasMore.value = false
     error.value = errMsg(e)
   } finally {
     loadingMessages.value = false
+  }
+}
+
+async function loadOlder() {
+  if (!currentId.value || !hasMore.value || loadingOlder.value || sending.value) return
+  const first = messages.value[0]
+  if (!first) return
+  loadingOlder.value = true
+  const el = scroller.value
+  const beforeHeight = el?.scrollHeight ?? 0
+  try {
+    const { data } = await client.get<ChatMessagesPage>(
+      `/api/chat/conversations/${currentId.value}/messages`,
+      { params: { before_id: first.id, limit: PAGE_SIZE } },
+    )
+    messages.value = [...data.messages, ...messages.value]
+    hasMore.value = data.has_more
+    totalMessages.value = data.total_messages
+    // 前插后按高度差恢复视口,阅读位置不跳
+    await nextTick()
+    if (el) el.scrollTop += el.scrollHeight - beforeHeight
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  } finally {
+    loadingOlder.value = false
+  }
+}
+
+/** 失败回答的重试:沿该消息向前找到用户提问并原样重发(历史保留,新增一轮)。 */
+function retryQuestion(message: ChatMessageItem) {
+  const index = messages.value.findIndex((row) => row.id === message.id)
+  if (index <= 0 || sending.value) return
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (messages.value[i].role === 'user') {
+      void submitQuestion(messages.value[i].content)
+      return
+    }
   }
 }
 
@@ -182,6 +245,9 @@ async function newConversation() {
     conversations.value.unshift(data)
     currentId.value = data.id
     messages.value = []
+    stoppedContent.value = ''
+    hasMore.value = false
+    totalMessages.value = 0
     currentOwner.value = auth.user?.username ?? ''
   } catch (e) {
     ElMessage.error(errMsg(e))
@@ -211,7 +277,15 @@ async function send() {
   if (!canSend.value) return
   const content = question.value.trim()
   question.value = ''
+  await submitQuestion(content)
+}
+
+/** 发送入口共用:发送按钮与失败回答的「重试」都走这里。 */
+async function submitQuestion(content: string) {
+  if (!content || sending.value || aiDisabled.value || readOnly.value) return
   sending.value = true
+  stopRequested.value = false
+  stoppedContent.value = ''
   error.value = ''
   pendingText = ''
   const state: StreamState = { content: '', tools: [], phase: '已发送，正在处理…', seenUser: false, done: false }
@@ -229,6 +303,8 @@ async function send() {
     error_message: '',
     usage: null,
     model_config_version: '',
+    model_provider: '',
+    model_name: '',
     knowledge_version: '',
     latency_ms: 0,
     created_at: new Date().toISOString(),
@@ -250,25 +326,38 @@ async function send() {
     scrollToBottom()
     await streamAsk(conversationId, content, live)
   } catch (e) {
-    // 请求未落到服务端(限流/AI 未启用/网络失败)时移除临时气泡并恢复输入
-    if (!live.seenUser) {
-      const index = messages.value.findIndex((row) => row.id < 0)
-      if (index >= 0) messages.value.splice(index, 1)
-      question.value = content
+    if (e instanceof StreamStopped) {
+      // 用户主动停止:保留已生成的部分仅作本地展示,明确标注未保存
+      stoppedContent.value = live.content
+    } else {
+      // 请求未落到服务端(限流/AI 未启用/网络失败)时移除临时气泡并恢复输入
+      if (!live.seenUser) {
+        const index = messages.value.findIndex((row) => row.id < 0)
+        if (index >= 0) messages.value.splice(index, 1)
+        question.value = content
+      }
+      const message = e instanceof Error ? e.message : errMsg(e)
+      error.value = message
+      // 对话面板顶部的 alert 在长会话里容易被忽略:失败必须在输入框附近即时可见
+      ElMessage.error(message)
     }
-    const message = e instanceof Error ? e.message : errMsg(e)
-    error.value = message
-    // 对话面板顶部的 alert 在长会话里容易被忽略:失败必须在输入框附近即时可见
-    ElMessage.error(message)
   } finally {
     sending.value = false
+    stopRequested.value = false
     stream.value = null
     pendingText = ''
+    activeController = null
     if (flushTimer) {
       clearTimeout(flushTimer)
       flushTimer = null
     }
   }
+}
+
+function stopStreaming() {
+  if (!sending.value) return
+  stopRequested.value = true
+  activeController?.abort()
 }
 
 // 流式回答的空闲上限:链路里最长的单次静默是模型请求超时(后端默认 60s),
@@ -277,6 +366,7 @@ const STREAM_IDLE_MS = 120_000
 
 async function streamAsk(conversationId: number, content: string, state: StreamState) {
   const controller = new AbortController()
+  activeController = controller
   let idleTimer: ReturnType<typeof setTimeout> | null = null
   const armIdleTimer = () => {
     if (idleTimer) clearTimeout(idleTimer)
@@ -297,6 +387,7 @@ async function streamAsk(conversationId: number, content: string, state: StreamS
         signal: controller.signal,
       })
     } catch {
+      if (controller.signal.aborted && stopRequested.value) throw new StreamStopped()
       throw new Error(
         controller.signal.aborted ? idleAbortMessage : '网络连接失败，请检查网络后重试',
       )
@@ -327,6 +418,7 @@ async function streamAsk(conversationId: number, content: string, state: StreamS
     let buffer = ''
     while (true) {
       const { done, value } = await reader.read().catch(() => {
+        if (controller.signal.aborted && stopRequested.value) throw new StreamStopped()
         throw new Error(controller.signal.aborted ? idleAbortMessage : '连接中断，请重试')
       })
       armIdleTimer()
@@ -484,6 +576,10 @@ function toolSummary(call: { tool: string; arguments: Record<string, unknown> })
   return ''
 }
 
+function modelLabel(message: ChatMessageItem): string {
+  return message.model_name ? `模型 ${message.model_name} · ` : ''
+}
+
 function usageText(message: ChatMessageItem): string {
   const u = message.usage
   if (!u) return '用量未知'
@@ -600,13 +696,24 @@ onMounted(async () => {
       <aside class="chat-list">
         <div class="chat-list-head">
           <span>会话</span>
-          <span class="ops-section-caption">{{ conversations.length }}</span>
+          <span class="ops-section-caption">{{ filteredConversations.length }}</span>
+        </div>
+        <div class="chat-list-search">
+          <el-input
+            v-model="listFilter"
+            size="small"
+            clearable
+            placeholder="搜索会话标题"
+            aria-label="搜索会话标题"
+          />
         </div>
         <div class="chat-list-scroll">
           <div v-if="loading" class="chat-list-empty">加载中…</div>
-          <div v-else-if="!conversations.length" class="chat-list-empty">暂无会话</div>
+          <div v-else-if="!filteredConversations.length" class="chat-list-empty">
+            {{ listFilter ? '没有匹配的会话' : '暂无会话' }}
+          </div>
           <button
-            v-for="row in conversations"
+            v-for="row in filteredConversations"
             :key="row.id"
             type="button"
             class="chat-list-item"
@@ -641,6 +748,11 @@ onMounted(async () => {
         </div>
 
         <div ref="scroller" class="chat-messages">
+          <div v-if="hasMore" class="chat-older">
+            <el-button size="small" text :loading="loadingOlder" @click="loadOlder">
+              加载更早消息（共 {{ totalMessages }} 条）
+            </el-button>
+          </div>
           <div v-if="!messages.length" class="chat-empty">
             <span class="ops-icon-tile"><AppIcon name="bot" :size="20" /></span>
             <h3>从运维问题开始</h3>
@@ -659,10 +771,29 @@ onMounted(async () => {
               <AppIcon v-else :name="message.role === 'user' ? 'user' : 'bot'" :size="16" />
             </div>
             <div class="chat-bubble">
-              <div v-if="message.role === 'assistant' && message.status === 'failed'" class="chat-failed">
+              <div
+                v-if="message.role === 'assistant' && message.status === 'failed'"
+                class="chat-failed"
+              >
                 <strong>本次回答失败：</strong>{{ message.error_message || message.error_code }}
+                <div class="chat-failed-actions">
+                  <el-button
+                    v-if="!readOnly && !sending"
+                    size="small"
+                    plain
+                    @click="retryQuestion(message)"
+                  >
+                    重试
+                  </el-button>
+                  <span class="chat-meta">{{ fmtTime(message.created_at) }}</span>
+                </div>
               </div>
-              <div v-else class="chat-md" v-html="md(message.content)"></div>
+              <MarkdownBody v-else :content="message.content" />
+
+              <span
+                v-if="message.role === 'user'"
+                class="chat-meta is-user-time"
+              >{{ fmtTime(message.created_at) }}</span>
 
               <div v-if="message.notes?.length" class="chat-notes">
                 <span v-for="(note, index) in message.notes" :key="index">{{ note }}</span>
@@ -704,7 +835,9 @@ onMounted(async () => {
               </details>
 
               <div v-if="message.role === 'assistant' && message.status === 'ok'" class="chat-actions">
-                <span class="chat-meta">{{ usageText(message) }} · {{ message.latency_ms }}ms</span>
+                <span class="chat-meta">
+                  {{ modelLabel(message) }}{{ usageText(message) }} · {{ message.latency_ms }}ms · {{ fmtTime(message.created_at) }}
+                </span>
                 <template v-if="canOperate && !readOnly">
                   <el-button size="small" plain @click="openSediment(message, 'fault')">写入故障记录</el-button>
                   <el-button size="small" plain @click="openSediment(message, 'sop')">生成 SOP 草稿</el-button>
@@ -718,7 +851,7 @@ onMounted(async () => {
               <AppIcon name="bot" :size="16" />
             </div>
             <div class="chat-bubble">
-              <div v-if="stream.content" class="chat-md" v-html="md(stream.content)"></div>
+              <MarkdownBody v-if="stream.content" :content="stream.content" />
               <div v-else class="chat-stream-phase">
                 <span class="chat-typing"><i></i><i></i><i></i></span>
                 {{ stream.phase }}
@@ -745,6 +878,18 @@ onMounted(async () => {
                   <pre class="chat-tool-output">{{ call.result_excerpt || call.error || '(无输出)' }}</pre>
                 </div>
               </details>
+            </div>
+          </article>
+
+          <article v-else-if="stoppedContent" class="chat-message is-assistant">
+            <div class="chat-avatar">
+              <AppIcon name="bot" :size="16" />
+            </div>
+            <div class="chat-bubble">
+              <MarkdownBody :content="stoppedContent" />
+              <div class="chat-stream-phase is-inline">
+                <span class="chat-phase-text">已手动停止，回答未保存；可重新提问。</span>
+              </div>
             </div>
           </article>
         </div>
@@ -782,7 +927,15 @@ onMounted(async () => {
               </el-select>
               <span class="ops-section-caption">只回答运维问题；不会执行命令或访问无权数据。</span>
             </div>
-            <el-button type="primary" :loading="sending" :disabled="!canSend" @click="send">
+            <el-button
+              v-if="sending"
+              type="warning"
+              plain
+              @click="stopStreaming"
+            >
+              停止
+            </el-button>
+            <el-button v-else type="primary" :disabled="!canSend" @click="send">
               发送
             </el-button>
           </div>
@@ -853,6 +1006,26 @@ onMounted(async () => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+.chat-list-search {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ops-border-light);
+}
+.chat-older {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 10px;
+}
+.chat-failed-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.chat-meta.is-user-time {
+  display: block;
+  margin-top: 4px;
+  text-align: right;
 }
 .chat-list-footer {
   padding: 10px 12px 12px;
@@ -1005,27 +1178,6 @@ onMounted(async () => {
 }
 .chat-message.is-user .chat-bubble {
   background: var(--ops-surface-warm);
-}
-.chat-md {
-  color: var(--ops-text-soft);
-  font-size: 12px;
-  line-height: 1.8;
-  overflow-wrap: anywhere;
-}
-.chat-md :deep(p) {
-  margin: 0 0 8px;
-}
-.chat-md :deep(pre) {
-  padding: 10px;
-  overflow-x: auto;
-  border-radius: 4px;
-  background: var(--ops-surface-muted);
-  font-family: var(--ops-font-mono);
-  font-size: 11px;
-}
-.chat-md :deep(code) {
-  font-family: var(--ops-font-mono);
-  font-size: 11px;
 }
 .chat-message.is-streaming .chat-bubble {
   border-style: dashed;

@@ -122,6 +122,66 @@ def get_messages(db: Session, conversation: ChatConversation, limit: int = 200) 
     )
 
 
+def count_messages(db: Session, conversation: ChatConversation) -> int:
+    return int(
+        db.scalar(
+            select(func.count()).select_from(ChatMessage).where(ChatMessage.conversation_id == conversation.id)
+        )
+        or 0
+    )
+
+
+def get_latest_messages(
+    db: Session, conversation: ChatConversation, limit: int
+) -> list[ChatMessage]:
+    """最新 limit 条消息,按 id 升序返回(长会话首屏只取最近一段)。"""
+    rows = list(
+        db.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.conversation_id == conversation.id)
+            .order_by(ChatMessage.id.desc())
+            .limit(limit)
+        ).all()
+    )
+    rows.reverse()
+    return rows
+
+
+def get_messages_before(
+    db: Session, conversation: ChatConversation, before_id: int, limit: int
+) -> list[ChatMessage]:
+    """加载更早消息:返回 id < before_id 中最新的 limit 条,按 id 升序。"""
+    rows = list(
+        db.scalars(
+            select(ChatMessage)
+            .where(
+                ChatMessage.conversation_id == conversation.id,
+                ChatMessage.id < before_id,
+            )
+            .order_by(ChatMessage.id.desc())
+            .limit(limit)
+        ).all()
+    )
+    rows.reverse()
+    return rows
+
+
+def has_older_messages(
+    db: Session, conversation: ChatConversation, first_id: int
+) -> bool:
+    return (
+        db.scalar(
+            select(ChatMessage.id)
+            .where(
+                ChatMessage.conversation_id == conversation.id,
+                ChatMessage.id < first_id,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def delete_conversation(db: Session, user: User, conversation_id: int) -> None:
     row = get_conversation(db, user, conversation_id)
     db.execute(delete(ChatMessage).where(ChatMessage.conversation_id == row.id))
@@ -304,6 +364,11 @@ def _stream_plain(
     )
 
 
+def _model_labels(config, effective: Settings) -> tuple[str, str]:
+    """回答使用的厂商与模型名:用户自填配置优先,否则为管理员全局/环境配置。"""
+    return (config.provider if config else "global"), (effective.ai_model or "")
+
+
 def ask(
     db: Session,
     user: User,
@@ -411,6 +476,7 @@ def ask(
     conversation.updated_at = now
     if conversation.title in ("", "新对话"):
         conversation.title = question[:40]
+    model_provider, model_name = _model_labels(config, effective)
 
     if error_code:
         assistant = ChatMessage(
@@ -421,6 +487,8 @@ def ask(
             error_code=error_code,
             error_message=error_message,
             model_config_version=effective.ai_config_version,
+            model_provider=model_provider,
+            model_name=model_name,
             knowledge_version=knowledge_ver,
             latency_ms=completion.latency_ms if completion else 0,
         )
@@ -439,6 +507,8 @@ def ask(
         status="ok",
         usage=completion.usage,
         model_config_version=effective.ai_config_version,
+        model_provider=model_provider,
+        model_name=model_name,
         knowledge_version=knowledge_ver,
         latency_ms=completion.latency_ms,
     )
@@ -536,6 +606,7 @@ def ask_stream(
 
         # 从检索到落库的任何异常都必须给前端一个终止事件:
         # 生成器直接崩掉会让 SSE 静默断流,前端表现为"发出去了却毫无反应"。
+        model_provider, model_name = _model_labels(config, effective)
         assistant_committed = False
         try:
             hits = []
@@ -664,6 +735,8 @@ def ask_stream(
                     error_message=(completion.error_message if completion else "模型未返回回答")
                     or "模型未返回回答",
                     model_config_version=effective.ai_config_version,
+                    model_provider=model_provider,
+                    model_name=model_name,
                     knowledge_version=knowledge_ver,
                     latency_ms=completion.latency_ms if completion else 0,
                 )
@@ -679,6 +752,8 @@ def ask_stream(
                     status="ok",
                     usage=completion.usage,
                     model_config_version=effective.ai_config_version,
+                    model_provider=model_provider,
+                    model_name=model_name,
                     knowledge_version=knowledge_ver,
                     latency_ms=completion.latency_ms,
                 )
@@ -723,6 +798,8 @@ def ask_stream(
                     status="failed",
                     error_code="internal",
                     error_message="服务处理异常,本次回答失败,请重试",
+                    model_provider=model_provider,
+                    model_name=model_name,
                 )
                 db.add(assistant)
                 db.commit()

@@ -20,10 +20,14 @@ from app.ai.chat_service import (
     ChatUnavailable,
     ask,
     ask_stream,
+    count_messages,
     create_conversation,
     delete_conversation,
     get_conversation,
+    get_latest_messages,
     get_messages,
+    get_messages_before,
+    has_older_messages,
     list_conversations,
     message_for_user,
     to_fault_record,
@@ -40,6 +44,7 @@ from app.schemas import (
     ChatConversationOut,
     ChatCreateRequest,
     ChatMessageOut,
+    ChatMessagesPageOut,
     ChatSedimentFaultRequest,
     ChatSedimentSopRequest,
     FaultRecordOut,
@@ -70,16 +75,53 @@ def list_mine(
 @router.get("/conversations/{conversation_id}", response_model=ChatConversationDetailOut)
 def detail(
     conversation_id: int,
+    limit: int = 0,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ChatConversationDetailOut:
+    """会话详情;limit>0 时只返回最新 limit 条(升序)并附带总数与是否有更早。"""
     try:
         conversation = get_conversation(db, user, conversation_id)
     except ChatError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from exc
+    total = count_messages(db, conversation)
+    if limit > 0:
+        rows = get_latest_messages(db, conversation, min(limit, 200))
+    else:
+        rows = get_messages(db, conversation)
     return ChatConversationDetailOut(
         conversation=ChatConversationOut.model_validate(conversation),
-        messages=[ChatMessageOut.model_validate(row) for row in get_messages(db, conversation)],
+        messages=[ChatMessageOut.model_validate(row) for row in rows],
+        total_messages=total,
+        has_more=len(rows) < total,
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=ChatMessagesPageOut,
+)
+def messages_page(
+    conversation_id: int,
+    before_id: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ChatMessagesPageOut:
+    """「加载更早消息」:返回 before_id 之前最新的 limit 条(升序);before_id<=0 时从最新开始。"""
+    try:
+        conversation = get_conversation(db, user, conversation_id)
+    except ChatError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, exc.message) from exc
+    limit = max(1, min(limit, 200))
+    if before_id > 0:
+        rows = get_messages_before(db, conversation, before_id, limit)
+    else:
+        rows = get_latest_messages(db, conversation, limit)
+    return ChatMessagesPageOut(
+        messages=[ChatMessageOut.model_validate(row) for row in rows],
+        total_messages=count_messages(db, conversation),
+        has_more=has_older_messages(db, conversation, rows[0].id) if rows else False,
     )
 
 
