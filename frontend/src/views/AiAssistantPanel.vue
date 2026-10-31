@@ -9,12 +9,12 @@
  * - 演示数据逐条标注;usage 缺失显示未知,不估算费用;命令仅展示与复制,不执行。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import client, { errMsg } from '../api'
 import { fmtTime } from '../labels'
 import { renderSafeInlineMd, renderSafeMd } from '../safeMd'
+import AiUserKeyDialog from '../components/AiUserKeyDialog.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { sourcePath, sourceTagLabel, sourceVersionText, sourceViewLabel } from '../sourceLinks'
 import type {
@@ -115,11 +115,8 @@ const userProviderLabel = computed(() => {
   const names: Record<string, string> = { deepseek: 'DeepSeek', minimax: 'MiniMax', mimo: '小米 MiMo' }
   return names[props.aiStatus.user_provider] || props.aiStatus.user_provider
 })
-const router = useRouter()
-
-function openSettings() {
-  router.push('/ai-settings')
-}
+// 「模型设置」对全部用户开放:弹窗管理自己的厂商 Key;管理员全局配置在系统管理
+const keyDialog = ref(false)
 const aiStatusMissing = computed(() => !props.aiStatus)
 const isDemo = computed(() => analysis.value?.is_demo ?? false)
 
@@ -523,7 +520,7 @@ function triggerLabel(t: string): string {
           <el-tag v-if="aiStatus" size="small" :type="aiDisabled ? 'info' : aiStatus.ai_mode === 'demo' ? 'warning' : 'primary'">
             {{ aiStatus.ai_mode === 'demo' ? '演示模式' : aiDisabled ? '未启用' : aiStatus.ai_mode === 'local' ? '本地模型' : userProviderLabel ? `${userProviderLabel} 模型` : '云端模型' }}
           </el-tag>
-          <el-button size="small" plain @click="openSettings">模型设置</el-button>
+          <el-button size="small" plain @click="keyDialog = true">模型设置</el-button>
         </div>
       </div>
 
@@ -934,6 +931,7 @@ function triggerLabel(t: string): string {
         </section>
       </div>
     </div>
+    <AiUserKeyDialog v-model="keyDialog" />
   </aside>
 </template>
 

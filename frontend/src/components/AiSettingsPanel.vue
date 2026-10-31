@@ -1,11 +1,8 @@
 <script setup lang="ts">
 /**
- * AI 模型设置页(用户自助开启 AI)。
- *
- * 页面骨架与系统管理/案例库一致:ops-page + ops-page-header + 面板。
- * - 三张状态卡:全局模式、我的生效配置、出网限制;
- * - 厂商表:三家厂商的配置状态、当前模型与接口地址;
- * - 配置表单:选厂商 → 填 Key → 拉取模型 → 保存。
+ * AI 模型设置面板(系统管理「AI 设置」页签)。
+ * - 状态卡、厂商表、用户自填配置表单与管理员全局配置,从 AiSettingsView 迁移;
+ * - 页面级头部改为面板头:状态、启用开关与刷新并入一行。
  */
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -17,7 +14,7 @@ import { useAuthStore } from '../stores/auth'
 import type { AiProvider, AiStatus } from '../types'
 
 const auth = useAuthStore()
-const isAdmin = computed(() => auth.role === 'admin')
+const isAdmin = computed(() => auth.user?.role === 'admin')
 const status = ref<AiStatus | null>(null)
 const providers = ref<AiProvider[]>([])
 const selected = ref('')
@@ -95,29 +92,21 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="ops-page">
-    <header class="ops-page-header">
-      <div>
-        <div class="ops-eyebrow">AI / MODEL PROVIDERS</div>
-        <h1>AI 设置</h1>
-        <p class="ops-page-description">
-          填写自己的 API Key 即可启用 AI 排查分析与 SOP 草稿生成；Key 只保存在你的账号下，页面不回显。
-        </p>
-      </div>
-      <div class="ops-page-actions">
-        <span class="ops-chip"><AppIcon name="bot" :size="15" />{{ pageChip }}</span>
-        <label class="ai-toggle">
-          <span>启用 AI</span>
-          <el-switch
-            v-model="aiEnabled"
-            :loading="toggling"
-            :disabled="loading || toggling || (!configured && !aiEnabled)"
-            @change="(v: string | number | boolean) => toggleAi(Boolean(v))"
-          />
-        </label>
-        <el-button :loading="loading" @click="load"><AppIcon name="refresh" :size="15" />刷新</el-button>
-      </div>
-    </header>
+  <div class="ai-panel">
+    <div class="ai-panel-head">
+      <span class="ops-chip"><AppIcon name="bot" :size="15" />{{ pageChip }}</span>
+      <span class="ai-panel-spacer"></span>
+      <label class="ai-toggle">
+        <span>启用 AI</span>
+        <el-switch
+          v-model="aiEnabled"
+          :loading="toggling"
+          :disabled="loading || toggling || (!configured && !aiEnabled)"
+          @change="(v: string | number | boolean) => toggleAi(Boolean(v))"
+        />
+      </label>
+      <el-button :loading="loading" @click="load"><AppIcon name="refresh" :size="15" />刷新</el-button>
+    </div>
 
     <el-alert
       v-if="loadError"
@@ -222,6 +211,15 @@ onMounted(load)
 </template>
 
 <style scoped>
+.ai-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ai-panel-spacer {
+  flex: 1;
+}
 .ai-toggle {
   display: inline-flex;
   align-items: center;

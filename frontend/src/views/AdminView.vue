@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
+import AiSettingsPanel from '../components/AiSettingsPanel.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { fmtTime, roleMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
@@ -10,6 +11,7 @@ import type { AuditEvent, BackupConfig, BackupInfo, Category, Role, User } from 
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 // 页面级兜底:即使路由被绕过(或角色在页面打开后被降级),也不加载管理员数据
 const isAdmin = computed(() => auth.user?.role === 'admin')
 const users = ref<User[]>([])
@@ -303,6 +305,11 @@ watch(isAdmin, (allowed) => {
 })
 
 onMounted(async () => {
+  // 支持 /admin?tab=ai 之类的直达(如故障助手面板的「模型设置」按钮)
+  const requested = route.query.tab
+  if (typeof requested === 'string' && ['users', 'audit', 'backups', 'categories', 'ai'].includes(requested)) {
+    tab.value = requested
+  }
   try {
     // 以后端返回的角色为准,避免本地缓存中的旧角色直接放行管理员页面
     const { data } = await client.get<User>('/api/auth/me')
@@ -455,6 +462,9 @@ onMounted(async () => {
             <el-table-column label="操作" width="160" align="right"><template #default="{ row }"><el-button size="small" @click="openCatEdit(row)"><AppIcon name="edit" :size="13" />编辑</el-button><el-button v-if="!row.is_system" size="small" type="danger" plain @click="removeCat(row)">删除</el-button></template></el-table-column>
           </el-table>
         </section>
+      </el-tab-pane>
+      <el-tab-pane label="AI 设置" name="ai">
+        <AiSettingsPanel />
       </el-tab-pane>
     </el-tabs>
 

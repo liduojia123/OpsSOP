@@ -8,6 +8,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import AiUserKeyDialog from '../components/AiUserKeyDialog.vue'
 import MarkdownBody from '../components/MarkdownBody.vue'
 import { fmtTime } from '../labels'
 import { sourcePath, sourceVersionText } from '../sourceLinks'
@@ -45,6 +46,8 @@ const currentOwner = ref('')
 const aiKeys = ref<AiKeyItem[]>([])
 const activeProvider = ref('')
 const switchingModel = ref(false)
+// 自助配置 Key 弹窗:所有用户可管理自己的厂商配置
+const keyDialog = ref(false)
 // 分页:首屏只取最新一页,更早的按需加载
 const PAGE_SIZE = 50
 const totalMessages = ref(0)
@@ -69,6 +72,20 @@ const filteredConversations = computed(() => {
   if (!q) return conversations.value
   return conversations.value.filter((row) => (row.title || '').toLowerCase().includes(q))
 })
+
+// 空状态快捷提问:点击填入输入框(不直接发送),对应后端真实工具,保证答得上来
+const composerInput = ref<{ focus: () => void } | null>(null)
+const STARTER_QUESTIONS = [
+  '现在还有哪些待处理的问题？',
+  '目前有哪些未解决的故障？',
+  '帮我检索关于磁盘空间的案例和 SOP',
+  '当前监控里有什么需要注意的指标？',
+]
+
+function fillStarter(q: string) {
+  question.value = q
+  void nextTick(() => composerInput.value?.focus())
+}
 
 /** 流式回答的临时状态:delta 累积后实时渲染 Markdown,完成后由正式消息替换。 */
 interface StreamState {
@@ -122,6 +139,12 @@ async function loadStatus() {
   } catch {
     aiStatus.value = null
   }
+}
+
+function onKeysChanged() {
+  // Key 保存/删除/开关变化都会影响可用模型与 aiDisabled,两者都要刷新
+  void loadAiKeys()
+  void loadStatus()
 }
 
 async function loadAiKeys() {
@@ -686,7 +709,7 @@ onMounted(async () => {
       v-if="aiDisabled"
       class="mb-5"
       title="AI 未启用"
-      description="请先在「AI 设置」中配置自己的 API Key，或由管理员开启全局 AI。"
+      description="点输入框下方「配置我的模型 Key」填入你的 API Key 即可开启；或由管理员开启全局 AI。"
       type="info"
       :closable="false"
       show-icon
@@ -757,6 +780,17 @@ onMounted(async () => {
             <span class="ops-icon-tile"><AppIcon name="bot" :size="20" /></span>
             <h3>从运维问题开始</h3>
             <p>可以问：有哪些待解决问题、我的故障与待办、本系统案例/SOP、通用运维知识、日志含义、排查步骤、当前监控指标。</p>
+            <div v-if="!adminView" class="chat-starters">
+              <button
+                v-for="q in STARTER_QUESTIONS"
+                :key="q"
+                type="button"
+                class="chat-starter"
+                @click="fillStarter(q)"
+              >
+                {{ q }}
+              </button>
+            </div>
             <p class="chat-boundary">不会执行命令或变更；不回答非运维问题；引用只来自你有权查看的已审核知识。</p>
           </div>
 
@@ -896,6 +930,7 @@ onMounted(async () => {
 
         <div v-if="!adminView" class="chat-composer">
           <el-input
+            ref="composerInput"
             v-model="question"
             type="textarea"
             :rows="3"
@@ -908,37 +943,49 @@ onMounted(async () => {
           />
           <div class="chat-composer-foot">
             <div class="chat-composer-left">
-              <el-select
-                v-if="aiKeys.length"
-                v-model="activeProvider"
-                class="chat-model-select"
-                size="small"
-                :disabled="switchingModel"
-                placeholder="使用全局配置"
-                aria-label="切换回答模型"
-                @change="switchModel"
-              >
-                <el-option
-                  v-for="key in aiKeys"
-                  :key="key.provider"
-                  :value="key.provider"
-                  :label="`${key.name} · ${key.model || '默认模型'}`"
-                />
-              </el-select>
+              <template v-if="aiKeys.length">
+                <el-select
+                  v-model="activeProvider"
+                  class="chat-model-select"
+                  size="small"
+                  :disabled="switchingModel"
+                  placeholder="使用全局配置"
+                  aria-label="切换回答模型"
+                  @change="switchModel"
+                >
+                  <el-option
+                    v-for="key in aiKeys"
+                    :key="key.provider"
+                    :value="key.provider"
+                    :label="`${key.name} · ${key.model || '默认模型'}`"
+                  />
+                </el-select>
+                <el-button
+                  size="small"
+                  text
+                  title="添加或修改我的 API Key"
+                  @click="keyDialog = true"
+                >
+                  <AppIcon name="settings" :size="13" />
+                  管理 Key
+                </el-button>
+              </template>
+              <el-button v-else size="small" plain @click="keyDialog = true">
+                <AppIcon name="settings" :size="13" />
+                配置我的模型 Key
+              </el-button>
               <span class="ops-section-caption">只回答运维问题；不会执行命令或访问无权数据。</span>
             </div>
-            <el-button
-              v-if="sending"
-              type="warning"
-              plain
-              @click="stopStreaming"
-            >
-              停止
-            </el-button>
-            <el-button v-else type="primary" :disabled="!canSend" @click="send">
-              发送
-            </el-button>
+            <div class="chat-composer-foot-buttons">
+              <el-button v-if="sending" type="warning" plain @click="stopStreaming">
+                停止
+              </el-button>
+              <el-button v-else type="primary" :disabled="!canSend" @click="send">
+                发送
+              </el-button>
+            </div>
           </div>
+          <AiUserKeyDialog v-model="keyDialog" @changed="onKeysChanged" />
         </div>
         <div v-else class="chat-readonly">
           管理员只读查看模式；如需提问请关闭「查看全部用户会话」。
@@ -1134,6 +1181,30 @@ onMounted(async () => {
   margin: 0 0 8px;
   font-size: 12px;
   line-height: 1.7;
+}
+.chat-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+.chat-starter {
+  padding: 6px 12px;
+  border: 1px solid var(--ops-border);
+  border-radius: 999px;
+  background: var(--ops-surface);
+  color: var(--ops-text-soft);
+  cursor: pointer;
+  font-size: 11px;
+  transition: border-color var(--ops-duration-fast) var(--ops-ease-standard), color var(--ops-duration-fast) var(--ops-ease-standard);
+}
+.chat-starter:hover {
+  border-color: var(--ops-brand);
+  color: var(--ops-brand);
+}
+.chat-starter:focus-visible {
+  outline: 2px solid var(--ops-brand);
+  outline-offset: 2px;
 }
 .chat-boundary {
   color: var(--ops-faint);
@@ -1346,6 +1417,11 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.chat-composer-foot-buttons {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 @media (max-width: 720px) {
   .chat-model-select {

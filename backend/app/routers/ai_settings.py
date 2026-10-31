@@ -154,7 +154,7 @@ def activate_key(
     row = get_user_key(db, user.id, spec.id)
     if row is None or not row.api_key_encrypted:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "请先在「AI 设置」中配置该厂商的 API Key"
+            status.HTTP_400_BAD_REQUEST, "请管理员在「系统管理 → AI 设置」中配置该厂商的 API Key"
         )
     for item in list_user_keys(db, user.id):
         item.enabled = item.provider == spec.id

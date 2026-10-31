@@ -388,7 +388,7 @@ def ask(
 
     config = resolve_effective_ai(db, user, settings)
     if config is None and settings.ai_mode in ("disabled", "demo"):
-        raise ChatUnavailable("AI 未启用:请先在「AI 设置」中配置 API Key,或由管理员开启全局 AI")
+        raise ChatUnavailable("AI 未启用:请管理员在「系统管理 → AI 设置」中配置 API Key,或开启全局 AI")
     effective = effective_settings(settings, config) if config else settings
     try:
         adapter = build_adapter(effective, user_config=config)
@@ -586,7 +586,7 @@ def ask_stream(
             config = resolve_effective_ai(db, user, settings)
             if config is None and settings.ai_mode in ("disabled", "demo"):
                 raise ChatUnavailable(
-                    "AI 未启用:请先在「AI 设置」中配置 API Key,或由管理员开启全局 AI"
+                    "AI 未启用:请管理员在「系统管理 → AI 设置」中配置 API Key,或开启全局 AI"
                 )
             effective = effective_settings(settings, config) if config else settings
             adapter = build_adapter(effective, user_config=config)
