@@ -1,5 +1,22 @@
 # 版本记录
 
+## 3.7.1 — 2026-11-03
+
+### 文档与开发体验
+
+- 新增 `DEVELOPING.md`：本机启动数据库、后端、前端与测试的命令，说明 `backend/.env` 与根目录 `.env` 的分工、测试库隔离要求，以及 Windows 下 esbuild 构建改用容器。
+- 新增 `README.en.md` 英文入口；`README.md` 增加中英文切换，版本段落压缩为当前变化并链接版本记录。
+- 新增 `scripts/check.py` 统一检查入口：前端与后端均在 Docker 中执行，与 CI 使用相同镜像和命令；后端使用临时环境文件与独立 Compose 项目，结束后删除容器、数据卷与网络。
+- 新增 `docs/design-decisions.md`：公开产品范围、关键取舍、演进过程与非目标，替代内部开发指令的可见性缺口。
+- 新增 `.env.eval.example`，补齐评测环境的独立数据库与端口示例。
+- 重写 `docs/ui-redesign.md`，移除本机部署端口和已删除分支等内部信息；`CONTRIBUTING.md` 与 `docs/evaluation.md` 改为引用 `DEVELOPING.md`，去掉重复说明。
+
+### 验证范围
+
+- `python scripts/check.py frontend`：105 项测试通过，`vue-tsc` 与生产构建通过。
+- `python scripts/check.py backend`：581 项测试通过（隔离 PostgreSQL 16 + pgvector，`AI_MODE=disabled`、`EMBEDDING_MODE=disabled`、local-only）。
+- 文档相对链接检查通过。本次只改文档与开发脚本，未改业务代码。
+
 ## 3.7.0 — 2026-11-02
 
 ### 全站浅色信号光界面

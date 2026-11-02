@@ -1,16 +1,16 @@
 # OpsSOP
 
+简体中文 | [English](README.en.md)
+
 **让每一次故障处理，成为团队下一次可以复用的标准操作。**
 
 OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题记录、证据补充、人工确认、案例审核和 SOP 发布连接起来，并提供可选的 AI 排查助手与知识检索。
 
-全站界面已统一为浅色线条风格：覆盖工作台、故障、案例、SOP、搜索、AI 对话、监控和管理，包含背景/面板线条动效、真实请求驱动的能量加载反馈、手机会话栏和侧栏半隐藏；实现与验证范围见[界面说明](docs/ui-redesign.md)。
+全站界面已统一为浅色线条风格：覆盖工作台、故障、案例、SOP、搜索、AI 对话、监控和管理，包含背景/面板线条动效、真实请求驱动的能量加载反馈、手机会话栏和侧栏收起；实现与验证范围见[界面说明](docs/ui-redesign.md)。
 
-点击登录后，能量加载条在三秒内从 0% 填到 100%（入场准备进度）；满格且验证成功后，放大的橙色 S 图形与整张浅色背景沿图形留白形成的斜向折线错开展开，进入工作空间。入口仅使用图形标志，支持跳过，减少动态模式直接淡入。
+[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [本地开发](DEVELOPING.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [统一检索](docs/search.md) · [AI 对话](docs/chat.md) · [站内通知与时间线](docs/notifications.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-[产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [统一检索](docs/search.md) · [AI 对话](docs/chat.md) · [站内通知与时间线](docs/notifications.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
-
-当前版本 **3.7.0**：全站浅色信号光界面——工作台、故障、案例、SOP、搜索、AI 对话、监控与系统管理统一为浅色线条视觉，背景与面板线条按信号节奏动效，请求进行时用能量条与骨架反馈；登录加载条三秒填满后，放大的橙色 S 图形与背景沿折线错开进入工作空间，支持跳过与减少动态；移除装饰性英文眉题与重复标语，桌面侧栏可收起为图标栏。此前 3.6.5 的 AI 配置入口重组——「AI 设置」并入「系统管理」页签（左侧导航不再单列），普通用户通过「AI 对话」输入框旁的「配置我的模型 Key / 管理 Key」或故障助手「模型设置」弹窗自助填写厂商 API Key，管理员全局配置仍在系统管理；对话空状态新增可点击的快捷提问。此前 3.6.4 的 AI 对话操作闭环——失败回答一键重试、生成可随时停止（停止后的部分内容仅本地展示并标注未保存）、回答显示所用模型与时间、代码块一键复制；会话列表按标题搜索，长会话首屏只加载最近 50 条并可「加载更早」翻页（新增 `GET /api/chat/conversations/{id}/messages` 分页端点，消息记录回答所用厂商与模型）。此前 3.6.3 的对话体验修复——流式回答跟随滚动、进入会话定位最新消息；后端流式回答全链路兜底，异常不再静默断流，前端加 120 秒空闲看门狗并在发送失败时即时提示；对话气泡显示用户头像；输入框可直接切换本人已配置的模型厂商（DeepSeek / MiniMax / MiMo，新增 `PUT /api/ai/keys/{provider}/active`）。此前 3.6.0 的新增个人资料——点击侧边栏底部身份卡片即可修改头像、签名与密码，资料更新后侧边栏即时生效；系统管理收紧为仅管理员可见、可访问。同时保留 3.5.x 的监控与业务联动——服务器可登记承载服务，故障页按服务自动展示对应 Prometheus 实例的实时指标，Prometheus 告警由后台任务每 60 秒去重生成故障；新增站内通知（审核流转与告警提醒）和故障/案例/SOP 操作时间线，SOP 发布回写来源案例与故障；案例与 SOP 详情页也能「问 AI」，对话新增案例/SOP 详情与统一检索工具，回答带可点击站内链接；统一检索扩展至监控服务器。此前 3.4.x 的统一检索、故障 ↔ 案例 ↔ SOP 互链、SSE 流式 Markdown 对话、引用校验与人工沉淀继续保留；同时沿用 3.1.0 起的会话隔离、90 天留存、Prometheus 监控面板、SSH 只读诊断与 AI 实时工具调用（PromQL / 白名单命令，结果作为证据写回分析报告），以及平台内置备份（每日自动、保留 30 天、管理员可下载、失败告警、异地副本）、生产加固、维护任务韧性、可选应用日志 30 天轮转与列表分页。案例与 SOP 的编辑、提交和审核仍使用版本冲突保护，外部 API 客户端需按[版本记录](CHANGELOG.md)适配版本请求头；视觉与动效范围见[界面说明](docs/ui-redesign.md)。
+当前版本 **3.7.1**：全站切换为浅色信号光界面，登录图形分割入场、能量加载反馈与侧栏收起同步落地。此前版本的功能变化见[版本记录](CHANGELOG.md)。
 
 ## 产品能力
 
@@ -112,11 +112,13 @@ docker compose -p opssop-prod --env-file .env.production -f docker-compose.yml -
 |---|---|
 | [产品使用](docs/product-guide.md) | 角色、工作台、故障处理、案例审核、SOP 发布与检索 |
 | [部署指南](docs/deployment.md) | 环境准备、生产配置、HTTPS 入口、升级与回退 |
+| [本地开发](DEVELOPING.md) | 本机启动前后端、测试库、测试命令与代码结构 |
 | [生产上线检查清单](docs/production-checklist.md) | 上线前的发布、安全、备份、监控与业务验收项 |
 | [模型配置](docs/ai-configuration.md) | 聊天、embedding、local-only、索引与故障处理 |
 | [监控与只读诊断](docs/monitoring.md) | Prometheus 面板、node_exporter、SSH 只读模板与 AI 实时查询 |
 | [AI 对话](docs/chat.md) | 对话边界、引用校验、实时工具、留存与沉淀 |
 | [系统架构](docs/architecture.md) | 组件、数据流、状态流转与安全边界 |
+| [设计决策](docs/design-decisions.md) | 范围、关键取舍、演进过程与非目标 |
 | [运维手册](docs/operations.md) | 日常巡检、隔离演练、日志与故障处理 |
 | [备份恢复](docs/backup-restore.md) | 备份、恢复到新库、数据切换与保留 |
 | [质量与评测](docs/evaluation.md) | 自动化工具、指标定义、既有结果及适用范围 |

@@ -13,7 +13,7 @@
 3. 根据影响范围更新自动化检查与使用文档，在 PR 中说明实际运行的检查及结果；未执行时直接说明。
 4. 对配置、API、数据库迁移与部署行为的变化提供升级说明。
 
-前端以 `frontend/package-lock.json` 为准，通过 `npm ci` 安装。后端使用 Python 3.12 与 `backend/requirements.txt`。检查入口和隔离数据库要求见[质量与评测](docs/evaluation.md)。
+本地环境、启动与测试命令见[本地开发](DEVELOPING.md)；评测数据集与指标见[质量与评测](docs/evaluation.md)。
 
 不要提交真实 `.env`、密钥、数据库备份、业务数据、依赖目录或个人路径。合成演示与评测数据需明确标注。AI 输出、未审核材料与历史 SOP 不能绕过正式知识过滤。
 

@@ -1,12 +1,12 @@
 # OpsSOP 评测指南
 
-适用版本：3.7.0。下列既有评测保留各自执行日期与环境，不代表在 2.0.0 重新执行；前端交付记录见[界面与动效](ui-redesign.md)。
+适用版本：3.7.1。评测结果只代表对应日期的代码与环境；本地测试与 `.env.eval` 示例见[本地开发](../DEVELOPING.md)和[`.env.eval.example`](../.env.eval.example)。
 
 评测工具用于检查检索、AI 分析及异常处理机制，并输出可追踪的指标。合成适配器检查系统行为，真实 API 运行观察指定模型在指定数据集上的表现，两类结果分别解释。
 
 ## 自动化检查入口
 
-后端检查使用独立 PostgreSQL 测试库，`POSTGRES_TEST_DB` 必须与 `POSTGRES_DB` 不同。先在隔离的 `.env.eval` 中配置数据库、独立端口和基础口令，使用非生产环境；以下命令供维护者按变更需要执行：
+后端检查使用独立 PostgreSQL 测试库，`POSTGRES_TEST_DB` 必须与 `POSTGRES_DB` 不同。复制 `.env.eval.example` 为 `.env.eval`（已被忽略）后按需修改，使用非生产环境；以下命令供维护者按变更需要执行：
 
 ```text
 docker compose -p opssop-eval --env-file .env.eval up -d db
