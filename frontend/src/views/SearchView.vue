@@ -7,6 +7,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
 import { caseStatusMap, faultStatusMap, fmtTime, sopStatusMap } from '../labels'
 import type {
   CaseStatus,
@@ -130,7 +131,6 @@ onMounted(() => {
   <div class="ops-page search-page">
     <header class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">WORKSPACE / UNIFIED SEARCH</div>
         <h1>搜索</h1>
         <p class="ops-page-description">
           一次搜索故障、案例、SOP 与监控服务器；结果范围与当前账号权限一致，可直接打开对应记录。
@@ -184,7 +184,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-else-if="loading && !result" class="ops-panel search-state">搜索中…</div>
+    <PageLoading v-else-if="loading && !result" label="正在检索知识" />
 
     <div v-else-if="!groups.length" class="ops-panel search-state">
       <AppIcon name="search" :size="20" />
@@ -234,10 +234,10 @@ onMounted(() => {
 
 <style scoped>
 .search-page {
-  max-width: 1180px;
+  max-width: 1360px;
 }
 .search-bar-panel {
-  padding: 18px 20px;
+  padding: 24px;
   margin-bottom: 18px;
 }
 .search-input-row {
@@ -258,9 +258,9 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 8px 14px;
   border: 1px solid var(--ops-border);
-  border-radius: 999px;
+  border-radius: var(--ops-radius-control);
   background: var(--ops-surface);
   color: var(--ops-text-soft);
   font-size: 12px;
@@ -272,8 +272,15 @@ onMounted(() => {
   color: var(--ops-brand);
 }
 .search-intro {
-  padding: 28px;
+  padding: 48px 32px;
+  text-align: center;
+  background: linear-gradient(135deg, var(--ops-surface), var(--ops-surface-muted));
 }
+.search-intro > .ops-icon-tile { margin: 0 auto; }
+.search-types .search-type { transition: border-color .2s, color .2s, background .2s; }
+.search-type:hover { border-color: var(--ops-brand); color: var(--ops-brand); }
+.search-input-row :deep(.el-input__wrapper) { min-height: 48px; }
+.search-input-row > .el-button { height: 48px; }
 .search-intro h3 {
   margin: 12px 0 6px;
   color: var(--ops-text);
@@ -286,6 +293,7 @@ onMounted(() => {
   line-height: 1.7;
 }
 .search-examples {
+  justify-content: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -307,7 +315,7 @@ onMounted(() => {
 .search-summary {
   margin: 0 0 12px;
   color: var(--ops-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .search-group {
   margin-bottom: 14px;
@@ -331,12 +339,14 @@ onMounted(() => {
   grid-template-columns: minmax(0, 1fr) auto auto 18px;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 20px 24px;
   border-top: 1px solid var(--ops-border-light);
   color: inherit;
   text-decoration: none;
 }
+.search-row { transition: background var(--ops-duration-fast), box-shadow var(--ops-duration-fast); }
 .search-row:hover {
+  box-shadow: inset 2px 0 var(--ops-brand);
   background: var(--ops-surface-muted);
 }
 .search-row-main {
@@ -356,14 +366,14 @@ onMounted(() => {
 .search-row-sub {
   overflow: hidden;
   color: var(--ops-muted);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .search-row-time {
   color: var(--ops-faint);
   font-family: var(--ops-font-mono);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .search-row-arrow {
@@ -373,7 +383,7 @@ onMounted(() => {
   .search-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
-  .search-row-time {
+  .search-row-time, .search-row-arrow {
     display: none;
   }
 }

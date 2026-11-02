@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
 import { faultStatusMap, fmtTime } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import type { Category, Fault, FaultStatus } from '../types'
@@ -122,9 +123,7 @@ onMounted(async () => {
   <div class="ops-page">
     <header class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">INCIDENTS / 故障处理</div>
         <h1>故障处理</h1>
-        <p class="ops-page-description">从第一条告警到恢复验证，让排查过程清晰可追溯。</p>
       </div>
       <div class="ops-page-actions">
         <el-button v-if="auth.role !== 'reviewer'" type="primary" @click="openCreate">
@@ -134,7 +133,8 @@ onMounted(async () => {
       </div>
     </header>
 
-    <section class="ops-panel mb-5">
+    <section class="ops-panel ops-collection">
+      <div class="ops-collection-filters">
       <div class="ops-section-header">
         <h2><AppIcon name="filter" :size="17" />筛选故障</h2>
         <span class="ops-section-caption">按现象、服务或时间定位记录</span>
@@ -174,7 +174,7 @@ onMounted(async () => {
         </div>
         <el-button type="primary" plain @click="load"><AppIcon name="search" :size="16" />查询</el-button>
       </div>
-    </section>
+    </div>
 
     <section v-if="loadError" class="ops-panel ops-load-error">
       <el-alert type="error" :title="loadError" :closable="false" show-icon />
@@ -189,7 +189,8 @@ onMounted(async () => {
         </div>
         <span class="ops-section-caption">原始证据 · 持续排查 · 人工确认</span>
       </div>
-      <el-table :data="faults" v-loading="loading" empty-text="暂无故障记录">
+      <PageLoading v-if="loading && !faults.length" label="正在读取故障" />
+      <el-table v-else :data="faults" v-loading="loading" empty-text="暂无故障记录">
         <el-table-column label="故障 / 编号" min-width="260">
           <template #default="{ row }">
             <div class="py-1.5">
@@ -217,6 +218,7 @@ onMounted(async () => {
           <template #default="{ row }">{{ fmtTime(row.updated_at) }}</template>
         </el-table-column>
       </el-table>
+    </section>
     </section>
 
     <el-dialog v-model="dialogVisible" title="新建故障" width="min(760px, 94vw)" class="ops-dialog">

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { useAuthStore } from './stores/auth'
 import router from './router'
+import { startRequest, endRequest } from './requestActivity'
 
 const client = axios.create({ baseURL: '/', timeout: 30000 })
 
@@ -9,12 +10,17 @@ client.interceptors.request.use((config) => {
   if (auth.token) {
     config.headers.Authorization = `Bearer ${auth.token}`
   }
+  startRequest(config)
   return config
 })
 
 client.interceptors.response.use(
-  (resp) => resp,
+  (resp) => {
+    endRequest(resp.config)
+    return resp
+  },
   (error) => {
+    endRequest(error.config, !axios.isCancel(error))
     if (error.response?.status === 401) {
       const auth = useAuthStore()
       auth.logout()

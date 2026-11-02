@@ -171,9 +171,28 @@ def test_fingerprint_policy_rejects_mismatch_and_missing():
 
 
 class _FakeChannel:
-    def __init__(self, exit_status=0):
+    def __init__(self, exit_status=0, out=b"", err=b""):
         self.exit_status = exit_status
         self.timeout = None
+        self.out = out
+        self.err = err
+
+    def recv_ready(self):
+        return bool(self.out)
+
+    def recv_stderr_ready(self):
+        return bool(self.err)
+
+    def recv(self, size):
+        chunk, self.out = self.out[:size], self.out[size:]
+        return chunk
+
+    def recv_stderr(self, size):
+        chunk, self.err = self.err[:size], self.err[size:]
+        return chunk
+
+    def exit_status_ready(self):
+        return not self.out and not self.err
 
     def settimeout(self, value):
         self.timeout = value
@@ -185,7 +204,7 @@ class _FakeChannel:
 class _FakeStream:
     def __init__(self, data: bytes, channel):
         self.data = data
-        self.channel = _FakeChannel()
+        self.channel = channel or _FakeChannel()
 
     def read(self, size):
         return self.data[:size]
@@ -200,7 +219,8 @@ class _FakeSSH:
 
     def exec_command(self, command, timeout=None):
         self.command = command
-        return None, _FakeStream(self.out, None), _FakeStream(self.err, None)
+        self.channel = _FakeChannel(self.exit_status, self.out, self.err)
+        return None, _FakeStream(self.out, self.channel), _FakeStream(self.err, self.channel)
 
     def close(self):
         pass
@@ -209,17 +229,21 @@ class _FakeSSH:
 def test_run_command_truncates_and_reports_exit(monkeypatch):
     fake = _FakeSSH(out=b"x" * 5000, err=b"", exit_status=0)
 
-    class Stream(_FakeStream):
-        def __init__(self, data):
-            super().__init__(data, None)
-            self.channel = _FakeChannel(0)
-
-    fake.exec_command = lambda command, timeout=None: (None, Stream(fake.out), Stream(fake.err))
     monkeypatch.setattr("app.monitoring.ssh._connect", lambda target, policy, timeout: fake)
     result = run_command(SshTarget("h", 22, "u", "pem", "SHA256:x"), "uptime")
     assert result["exit_status"] == 0
     assert result["truncated"] is True
     assert len(result["stdout"]) == 2000
+
+
+def test_run_command_drains_both_streams_after_display_limit(monkeypatch):
+    fake = _FakeSSH(out=b"x" * 3_000_000, err=b"y" * 3_000_000, exit_status=7)
+    monkeypatch.setattr("app.monitoring.ssh._connect", lambda *args, **kwargs: fake)
+    result = run_command(SshTarget("h", 22, "u", "pem"), "journal")
+    assert result["exit_status"] == 7
+    assert result["truncated"] is True
+    assert len(result["stdout"]) == 2000
+    assert fake.channel.out == fake.channel.err == b""
 
 
 # ===== 接口 =====

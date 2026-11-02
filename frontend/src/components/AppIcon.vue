@@ -2,11 +2,14 @@
 withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 })
 const paths: Record<string, string> = {
   grid: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+  'sidebar-collapse': 'M3 3h18v18H3z M9 3v18 m7-12-3 3 3 3',
+  'sidebar-expand': 'M3 3h18v18H3z M9 3v18 m4-12 3 3-3 3',
   activity: 'M3 12h4l3-8 4 16 3-8h4',
   book: 'M4 3h13a3 3 0 0 1 3 3v15H7a3 3 0 0 1-3-3V3z M4 17h16 M8 7h8 M8 11h6',
   files: 'M8 3h9l4 4v13H8z M17 3v5h4 M4 7H2v15h13',
   settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z',
   'chevron-right': 'm9 5 7 7-7 7', 'chevron-left': 'm15 5-7 7 7 7',
+  'chevron-up': 'm5 15 7-7 7 7', 'chevron-down': 'm5 9 7 7 7-7',
   'arrow-right': 'M4 12h16 m-6-6 6 6-6 6', 'arrow-left': 'M20 12H4 m6-6-6 6 6 6',
   'arrow-up-right': 'M6 18 18 6 M6 6h12v12', plus: 'M12 5v14 M5 12h14',
   search: 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15 M16 16l5 5',

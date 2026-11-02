@@ -12,6 +12,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
 import AuditTimeline from '../components/AuditTimeline.vue'
 import { caseStatusMap, fmtTime, sopStatusMap } from '../labels'
 import type { CaseDetail, CaseStatus } from '../types'
@@ -125,9 +126,8 @@ function askAi() {
     <div class="ops-page-header">
       <div>
         <el-button text class="ops-back-link" @click="goBack">← 返回</el-button>
-        <div class="ops-eyebrow">CASE FILE <span v-if="item">/ #{{ item.id }}</span></div>
+        <div v-if="item" class="ops-eyebrow">案例 #{{ item.id }}</div>
         <h1>案例详情</h1>
-        <p class="ops-page-description">从一次真实的处理过程，找到下一次排查的依据。</p>
       </div>
       <div class="ops-page-actions case-header-actions">
         <el-tag v-if="item" size="small" :type="(caseStatusMap[item.status as CaseStatus].type as any)">
@@ -139,7 +139,7 @@ function askAi() {
       </div>
     </div>
 
-    <div v-if="loading" class="ops-panel case-loading"><AppIcon name="files" :size="24" /><span>加载中…</span></div>
+    <PageLoading v-if="loading" label="正在读取案例" />
     <div v-else-if="error" class="ops-panel case-error" data-testid="case-detail-error">
       <el-alert :type="error.kind === 'forbidden' || error.kind === 'not-found' || error.kind === 'invalid' ? 'warning' : 'error'" :closable="false" show-icon :title="error.message" />
       <div class="mt-4 flex gap-2">
@@ -154,7 +154,6 @@ function askAi() {
         <article class="ops-panel case-paper">
           <header class="case-paper-header">
             <span class="case-document-icon"><AppIcon name="book" :size="23" /></span>
-            <div class="ops-eyebrow">KNOWLEDGE / INCIDENT CASE</div>
             <h2>{{ item.title }}</h2>
             <div v-if="item.tags?.length" class="case-tags"><el-tag v-for="tag in item.tags" :key="tag" size="small" type="info" effect="plain">{{ tag }}</el-tag></div>
           </header>
@@ -230,19 +229,18 @@ function askAi() {
 .case-detail-page h1 { margin-top: 6px; }
 .case-status-note { margin: 0 0 22px; }
 .case-reading-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; }
-.case-paper { padding: 32px 36px; }
+.case-paper { padding: 32px 40px; }
 .case-paper-header { padding-bottom: 24px; border-bottom: 1px solid var(--ops-border); }
 .case-document-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 22px; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
-.case-paper-header .ops-eyebrow { font-size: 10px; letter-spacing: 1.4px; }
 .case-paper-header h2 { margin: 9px 0 0; color: var(--ops-text); font-size: 25px; font-weight: 650; line-height: 1.55; letter-spacing: -0.02em; }
 .case-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 17px; }
 .case-document-section { padding: 26px 0 0; }
 .case-section-label { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.case-section-label > span { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 11px; font-weight: 500; }
+.case-section-label > span { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 12px; font-weight: 500; }
 .case-section-label h3 { margin: 0; color: var(--ops-text); font-size: 14px; font-weight: 650; }
 .case-section-label > svg { color: var(--ops-brand); }
 .case-prose { color: var(--ops-text-soft); font-size: 14px; line-height: var(--ops-leading-reading); white-space: pre-wrap; overflow-wrap: anywhere; }
-.case-confirmed-section { margin: 25px -17px 0; padding: 18px; border: 1px solid var(--ops-warm-line); border-radius: var(--ops-radius-panel); background: var(--ops-surface-warm); }
+.case-confirmed-section { margin: 28px 0 0; padding: 18px; border: 1px solid var(--ops-warm-line); border-radius: var(--ops-radius-panel); background: var(--ops-surface-warm); }
 .case-confirmed-section .case-section-label > svg { color: var(--ops-success); }
 .case-metadata-column { display: grid; gap: 18px; }
 .case-header-actions { display: flex; align-items: center; gap: 10px; }
@@ -254,15 +252,16 @@ function askAi() {
 .case-metadata { margin: 0; padding: 20px 22px; }
 .case-metadata > div { margin-bottom: 20px; }
 .case-metadata > div:last-child { margin-bottom: 0; }
-.case-metadata dt { margin-bottom: 6px; color: var(--ops-muted); font-size: 11px; }
+.case-metadata dt { margin-bottom: 6px; color: var(--ops-muted); font-size: 12px; }
 .case-metadata dd { margin: 0; color: var(--ops-text); font-size: 13px; overflow-wrap: anywhere; }
 .case-review-comment { margin: 0; padding: 18px 22px 22px; color: var(--ops-text-soft); font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
 .case-reading-note { display: flex; gap: 10px; padding: 4px 6px; color: var(--ops-muted); }
 .case-reading-note > svg { flex-shrink: 0; margin-top: 3px; }
 .case-reading-note p { margin: 0; color: var(--ops-text-soft); font-size: 12px; line-height: 1.8; }
 .case-reading-note span { color: var(--ops-muted); }
-.case-loading { display: flex; align-items: center; gap: 12px; padding: 32px; color: var(--ops-muted); }
+
 .case-error { padding: 24px; }
+@media (min-width: 1101px) { .case-metadata-column { position: sticky; top: 24px; } }
 @media (max-width: 1100px) {
   .case-reading-layout { grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; }
   .case-paper { padding: 28px; }

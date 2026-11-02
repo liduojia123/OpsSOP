@@ -698,7 +698,7 @@ def test_cloud_mode_keeps_env_proxy(monkeypatch):
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal.example:3128")
     monkeypatch.setattr("app.ai.llm.httpx.Client", _FakeClient)
 
-    settings = Settings(ai_mode="cloud", ai_base_url="https://api.example.com/v1", ai_model="m")
+    settings = Settings(ai_mode="cloud", ai_base_url="https://api.example.com/v1", ai_model="m", local_only=False)
     adapter = build_adapter(settings)
     result = adapter.chat(LLMRequest(messages=[ChatMessage(role="user", content="hi")]))
     assert _FakeClient.captured.get("trust_env") is True
@@ -715,7 +715,7 @@ def test_json_mode_only_when_requested(monkeypatch):
     _clear_proxy_env(monkeypatch)
     monkeypatch.setattr("app.ai.llm.httpx.Client", _FakeClient)
     settings = Settings(
-        ai_mode="cloud", ai_base_url="https://api.example.com/v1", ai_model="m", ai_supports_json_mode=True
+        ai_mode="cloud", ai_base_url="https://api.example.com/v1", ai_model="m", ai_supports_json_mode=True, local_only=False
     )
     adapter = build_adapter(settings)
     msgs = [ChatMessage(role="user", content="hi")]
@@ -728,7 +728,7 @@ def test_json_mode_only_when_requested(monkeypatch):
 
     # 服务不支持 json_mode 时,即使请求开了也不发 response_format(参数能力不匹配会被拒)
     settings_nojson = Settings(
-        ai_mode="cloud", ai_base_url="https://api.example.com/v1", ai_model="m", ai_supports_json_mode=False
+        ai_mode="cloud", ai_base_url="https://api.example.com/v1", ai_model="m", ai_supports_json_mode=False, local_only=False
     )
     adapter2 = build_adapter(settings_nojson)
     adapter2.chat(LLMRequest(messages=msgs, json_mode=True))

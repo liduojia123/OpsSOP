@@ -313,12 +313,22 @@ describe('案例页 AI 生成 SOP 草稿(第三阶段第一批)', () => {
     void vm.generateSopAi()
     await drain()
     expect(wrapper.text()).toContain('AI 生成中')
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-label')).toBe('AI 生成中')
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-valuenow')).toBeUndefined()
     void vm.generateSopAi() // 在途重复触发
     await drain()
     expect(client.post).toHaveBeenCalledTimes(1)
 
+    vm.detailVisible = false
+    await nextTick()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    vm.detailVisible = true
+    await nextTick()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+
     resolveReq({ data: makeAiResponse(makeRun(), 11) })
     await drain()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
   })
 
   it('切换案例后过期响应不应用到新案例', async () => {

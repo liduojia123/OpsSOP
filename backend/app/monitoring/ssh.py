@@ -119,16 +119,34 @@ def run_command(target: SshTarget, command: str, timeout: float = DEFAULT_TIMEOU
         timeout=timeout,
     )
     try:
-        stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
+        remaining = timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            raise SshError("timeout", "SSH 诊断超时")
+        stdin, stdout, stderr = client.exec_command(command, timeout=remaining)
         channel = stdout.channel
-        channel.settimeout(timeout)
-        out = stdout.read(MAX_OUTPUT_CHARS + 1)
-        err = stderr.read(1024)
-        try:
-            exit_status = channel.recv_exit_status()
-        except Exception:  # noqa: BLE001
-            exit_status = -1
-        text = (out + err).decode("utf-8", "replace")
+        channel.settimeout(remaining)
+        out, err = bytearray(), bytearray()
+        # 即使展示已截断也继续排空两路输出,避免远端窗口堵塞而无法退出。
+        keep_bytes = (MAX_OUTPUT_CHARS + 1) * 4
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise SshError("timeout", "SSH 诊断超时")
+            received = False
+            if channel.recv_ready():
+                chunk = channel.recv(32768)
+                out.extend(chunk[:max(0, keep_bytes - len(out))])
+                received = True
+            if channel.recv_stderr_ready():
+                chunk = channel.recv_stderr(32768)
+                err.extend(chunk[:max(0, keep_bytes - len(err))])
+                received = True
+            if not received:
+                if channel.exit_status_ready():
+                    exit_status = channel.recv_exit_status()
+                    break
+                time.sleep(min(0.01, remaining))
+        text = out.decode("utf-8", "replace") + err.decode("utf-8", "replace")
     except SshError:
         raise
     except Exception as exc:  # noqa: BLE001

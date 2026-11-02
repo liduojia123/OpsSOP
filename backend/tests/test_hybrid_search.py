@@ -78,6 +78,7 @@ class _MapEmbedAdapter:
 
 def _settings(**overrides):
     base = {
+        "local_only": False,
         "embedding_mode": "cloud",
         "embedding_base_url": "https://emb.example.com/v1",
         "embedding_model": "emb-a",

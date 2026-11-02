@@ -298,9 +298,12 @@ def run_backup(settings: Settings, trigger: str, db: Session | None = None) -> d
         raise BackupError("备份功能未启用(BACKUP_ENABLED=0)")
     if not _LOCK.acquire(blocking=False):
         raise BackupBusy("已有备份任务在进行")
-    owned_session = db is None
-    session = db or SessionLocal()
+    # 请求会话可能已经读取过数据;备份使用独立只读事务固定整个归档时点。
+    session = SessionLocal()
     try:
+        session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+        session.execute(text("SET TRANSACTION READ ONLY"))
+        snapshot_id = session.scalar(text("SELECT pg_export_snapshot()"))
         snapshot = _snapshot(session)
         directory = _dir(settings)
         pg_dump = shutil.which("pg_dump")
@@ -316,6 +319,7 @@ def run_backup(settings: Settings, trigger: str, db: Session | None = None) -> d
         command = [
             pg_dump,
             "--format=custom",
+            f"--snapshot={snapshot_id}",
             "--host",
             settings.postgres_host,
             "--port",
@@ -378,6 +382,5 @@ def run_backup(settings: Settings, trigger: str, db: Session | None = None) -> d
         logger.info("备份完成 name=%s size=%s pruned=%s", name, metadata["size_bytes"], len(removed))
         return {**metadata, "path": str(dump), "pruned": removed}
     finally:
-        if owned_session:
-            session.close()
+        session.close()
         _LOCK.release()

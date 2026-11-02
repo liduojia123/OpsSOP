@@ -440,7 +440,7 @@ def ask(
         user_prompt += _tool_hint(executor)
     messages = [
         LLMMessage(role="system", content=CHAT_SYSTEM_PROMPT),
-        LLMMessage(role="user", content=user_prompt),
+        LLMMessage(role="user", content=sanitize_text(user_prompt)),
     ]
 
     completion = None
@@ -650,7 +650,7 @@ def ask_stream(
                 user_prompt += _tool_hint(executor)
             messages = [
                 LLMMessage(role="system", content=CHAT_SYSTEM_PROMPT),
-                LLMMessage(role="user", content=user_prompt),
+                LLMMessage(role="user", content=sanitize_text(user_prompt)),
             ]
 
             yield {"type": "status", "text": "正在生成回答…"}

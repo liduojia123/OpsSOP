@@ -38,6 +38,16 @@ def _settings(**overrides) -> Settings:
     return Settings(**values)
 
 
+@pytest.fixture(autouse=True)
+def _mock_cloud_api_settings(monkeypatch):
+    # 云接口用例显式允许模拟云配置,不继承验证机的 LOCAL_ONLY 策略。
+    from app.config import get_settings
+
+    settings = get_settings().model_copy(update={"local_only": False})
+    for module in ("ai_settings", "ai_admin", "system"):
+        monkeypatch.setattr(f"app.routers.{module}.get_settings", lambda: settings)
+
+
 # ===== 加密 =====
 
 def test_encrypt_decrypt_roundtrip():
@@ -491,6 +501,15 @@ def test_activate_is_scoped_to_own_keys(client, db, op_headers, adm_headers):
 
 
 # ===== 管理员全局配置 =====
+
+def test_api_cloud_key_rejected_in_local_only(client, db, op_headers, monkeypatch):
+    monkeypatch.setattr("app.routers.ai_settings.get_settings", lambda: _settings(local_only=True))
+    response = client.put("/api/ai/providers/deepseek/key",
+                          json={"api_key": "sk-synthetic", "model": "fake"}, headers=op_headers)
+    assert response.status_code == 400
+    assert "LOCAL_ONLY" in response.json()["detail"]
+    assert db.query(UserAiKey).count() == 0
+
 
 def test_global_config_requires_admin(client, op_headers):
     assert client.get("/api/admin/ai", headers=op_headers).status_code == 403

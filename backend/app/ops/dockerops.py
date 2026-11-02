@@ -10,7 +10,13 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Thread
 
 from .common import (
     OpsError,
@@ -25,6 +31,11 @@ from .common import (
     validate_source_database,
     validate_target_database,
 )
+
+
+def _validate_snapshot_id(value: str) -> None:
+    if not re.fullmatch(r"[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+", value):
+        raise OpsError("无效的数据库快照标识", stage="snapshot")
 
 
 class ComposeStack:
@@ -404,18 +415,24 @@ class ComposeStack:
 
     # ---- PostgreSQL(local socket,不把密码放命令行) ----
 
-    def psql(self, sql: str, *, database: str | None = None, user: str | None = None) -> str:
+    def psql(self, sql: str, *, database: str | None = None, user: str | None = None,
+             snapshot_id: str | None = None) -> str:
         cfg = self.db_service_config()
         database = database or cfg["database"]
         user = user or cfg["user"]
         validate_db_identifier(database, role="psql")
         container = self.db_container()
+        if snapshot_id is not None:
+            _validate_snapshot_id(snapshot_id)
+            sql = ("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; "
+                   f"SET TRANSACTION SNAPSHOT '{snapshot_id}'; {sql}; COMMIT;")
         proc = docker(
             [
                 "exec",
                 container,
                 "psql",
                 "-X",
+                "-q",
                 "-v",
                 "ON_ERROR_STOP=1",
                 "-U",
@@ -430,8 +447,9 @@ class ComposeStack:
         )
         return proc.stdout
 
-    def psql_json(self, sql: str, *, database: str | None = None) -> dict:
-        raw = self.psql(sql, database=database).strip()
+    def psql_json(self, sql: str, *, database: str | None = None,
+                  snapshot_id: str | None = None) -> dict:
+        raw = self.psql(sql, database=database, snapshot_id=snapshot_id).strip()
         if not raw:
             raise OpsError("psql 查询没有返回结果", stage="psql")
         try:
@@ -465,12 +483,51 @@ class ComposeStack:
         self.psql(f'DROP DATABASE "{name}"', database="postgres")
         return {"dropped": True, "database": name}
 
-    def pg_dump_to_container(self, container_path: str, *, database: str | None = None) -> str:
+    @contextmanager
+    def export_snapshot(self):
+        """保持导出事务存活,供元信息查询和 pg_dump 导入同一个快照。"""
+        cfg = self.db_service_config()
+        validate_source_database(cfg["database"], role="source")
+        with tempfile.TemporaryFile(mode="w+t") as errors:
+            process = subprocess.Popen(
+                ["docker", "exec", "-i", self.db_container(), "psql", "-X", "-qAt",
+                 "-v", "ON_ERROR_STOP=1", "-U", cfg["user"], "-d", cfg["database"]],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True,
+            )
+            try:
+                process.stdin.write(
+                    "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n"
+                    "SET LOCAL idle_in_transaction_session_timeout = '15min';\n"
+                    "SELECT pg_export_snapshot();\n"
+                )
+                process.stdin.flush()
+                result = Queue(maxsize=1)
+                reader = Thread(target=lambda: result.put(process.stdout.readline(128)), daemon=True)
+                reader.start()
+                try:
+                    snapshot_id = result.get(timeout=15).strip()
+                except Empty as exc:
+                    raise OpsError("导出备份快照超时", stage="snapshot") from exc
+                _validate_snapshot_id(snapshot_id)
+                yield snapshot_id
+            finally:
+                try:
+                    process.communicate("ROLLBACK;\n\\q\n", timeout=10)
+                except (OSError, ValueError, subprocess.TimeoutExpired):
+                    process.kill()
+                    process.communicate()
+
+    def pg_dump_to_container(self, container_path: str, *, database: str | None = None,
+                             snapshot_id: str | None = None) -> str:
         cfg = self.db_service_config()
         database = database or cfg["database"]
         validate_source_database(database, role="source")
         path = validate_container_path(container_path)
         container = self.db_container()
+        snapshot_args = []
+        if snapshot_id is not None:
+            _validate_snapshot_id(snapshot_id)
+            snapshot_args = [f"--snapshot={snapshot_id}"]
         docker(
             [
                 "exec",
@@ -481,6 +538,7 @@ class ComposeStack:
                 "-d",
                 database,
                 "-Fc",
+                *snapshot_args,
                 "-f",
                 path,
             ],

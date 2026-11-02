@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
 import { fmtTime, sopStatusMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import type { Category, Sop, SopStatus } from '../types'
@@ -66,16 +67,15 @@ onMounted(async () => {
   <div class="ops-page">
     <header class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">KNOWLEDGE / 标准操作</div>
         <h1>SOP 知识库</h1>
-        <p class="ops-page-description">把已确认的处理经验，沉淀为团队可复用的标准操作。</p>
       </div>
       <div class="ops-page-actions">
         <el-button v-if="auth.role !== 'reviewer'" type="primary" @click="createDialog = true"><AppIcon name="plus" :size="16" />新建 SOP</el-button>
       </div>
     </header>
 
-    <section class="ops-panel mb-5">
+    <section class="ops-panel ops-collection">
+      <div class="ops-collection-filters">
       <div class="ops-filter-bar">
         <div class="min-w-[220px] flex-1">
           <label class="form-label">检索知识</label>
@@ -89,7 +89,7 @@ onMounted(async () => {
         </div>
         <el-button type="primary" plain @click="load"><AppIcon name="search" :size="16" />查询</el-button>
       </div>
-    </section>
+    </div>
 
     <section v-if="loadError" class="ops-panel ops-load-error">
       <el-alert type="error" :title="loadError" :closable="false" show-icon />
@@ -101,7 +101,8 @@ onMounted(async () => {
         <div class="flex items-center gap-3"><h2>操作文档</h2><span class="ops-result-count">{{ sops.length }} 条结果</span></div>
         <span class="ops-section-caption flex items-center gap-1.5"><AppIcon name="shield" :size="14" />审核发布后进入正式知识</span>
       </div>
-      <el-table :data="sops" v-loading="loading" empty-text="暂无 SOP">
+      <PageLoading v-if="loading && !sops.length" label="正在读取 SOP" />
+      <el-table v-else :data="sops" v-loading="loading" empty-text="暂无 SOP">
         <el-table-column label="文档名称" min-width="340">
           <template #default="{ row }">
             <div class="flex items-center gap-3 py-1.5">
@@ -117,6 +118,7 @@ onMounted(async () => {
         <el-table-column label="状态" width="130"><template #default="{ row }"><el-tag size="small" :type="(sopStatusMap[row.status as SopStatus].type as any)">{{ sopStatusMap[row.status as SopStatus].label }}</el-tag></template></el-table-column>
         <el-table-column label="发布时间" width="190"><template #default="{ row }">{{ fmtTime(row.published_at) }}</template></el-table-column>
       </el-table>
+    </section>
     </section>
 
     <el-dialog v-model="createDialog" title="新建 SOP 草稿" width="min(480px, 94vw)" class="ops-dialog">

@@ -1,0 +1,62 @@
+import { afterEach, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+
+vi.mock('vue-router', () => ({ useRoute: () => ({ name: 'workbench' }) }))
+import WorkspaceEntrance from '../src/components/WorkspaceEntrance.vue'
+import { workspaceEntrance, coverWorkspace, openWorkspace, cancelWorkspaceEntrance } from '../src/workspaceEntrance'
+afterEach(() => { cancelWorkspaceEntrance(); vi.useRealTimers(); vi.unstubAllGlobals() })
+
+it('两块背景仅携带图形Logo,动画结束后释放覆盖与计时器', async () => {
+  vi.useFakeTimers()
+  const wrapper = mount(WorkspaceEntrance)
+  const baselineTimers = vi.getTimerCount()
+  coverWorkspace()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(wrapper.findAll('.ops-entrance-half')).toHaveLength(2)
+  expect(wrapper.findAll('.ops-logo')).toHaveLength(2)
+  expect(wrapper.findAll('.ops-logo-icon')).toHaveLength(2)
+  expect(wrapper.find('.ops-entrance-note').exists()).toBe(false)
+  openWorkspace()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(wrapper.get('.ops-workspace-entrance').classes()).toContain('is-opening')
+  await wrapper.get('.ops-entrance-right .ops-logo').trigger('animationend', { animationName: 'ops-logo-arrive-compiled' })
+  expect(workspaceEntrance.phase).toBe('opening')
+  await wrapper.get('.ops-entrance-right').trigger('animationend', { animationName: 'ops-door-right-compiled' })
+  expect(workspaceEntrance.phase).toBe('idle')
+  expect(wrapper.find('.ops-workspace-entrance').exists()).toBe(false)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(vi.getTimerCount()).toBe(baselineTimers)
+  wrapper.unmount()
+})
+
+it('减少动态快速淡入,缺失动画事件也不会永久锁住工作空间', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('matchMedia', () => ({ matches: true }))
+  const wrapper = mount(WorkspaceEntrance)
+  coverWorkspace()
+  openWorkspace()
+  await vi.advanceTimersByTimeAsync(250)
+  expect(workspaceEntrance.phase).toBe('idle')
+  wrapper.unmount()
+  vi.unstubAllGlobals()
+  const normal = mount(WorkspaceEntrance)
+  coverWorkspace()
+  openWorkspace()
+  await vi.advanceTimersByTimeAsync(1500)
+  expect(workspaceEntrance.phase).toBe('idle')
+  normal.unmount()
+})
+
+it('跳过及长时间路由等待都会释放遮罩', async () => {
+  vi.useFakeTimers()
+  const wrapper = mount(WorkspaceEntrance)
+  coverWorkspace()
+  openWorkspace()
+  await vi.advanceTimersByTimeAsync(0)
+  await wrapper.get('.ops-entrance-skip').trigger('click')
+  expect(workspaceEntrance.phase).toBe('idle')
+  coverWorkspace()
+  await vi.advanceTimersByTimeAsync(8100)
+  expect(workspaceEntrance.phase).toBe('idle')
+  wrapper.unmount()
+})

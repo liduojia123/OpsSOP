@@ -7,6 +7,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
 import MetricChart from '../components/MetricChart.vue'
 import { fmtTime } from '../labels'
 import { useAuthStore } from '../stores/auth'
@@ -394,7 +395,6 @@ onBeforeUnmount(() => {
   <div class="ops-page">
     <header class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">OPERATIONS / TELEMETRY</div>
         <h1>监控</h1>
         <p class="ops-page-description">
           查看服务器实时指标，必要时执行只读诊断命令；AI 分析也可按需查询这些数据。
@@ -434,6 +434,7 @@ onBeforeUnmount(() => {
       show-icon
     />
 
+    <PageLoading v-if="loading && !overview" label="正在读取监控" />
     <div v-if="overview?.panels.length" class="mon-grid">
       <section v-for="panel in overview.panels" :key="panel.id" class="ops-panel mon-panel">
         <div class="mon-panel-head">
@@ -811,7 +812,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 18px 8px;
+  padding: 24px 24px 12px;
 }
 .mon-panel-head h3 {
   margin: 0;
@@ -823,12 +824,12 @@ onBeforeUnmount(() => {
   margin: 6px 0 0;
   color: var(--ops-text);
   font-family: var(--ops-font-mono);
-  font-size: 22px;
+  font-size: 32px;
   font-weight: 500;
   letter-spacing: -1px;
 }
 .mon-panel-body {
-  padding: 4px 14px 14px;
+  padding: 4px 20px 20px;
 }
 .mon-range {
   width: 130px;
@@ -874,7 +875,7 @@ onBeforeUnmount(() => {
 .mon-command {
   color: var(--ops-muted);
   font-family: var(--ops-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .mon-drawer {
@@ -903,7 +904,7 @@ onBeforeUnmount(() => {
   background: var(--ops-surface-muted);
   color: var(--ops-text-soft);
   font-family: var(--ops-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

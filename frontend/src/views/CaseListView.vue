@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
+import EnergyProgress from '../components/EnergyProgress.vue'
 import { caseStatusMap, fmtTime } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import type { AiStatus, Case, CaseStatus, Category, SopGenerateAiResponse, SopGenerationRun } from '../types'
@@ -248,14 +250,13 @@ onMounted(async () => {
   <div class="ops-page">
     <header class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">CASE LIBRARY / 经验沉淀</div>
         <h1>案例库</h1>
-        <p class="ops-page-description">保留真实根因与恢复依据，让已解决的问题成为下一次的参考。</p>
       </div>
       <span class="ops-chip"><AppIcon name="shield" :size="15" />人工确认 · 审核入库</span>
     </header>
 
-    <section class="ops-panel mb-5">
+    <section class="ops-panel ops-collection">
+      <div class="ops-collection-filters">
       <div class="ops-filter-bar">
         <div class="min-w-[220px] flex-1">
           <label class="form-label">检索案例</label>
@@ -267,7 +268,7 @@ onMounted(async () => {
         </div>
         <el-button type="primary" plain @click="load"><AppIcon name="search" :size="16" />查询</el-button>
       </div>
-    </section>
+    </div>
 
     <section v-if="loadError" class="ops-panel ops-load-error">
       <el-alert type="error" :title="loadError" :closable="false" show-icon />
@@ -279,7 +280,8 @@ onMounted(async () => {
         <div class="flex items-center gap-3"><h2>处理经验</h2><span class="ops-result-count">{{ cases.length }} 条结果</span></div>
         <span class="ops-section-caption">只有审核通过的案例进入正式知识检索</span>
       </div>
-      <el-table :data="cases" v-loading="loading" empty-text="暂无案例(故障确认解决后生成)">
+      <PageLoading v-if="loading && !cases.length" label="正在读取案例" />
+      <el-table v-else :data="cases" v-loading="loading" empty-text="暂无案例(故障确认解决后生成)">
         <el-table-column label="案例 / 确认根因" min-width="330">
           <template #default="{ row }">
             <div class="py-1.5">
@@ -294,11 +296,12 @@ onMounted(async () => {
         <el-table-column label="更新时间" width="180"><template #default="{ row }">{{ fmtTime(row.updated_at) }}</template></el-table-column>
       </el-table>
     </section>
+    </section>
 
     <el-drawer v-model="detailVisible" title="案例详情" size="min(740px, 94vw)" class="ops-case-drawer">
       <template v-if="current">
         <div class="mb-6">
-          <div class="ops-eyebrow">CASE-{{ String(current.id).padStart(4, '0') }}</div>
+          <div class="ops-eyebrow">案例 #{{ current.id }}</div>
           <h2 class="case-drawer-heading mt-2">{{ current.title }}</h2>
           <div class="case-drawer-meta mt-3"><span class="ops-chip is-compact">{{ current.environment || '未填环境' }}</span><span class="ops-chip is-compact">{{ current.service || '未填服务' }}</span><span class="ops-chip is-compact">{{ current.component_version || '未填版本' }}</span></div>
         </div>
@@ -370,8 +373,9 @@ onMounted(async () => {
               AI 状态未知:已禁用 AI 生成入口(未确认模式与出网提示前不发送)。
             </div>
 
-            <div v-if="aiGenerating" class="ops-note is-info">
-              AI 生成中(整理来源材料 → 校验 → 创建草稿)…
+            <div v-if="aiGenerating && detailVisible" class="ops-context-energy">
+              <EnergyProgress compact label="AI 生成中" />
+              <p class="ops-note-detail mt-2">正在整理来源材料并生成 SOP 草稿，请稍候。</p>
             </div>
 
             <!-- 业务 failed 与请求失败统一:持久显示原因/调用信息/人工重试入口 -->

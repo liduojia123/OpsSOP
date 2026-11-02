@@ -3,11 +3,13 @@
  * AI 运维对话:左侧会话列表,右侧消息流。
  * 只回答运维问题;不执行任何变更;引用来自已审核知识;答案可人工确认后沉淀。
  */
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
+import EnergyProgress from '../components/EnergyProgress.vue'
 import AiUserKeyDialog from '../components/AiUserKeyDialog.vue'
 import MarkdownBody from '../components/MarkdownBody.vue'
 import { fmtTime } from '../labels'
@@ -40,7 +42,10 @@ const sending = ref(false)
 const error = ref('')
 const question = ref('')
 const scroller = ref<HTMLElement | null>(null)
+let followingLatest = true
+let lastScrollTop = 0
 const adminView = ref(false)
+const historyExpanded = ref(false)
 const currentOwner = ref('')
 // 对话页直接切换生效模型:只列已配置 Key 的厂商
 const aiKeys = ref<AiKeyItem[]>([])
@@ -57,6 +62,7 @@ const loadingOlder = ref(false)
 const stopRequested = ref(false)
 const stoppedContent = ref('')
 let activeController: AbortController | null = null
+let viewVersion = 0
 
 class StreamStopped extends Error {
   constructor() {
@@ -89,6 +95,7 @@ function fillStarter(q: string) {
 
 /** 流式回答的临时状态:delta 累积后实时渲染 Markdown,完成后由正式消息替换。 */
 interface StreamState {
+  conversationId: number | null
   content: string
   tools: ChatToolCall[]
   phase: string
@@ -123,7 +130,7 @@ const aiDisabled = computed(
 )
 const readOnly = computed(() => adminView.value && currentOwner.value !== auth.user?.username)
 const canSend = computed(
-  () => !aiDisabled.value && !readOnly.value && !sending.value && question.value.trim().length > 0,
+  () => !aiDisabled.value && !readOnly.value && !sending.value && !loadingMessages.value && !loadingOlder.value && question.value.trim().length > 0,
 )
 // 用户消息头像:只在自己(或管理员查看自己)的会话里用真实头像,查看他人会话时没有头像数据
 const userAvatar = computed(() => {
@@ -180,24 +187,44 @@ async function switchModel(provider: string) {
 }
 
 async function loadConversations() {
+  const version = viewVersion
   loading.value = true
   error.value = ''
   try {
     const url = adminView.value ? '/api/admin/chat/conversations' : '/api/chat/conversations'
     const { data } = await client.get<ChatConversation[]>(url)
+    if (version !== viewVersion) return
     conversations.value = data
     if (!adminView.value && !currentId.value && data.length) {
       await selectConversation(data[0].id)
     }
   } catch (e) {
+    if (version !== viewVersion) return
     error.value = errMsg(e)
   } finally {
     loading.value = false
   }
 }
 
+function leaveConversation() {
+  viewVersion += 1
+  activeController?.abort()
+  activeController = null
+  sending.value = false
+  stopRequested.value = false
+  stream.value = null
+  pendingText = ''
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = null
+  loadingOlder.value = false
+  loadingMessages.value = false
+}
+
 async function selectConversation(id: number) {
+  leaveConversation()
+  const version = viewVersion
   currentId.value = id
+  messages.value = []
   const summary = conversations.value.find((c) => c.id === id)
   currentOwner.value = summary?.username ?? auth.user?.username ?? ''
   loadingMessages.value = true
@@ -208,6 +235,7 @@ async function selectConversation(id: number) {
       ? `/api/admin/chat/conversations/${id}`
       : `/api/chat/conversations/${id}`
     const { data } = await client.get<ChatDetail>(url, { params: { limit: PAGE_SIZE } })
+    if (version !== viewVersion) return
     messages.value = data.messages
     totalMessages.value = data.total_messages
     hasMore.value = data.has_more
@@ -215,20 +243,22 @@ async function selectConversation(id: number) {
     await nextTick()
     scrollToBottom()
   } catch (e) {
+    if (version !== viewVersion) return
     messages.value = []
     totalMessages.value = 0
     hasMore.value = false
     error.value = errMsg(e)
   } finally {
-    loadingMessages.value = false
+    if (version === viewVersion) loadingMessages.value = false
   }
 }
 
 async function loadOlder() {
-  if (!currentId.value || !hasMore.value || loadingOlder.value || sending.value) return
+  if (!currentId.value || !hasMore.value || loadingMessages.value || loadingOlder.value || sending.value) return
   const first = messages.value[0]
   if (!first) return
   loadingOlder.value = true
+  const version = viewVersion
   const el = scroller.value
   const beforeHeight = el?.scrollHeight ?? 0
   try {
@@ -236,6 +266,7 @@ async function loadOlder() {
       `/api/chat/conversations/${currentId.value}/messages`,
       { params: { before_id: first.id, limit: PAGE_SIZE } },
     )
+    if (version !== viewVersion) return
     messages.value = [...data.messages, ...messages.value]
     hasMore.value = data.has_more
     totalMessages.value = data.total_messages
@@ -243,9 +274,10 @@ async function loadOlder() {
     await nextTick()
     if (el) el.scrollTop += el.scrollHeight - beforeHeight
   } catch (e) {
+    if (version !== viewVersion) return
     ElMessage.error(errMsg(e))
   } finally {
-    loadingOlder.value = false
+    if (version === viewVersion) loadingOlder.value = false
   }
 }
 
@@ -263,8 +295,12 @@ function retryQuestion(message: ChatMessageItem) {
 
 async function newConversation() {
   if (adminView.value) return
+  leaveConversation()
+  const version = viewVersion
+  loadingMessages.value = true
   try {
     const { data } = await client.post<ChatConversation>('/api/chat/conversations', { title: '新对话' })
+    if (version !== viewVersion) return
     conversations.value.unshift(data)
     currentId.value = data.id
     messages.value = []
@@ -273,7 +309,10 @@ async function newConversation() {
     totalMessages.value = 0
     currentOwner.value = auth.user?.username ?? ''
   } catch (e) {
+    if (version !== viewVersion) return
     ElMessage.error(errMsg(e))
+  } finally {
+    if (version === viewVersion) loadingMessages.value = false
   }
 }
 
@@ -287,6 +326,7 @@ async function removeConversation(row: ChatConversation) {
     await client.delete(`/api/chat/conversations/${row.id}`)
     conversations.value = conversations.value.filter((c) => c.id !== row.id)
     if (currentId.value === row.id) {
+      leaveConversation()
       currentId.value = null
       messages.value = []
       if (conversations.value.length) await selectConversation(conversations.value[0].id)
@@ -305,13 +345,14 @@ async function send() {
 
 /** 发送入口共用:发送按钮与失败回答的「重试」都走这里。 */
 async function submitQuestion(content: string) {
-  if (!content || sending.value || aiDisabled.value || readOnly.value) return
+  if (!content || sending.value || loadingMessages.value || loadingOlder.value || aiDisabled.value || readOnly.value) return
+  const version = viewVersion
   sending.value = true
   stopRequested.value = false
   stoppedContent.value = ''
   error.value = ''
   pendingText = ''
-  const state: StreamState = { content: '', tools: [], phase: '已发送，正在处理…', seenUser: false, done: false }
+  const state: StreamState = { conversationId: currentId.value, content: '', tools: [], phase: '已发送，正在处理…', seenUser: false, done: false }
   // 先上屏:不依赖 SSE 首个事件何时到达,避免用户以为没有发出去
   messages.value.push({
     id: -Date.now(),
@@ -340,15 +381,19 @@ async function submitQuestion(content: string) {
     let conversationId = currentId.value
     if (!conversationId) {
       const { data } = await client.post<ChatConversation>('/api/chat/conversations', { title: '新对话' })
+      if (version !== viewVersion) return
       conversations.value.unshift(data)
       currentId.value = data.id
       currentOwner.value = auth.user?.username ?? ''
       conversationId = data.id
     }
+    live.conversationId = conversationId
     await nextTick()
-    scrollToBottom()
+    if (version !== viewVersion) return
+    maybeScroll()
     await streamAsk(conversationId, content, live)
   } catch (e) {
+    if (version !== viewVersion) return
     if (e instanceof StreamStopped) {
       // 用户主动停止:保留已生成的部分仅作本地展示,明确标注未保存
       stoppedContent.value = live.content
@@ -365,14 +410,16 @@ async function submitQuestion(content: string) {
       ElMessage.error(message)
     }
   } finally {
-    sending.value = false
-    stopRequested.value = false
-    stream.value = null
-    pendingText = ''
-    activeController = null
-    if (flushTimer) {
-      clearTimeout(flushTimer)
-      flushTimer = null
+    if (version === viewVersion) {
+      sending.value = false
+      stopRequested.value = false
+      stream.value = null
+      pendingText = ''
+      activeController = null
+      if (flushTimer) {
+        clearTimeout(flushTimer)
+        flushTimer = null
+      }
     }
   }
 }
@@ -486,6 +533,7 @@ function parseSseEvent(raw: string): StreamEvent | null {
 }
 
 function handleStreamEvent(event: StreamEvent, state: StreamState) {
+  if (stream.value !== state || state.conversationId !== currentId.value) return
   switch (event.type) {
     case 'user_message':
       if (!state.seenUser) {
@@ -494,11 +542,12 @@ function handleStreamEvent(event: StreamEvent, state: StreamState) {
         const index = messages.value.findIndex((row) => row.id < 0)
         if (index >= 0) messages.value.splice(index, 1, event.message)
         else messages.value.push(event.message)
-        void nextTick(() => scrollToBottom())
+        void nextTick(() => maybeScroll())
       }
       break
     case 'status':
       state.phase = event.text
+      void nextTick(() => maybeScroll())
       break
     case 'delta':
       queueText(event.text, state)
@@ -507,6 +556,7 @@ function handleStreamEvent(event: StreamEvent, state: StreamState) {
       // 上一轮文字被判定为工具调用前的铺垫,清空后继续展示最终回答
       pendingText = ''
       state.content = ''
+      void nextTick(() => maybeScroll())
       break
     case 'tool':
       state.tools.push(event.call)
@@ -524,7 +574,7 @@ function handleStreamEvent(event: StreamEvent, state: StreamState) {
       if (summary && event.title) summary.title = event.title
       stream.value = null
       state.done = true
-      void nextTick(() => scrollToBottom())
+      void nextTick(() => maybeScroll())
       break
     }
     case 'error':
@@ -548,17 +598,25 @@ function queueText(text: string, state: StreamState) {
 }
 
 function maybeScroll() {
+  if (followingLatest) scrollToBottom()
+}
+
+function onMessageScroll() {
   const el = scroller.value
   if (!el) return
-  // 用户上翻查看历史时不强行拉回底部
-  if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
-    el.scrollTop = el.scrollHeight
-  }
+  // 内容增长不代表用户上翻；只在滚动位置向上移动时暂停跟随。
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) followingLatest = true
+  else if (el.scrollTop < lastScrollTop) followingLatest = false
+  lastScrollTop = el.scrollTop
 }
 
 function scrollToBottom() {
   const el = scroller.value
-  if (el) el.scrollTop = el.scrollHeight
+  followingLatest = true
+  if (el) {
+    el.scrollTop = el.scrollHeight
+    lastScrollTop = el.scrollTop
+  }
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -656,11 +714,14 @@ async function saveSediment() {
 }
 
 watch(adminView, async () => {
+  leaveConversation()
   currentId.value = null
   messages.value = []
   await loadConversations()
   if (!adminView.value) void loadAiKeys()
 })
+
+onBeforeUnmount(leaveConversation)
 
 onMounted(async () => {
   await Promise.all([loadStatus(), loadConversations()])
@@ -691,7 +752,6 @@ onMounted(async () => {
   <div class="ops-page chat-page">
     <header class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">ASSISTANT / OPERATIONS DIALOGUE</div>
         <h1>AI 对话</h1>
         <p class="ops-page-description">
           交流运维问题、解读日志、梳理排查思路。只回答运维相关内容，不会执行任何命令或变更。
@@ -715,11 +775,12 @@ onMounted(async () => {
       show-icon
     />
 
-    <div class="chat-shell ops-panel">
+    <div class="chat-shell ops-panel" :class="{ 'has-history': historyExpanded }">
       <aside class="chat-list">
         <div class="chat-list-head">
           <span>会话</span>
           <span class="ops-section-caption">{{ filteredConversations.length }}</span>
+          <button type="button" class="chat-history-toggle" :aria-expanded="historyExpanded" aria-controls="chat-history-list" @click="historyExpanded = !historyExpanded">{{ historyExpanded ? '收起会话' : '切换会话' }}<AppIcon :name="historyExpanded ? 'chevron-up' : 'chevron-down'" :size="14" /></button>
         </div>
         <div class="chat-list-search">
           <el-input
@@ -730,7 +791,7 @@ onMounted(async () => {
             aria-label="搜索会话标题"
           />
         </div>
-        <div class="chat-list-scroll">
+        <div id="chat-history-list" class="chat-list-scroll">
           <div v-if="loading" class="chat-list-empty">加载中…</div>
           <div v-else-if="!filteredConversations.length" class="chat-list-empty">
             {{ listFilter ? '没有匹配的会话' : '暂无会话' }}
@@ -770,13 +831,14 @@ onMounted(async () => {
           <el-alert :title="error" type="error" :closable="false" show-icon />
         </div>
 
-        <div ref="scroller" class="chat-messages">
+        <div ref="scroller" class="chat-messages" @scroll="onMessageScroll">
           <div v-if="hasMore" class="chat-older">
             <el-button size="small" text :loading="loadingOlder" @click="loadOlder">
               加载更早消息（共 {{ totalMessages }} 条）
             </el-button>
           </div>
-          <div v-if="!messages.length" class="chat-empty">
+          <PageLoading v-if="loadingMessages" compact label="正在读取对话" />
+          <div v-else-if="!messages.length" class="chat-empty">
             <span class="ops-icon-tile"><AppIcon name="bot" :size="20" /></span>
             <h3>从运维问题开始</h3>
             <p>可以问：有哪些待解决问题、我的故障与待办、本系统案例/SOP、通用运维知识、日志含义、排查步骤、当前监控指标。</p>
@@ -886,9 +948,9 @@ onMounted(async () => {
             </div>
             <div class="chat-bubble">
               <MarkdownBody v-if="stream.content" :content="stream.content" />
-              <div v-else class="chat-stream-phase">
-                <span class="chat-typing"><i></i><i></i><i></i></span>
-                {{ stream.phase }}
+              <div v-else class="chat-waiting ops-context-energy">
+                <EnergyProgress compact label="等待 AI 回复" />
+                <span class="chat-stream-phase mt-2" role="status">{{ stream.phase }}</span>
               </div>
               <div v-if="stream.content" class="chat-stream-phase is-inline">
                 <span class="chat-phase-text">{{ stream.phase }}</span>
@@ -1018,7 +1080,11 @@ onMounted(async () => {
 .chat-page {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 640px;
+  overflow: hidden;
 }
+.chat-page > .ops-page-header, .chat-page > .el-alert { flex-shrink: 0; }
 .chat-toggle {
   display: inline-flex;
   align-items: center;
@@ -1030,8 +1096,9 @@ onMounted(async () => {
 .chat-shell {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
-  min-height: 620px;
-  height: calc(100vh - 220px);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .chat-list {
   display: flex;
@@ -1049,6 +1116,7 @@ onMounted(async () => {
   color: var(--ops-muted);
   font-size: 11px;
 }
+.chat-history-toggle { display: none; }
 .chat-list-scroll {
   flex: 1;
   min-height: 0;
@@ -1153,6 +1221,8 @@ onMounted(async () => {
   display: inline-flex;
 }
 .chat-main {
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1164,7 +1234,8 @@ onMounted(async () => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 22px;
+  padding: 28px;
+  overscroll-behavior: contain;
 }
 .chat-empty {
   max-width: 520px;
@@ -1241,17 +1312,19 @@ onMounted(async () => {
   color: var(--ops-muted);
 }
 .chat-bubble {
-  max-width: min(760px, 82%);
-  padding: 12px 14px;
+  min-width: 0;
+  max-width: min(760px, 88%);
+  padding: 16px 18px;
   border: 1px solid var(--ops-border-light);
   border-radius: var(--ops-radius-control);
   background: var(--ops-surface);
 }
 .chat-message.is-user .chat-bubble {
-  background: var(--ops-surface-warm);
+  border-color: var(--ops-brand-line);
+  background: var(--ops-brand-soft);
 }
 .chat-message.is-streaming .chat-bubble {
-  border-style: dashed;
+  border-left: 2px solid var(--ops-brand);
 }
 .chat-stream-phase {
   display: flex;
@@ -1270,36 +1343,8 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chat-typing {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.chat-typing i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--ops-brand);
-  animation: chat-blink 1.1s infinite ease-in-out;
-}
-.chat-typing i:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.chat-typing i:nth-child(3) {
-  animation-delay: 0.3s;
-}
-@keyframes chat-blink {
-  0%,
-  80%,
-  100% {
-    opacity: 0.25;
-    transform: translateY(0);
-  }
-  40% {
-    opacity: 1;
-    transform: translateY(-1px);
-  }
-}
+.chat-waiting { width: 320px; max-width: 100%; }
+.chat-message.is-streaming .chat-bubble { min-width: min(350px, 82%); }
 .chat-cursor {
   display: inline-block;
   width: 2px;
@@ -1391,7 +1436,8 @@ onMounted(async () => {
   font-size: 9px;
 }
 .chat-composer {
-  padding: 12px 16px;
+  flex-shrink: 0;
+  padding: 16px 20px;
   border-top: 1px solid var(--ops-border-light);
   background: var(--ops-surface-muted);
 }
@@ -1438,16 +1484,26 @@ onMounted(async () => {
 @media (max-width: 900px) {
   .chat-shell {
     grid-template-columns: 1fr;
-    height: auto;
+    grid-template-rows: 44px minmax(0, 1fr);
   }
+  .chat-shell.has-history { grid-template-rows: 260px minmax(0, 1fr); }
   .chat-list {
-    max-height: 300px;
     overflow: hidden;
     border-right: 0;
     border-bottom: 1px solid var(--ops-border-light);
   }
-  .chat-messages {
-    min-height: 360px;
-  }
+  .chat-list-head { height: 44px; flex-shrink: 0; padding: 0 12px; gap: 8px; }
+  .chat-list-head > .ops-section-caption { margin-right: auto; }
+  .chat-history-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px; border: 0; border-radius: 4px; color: var(--ops-brand); background: transparent; font-size: 12px; cursor: pointer; }
+  .chat-shell:not(.has-history) .chat-list-search, .chat-shell:not(.has-history) .chat-list-scroll, .chat-shell:not(.has-history) .chat-list-footer { display: none; }
+  .chat-list-footer { padding: 8px 12px; }
+  .chat-new-button { min-height: 36px; padding: 6px 12px; }
+  .chat-messages { min-height: 0; padding: 16px; }
+  .chat-composer { padding: 12px; }
+  .chat-composer-foot { align-items: flex-end; }
+  .chat-composer-left { flex-wrap: wrap; gap: 6px; }
+  .chat-composer-left .ops-section-caption { width: 100%; white-space: normal; }
+  .chat-bubble { max-width: 90%; padding: 12px; }
+  .chat-avatar { display: none; }
 }
 </style>

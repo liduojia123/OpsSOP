@@ -7,6 +7,7 @@ import { faultStatusMap, fmtTime } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import AiAssistantPanel from './AiAssistantPanel.vue'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
 import AuditTimeline from '../components/AuditTimeline.vue'
 import MetricChart from '../components/MetricChart.vue'
 import type { AiStatus, Category, FaultDetail, FaultMetrics, RecordKind } from '../types'
@@ -257,14 +258,13 @@ onMounted(async () => {
     <div class="ops-page-header fault-page-header">
       <div class="fault-page-title">
         <el-button text class="ops-back-link" @click="router.push('/faults')">← 返回故障列表</el-button>
-        <div class="ops-eyebrow">INCIDENT WORKSPACE <span v-if="fault">/ #{{ fault.id }}</span></div>
+        <div v-if="fault" class="ops-eyebrow">故障 #{{ fault.id }}</div>
         <div class="fault-title-line">
           <h1>{{ fault?.title ?? '加载中' }}</h1>
           <el-tag v-if="fault" size="small" :type="(faultStatusMap[fault.status].type as any)">
             {{ faultStatusMap[fault.status].label }}
           </el-tag>
         </div>
-        <p class="ops-page-description">保留原始证据，记录每一步排查，让结论有据可循。</p>
       </div>
       <div class="ops-page-actions fault-page-actions">
         <el-button v-if="fault" plain @click="askAi">
@@ -296,7 +296,6 @@ onMounted(async () => {
         <section class="ops-panel fault-evidence-panel">
           <div class="ops-section-header">
             <div class="fault-section-heading"><span class="section-icon"><AppIcon name="files" :size="18" /></span><div><h2>故障信息</h2><p>原始描述与现场证据</p></div></div>
-            <span class="section-kicker">EVIDENCE</span>
           </div>
           <el-form label-position="top" class="fault-evidence-form" :disabled="!canEdit">
             <el-form-item label="标题">
@@ -482,9 +481,7 @@ onMounted(async () => {
         @retry-status="loadAiStatus"
       />
       <aside v-else class="fault-assistant-placeholder">
-        <div class="page-card flex-1 flex items-center justify-center ops-text-muted">
-          加载中…
-        </div>
+        <PageLoading compact label="正在准备助手" />
       </aside>
     </div>
 
@@ -519,7 +516,7 @@ onMounted(async () => {
 
 <style scoped>
 .fault-detail-page { display: flex; flex-direction: column; gap: 22px; height: 100%; min-height: 0; overflow: hidden; }
-.fault-page-header { flex: 0 0 auto; align-items: flex-end; gap: 20px; }
+.fault-page-header { margin-bottom: 0; flex: 0 0 auto; align-items: flex-end; gap: 20px; }
 .fault-page-title { min-width: 0; }
 .fault-page-title .ops-back-link { margin: 0 0 10px -6px; }
 .fault-title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 7px; }
@@ -529,17 +526,17 @@ onMounted(async () => {
 .fault-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(350px, 400px); gap: 22px; flex: 1; min-height: 0; }
 .fault-evidence-column { display: flex; min-width: 0; flex-direction: column; gap: 20px; overflow: auto; padding-right: 3px; padding-bottom: 24px; }
 .fault-evidence-column > .ops-panel { flex-shrink: 0; padding: 24px; }
+.fault-evidence-column > .ops-panel > .ops-section-header { margin: -24px -24px 24px; }
 .fault-section-heading { display: flex; align-items: center; gap: 11px; }
 .fault-section-heading h2 { margin: 0; color: var(--ops-text); font-size: 15px; font-weight: 650; }
 .fault-section-heading p { margin: 3px 0 0; color: var(--ops-muted); font-size: 12px; }
 .section-icon { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
-.section-kicker { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 10px; font-weight: 600; letter-spacing: 1.5px; }
 .fault-evidence-form { margin-top: 22px; }
 .fault-evidence-form :deep(.el-form-item) { margin-bottom: 20px; }
 .fault-evidence-form :deep(.el-form-item__label) { margin-bottom: 8px; color: var(--ops-text); font-size: 12px; font-weight: 600; }
 .fault-properties-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; padding-top: 2px; }
 .fault-log-input :deep(textarea) { background: var(--ops-surface-warm); color: var(--ops-text-soft); font-family: var(--ops-font-mono); font-size: 12px; line-height: 1.8; }
-.record-count { color: var(--ops-muted); font-family: var(--ops-font-mono); font-size: 11px; white-space: nowrap; }
+.record-count { color: var(--ops-muted); font-family: var(--ops-font-mono); font-size: 12px; white-space: nowrap; }
 .record-timeline { margin: 20px 0; padding-left: 17px; border-left: 1px solid var(--ops-border); }
 .record-timeline-item { position: relative; padding: 0 0 22px 7px; }
 .record-timeline-item:last-child { padding-bottom: 0; }
@@ -553,7 +550,7 @@ onMounted(async () => {
 .confirmed-fields { margin-top: 22px; }
 .confirmed-fields > div { padding-bottom: 15px; border-bottom: 1px solid var(--ops-border-light); }
 .confirmed-fields > div:last-child { padding-bottom: 0; border: 0; }
-.confirmed-label { margin-bottom: 6px; color: var(--ops-muted); font-size: 11px; }
+.confirmed-label { margin-bottom: 6px; color: var(--ops-muted); font-size: 12px; }
 .confirmed-value { color: var(--ops-text); font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
 .confirmed-time { margin-top: 14px; font-family: var(--ops-font-mono); font-size: 10px; }
 .fault-assistant-placeholder { min-height: 0; }
@@ -563,9 +560,9 @@ onMounted(async () => {
 .fault-metrics-time { margin-left: auto; color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 10px; }
 .fault-metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 4px; }
 .fault-metric-card { padding: 12px 14px 10px; border: 1px solid var(--ops-border-light); border-radius: 4px; background: var(--ops-surface-warm); }
-.fault-metric-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--ops-text); font-size: 11px; font-weight: 600; }
+.fault-metric-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--ops-text); font-size: 12px; font-weight: 600; }
 .fault-metric-scope { color: var(--ops-warning, #b07d2b); font-size: 9px; font-weight: 500; }
-.fault-metric-empty { margin: 8px 0; color: var(--ops-faint); font-size: 11px; }
+.fault-metric-empty { margin: 8px 0; color: var(--ops-faint); font-size: 12px; }
 .fault-load-error { display: flex; flex-direction: column; gap: 16px; max-width: 760px; padding: 24px; }
 .fault-load-error-actions { display: flex; gap: 8px; }
 @media (min-width: 1500px) { .fault-workspace { grid-template-columns: minmax(0, 1fr) 420px; } }
@@ -573,7 +570,7 @@ onMounted(async () => {
   .fault-page-header { align-items: flex-start; flex-direction: column; }
   .fault-page-actions { justify-content: flex-start; }
   .fault-workspace { grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; }
-  .fault-evidence-column > .ops-panel { padding: 20px; }
+  .fault-evidence-column > .ops-panel { padding: 20px; } .fault-evidence-column > .ops-panel > .ops-section-header { margin: -20px -20px 20px; }
 }
 @media (max-width: 1020px) {
   .fault-detail-page { height: auto; overflow: visible; }
@@ -585,7 +582,6 @@ onMounted(async () => {
   .record-composer { flex-wrap: wrap; }
   .record-composer :deep(.el-textarea) { flex-basis: calc(100% - 125px); }
   .record-composer :deep(.el-button) { margin-left: auto; }
-  .section-kicker { display: none; }
   .fault-title-line h1 { font-size: 21px; }
 }
 </style>

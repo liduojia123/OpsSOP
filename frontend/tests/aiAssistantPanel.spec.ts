@@ -173,6 +173,22 @@ afterEach(() => {
 })
 
 describe('AiAssistantPanel(第二阶段审查修复回归)', () => {
+  it('分析期间自动显示不定进度能量条,完成后移除', async () => {
+    let resolve!: (value: unknown) => void
+    client.post.mockReturnValueOnce(new Promise(r => { resolve = r }))
+    const wrapper = mount(AiAssistantPanel, { props: makeProps(), global: globalCfg })
+    await drainMicrotasks()
+    const request = (wrapper.vm as any).analyze('manual')
+    await nextTick()
+    const loader = wrapper.get('[role="progressbar"]')
+    expect(loader.attributes('aria-label')).toBe('AI 分析中')
+    expect(loader.attributes('aria-valuenow')).toBeUndefined()
+    resolve({ data: analyzeResponse() })
+    await request
+    await nextTick()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('P1 #5:首次进入初始化无引用错误,并恢复已有分析历史', async () => {
     client.get.mockResolvedValueOnce({ data: [analysisRow({ id: 7 })] })
     const wrapper = mount(AiAssistantPanel, {

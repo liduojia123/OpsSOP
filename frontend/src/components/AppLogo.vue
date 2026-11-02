@@ -1,9 +1,9 @@
 <script setup lang="ts">
-defineProps<{ dark?: boolean }>()
+defineProps<{ dark?: boolean; iconOnly?: boolean }>()
 </script>
 
 <template>
-  <span class="ops-logo" :class="{ 'ops-logo-on-dark': dark }" role="img" aria-label="OpsSOP">
+  <span class="ops-logo" :class="{ 'ops-logo-on-dark': dark, 'ops-logo-icon': iconOnly }" role="img" aria-label="OpsSOP">
     <span class="ops-logo-art" aria-hidden="true"></span>
   </span>
 </template>
@@ -24,6 +24,8 @@ defineProps<{ dark?: boolean }>()
   --logo-ink: var(--ops-ink-on-dark, #f8f5eb);
   --logo-signal: var(--ops-brand-mark, #f16a3c);
 }
+.ops-logo-icon { width: var(--ops-logo-icon-size, 44px); aspect-ratio: 1; }
+.ops-logo-icon .ops-logo-art { width: 367.803%; left: -30.303%; }
 .ops-logo-art {
   position: absolute;
   /* Preserve the approved artwork; crop its transparent margin in the layout. */

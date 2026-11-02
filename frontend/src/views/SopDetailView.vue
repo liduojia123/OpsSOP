@@ -5,6 +5,7 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from '../components/AppIcon.vue'
+import PageLoading from '../components/PageLoading.vue'
 import AuditTimeline from '../components/AuditTimeline.vue'
 import { fmtTime, sopStatusMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
@@ -295,7 +296,7 @@ onMounted(async () => {
 
 <template>
   <div v-if="!sop" class="ops-page sop-detail-page">
-    <div v-if="loading" class="ops-text-muted">加载中…</div>
+    <PageLoading v-if="loading" label="正在读取 SOP" />
     <div v-else class="page-card max-w-3xl" data-testid="sop-detail-error">
       <el-alert
         :type="loadError?.kind === 'forbidden' || loadError?.kind === 'not-found' || loadError?.kind === 'invalid' ? 'warning' : 'error'"
@@ -320,7 +321,6 @@ onMounted(async () => {
     <div class="ops-page-header sop-page-header">
       <div class="sop-page-heading">
         <el-button text class="ops-back-link" @click="router.push('/sops')">← 返回 SOP 列表</el-button>
-        <div class="ops-eyebrow">STANDARD OPERATING PROCEDURE</div>
         <h1>{{ sop.title }}</h1>
         <div class="sop-title-tags">
         <el-tag size="small" effect="plain">v{{ sop.version }}</el-tag>
@@ -457,7 +457,7 @@ onMounted(async () => {
           </el-form-item>
         </el-form>
         <article v-if="!canEdit" class="sop-reading-document">
-          <header class="sop-document-intro"><span class="sop-document-mark"><AppIcon name="book" :size="23" /></span><div class="ops-eyebrow">OPERATIONS KNOWLEDGE</div><h2>{{ sop.title }}</h2><p>版本 v{{ sop.version }} <span>·</span> 维护人 {{ maintainerLabel(sop.maintainer_id) }}</p></header>
+          <header class="sop-document-intro"><span class="sop-document-mark"><AppIcon name="book" :size="23" /></span><h2>{{ sop.title }}</h2><p>版本 v{{ sop.version }} <span>·</span> 维护人 {{ maintainerLabel(sop.maintainer_id) }}</p></header>
           <section v-for="(section, index) in [
             { title: '适用环境及版本', content: sop.applicable_env },
             { title: '现象', content: sop.symptom },
@@ -579,13 +579,12 @@ onMounted(async () => {
 .sop-properties-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
 .sop-document-intro { padding-bottom: 26px; border-bottom: 1px solid var(--ops-border); }
 .sop-document-mark { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 22px; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
-.sop-document-intro .ops-eyebrow { font-size: 10px; letter-spacing: 1.5px; }
 .sop-document-intro h2 { margin: 9px 0 13px; color: var(--ops-text); font-size: 25px; font-weight: 650; line-height: 1.6; letter-spacing: -0.02em; }
 .sop-document-intro p { margin: 0; color: var(--ops-muted); font-size: 12px; }
 .sop-document-intro p span { margin: 0 9px; color: var(--ops-border-strong); }
 .sop-document-section { padding: 25px 0 0; }
 .sop-section-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.sop-section-heading > span { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 11px; }
+.sop-section-heading > span { color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 12px; }
 .sop-section-heading h3 { margin: 0; color: var(--ops-text); font-size: 14px; font-weight: 650; }
 .sop-document-text { color: var(--ops-text-soft); font-size: 14px; line-height: var(--ops-leading-reading); white-space: pre-wrap; overflow-wrap: anywhere; }
 .sop-metadata-column { display: grid; gap: 18px; }
@@ -598,10 +597,11 @@ onMounted(async () => {
 .sop-version-card { padding: 14px; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); font-size: 13px; cursor: pointer; transition: background-color var(--ops-duration-fast) var(--ops-ease-standard), border-color var(--ops-duration-fast) var(--ops-ease-standard); }
 .sop-version-card:hover { border-color: var(--ops-border-strong); background: var(--ops-surface-muted); }
 .sop-version-card.is-active { border-color: var(--ops-brand); background: var(--ops-brand-soft); box-shadow: inset 2px 0 var(--ops-brand); }
-.sop-review-panel { border-color: #eadcbb; background: #fffcf4; }
+.sop-review-panel { border-color: var(--ops-warning-line); background: var(--ops-warning-soft); }
 .sop-review-panel p { margin: 0 0 18px; color: #7a5410; font-size: 12px; line-height: 1.8; }
 .feedback-item { padding: 10px; border: 1px solid var(--ops-border-light); border-radius: var(--ops-radius-control); background: var(--ops-surface-muted); font-size: 12px; }
 .feedback-comment { margin-left: 8px; color: var(--ops-text-soft); }
+@media (min-width: 1181px) { .sop-metadata-column { position: sticky; top: 24px; } }
 @media (max-width: 1180px) {
   .sop-workspace { grid-template-columns: minmax(0, 1fr) 250px; gap: 18px; }
   .sop-document-panel { padding: 26px; }

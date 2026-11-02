@@ -125,7 +125,7 @@ def test_local_mode_untrusted_target_rejected_and_trusted_ignores_env_proxy(monk
     assert len(result.vectors) == 1
 
     cloud = build_embedding_adapter(
-        Settings(embedding_mode="cloud", embedding_base_url="https://emb.example.com/v1", embedding_model="m")
+        Settings(embedding_mode="cloud", embedding_base_url="https://emb.example.com/v1", embedding_model="m", local_only=False)
     )
     _FakeClient.response = _FakeResp(payload=_ok_payload(n=1))
     cloud.embed(["hello"])

@@ -1,8 +1,10 @@
-# OpsSOP 3.6.5 备份与恢复
+# OpsSOP 3.7.0 备份与恢复
 
 运维入口为 `backend/scripts/ops_cli.py`，在 Docker 引擎所在宿主环境执行，只依赖 Python 3.10+ 标准库及 Docker CLI。本文生产示例使用项目 `opssop-prod`、`.env.production` 和生产 Compose 覆盖；操作已有安装时使用其实际项目名与配置。
 
 归档通过容器内 PostgreSQL 工具及二进制文件复制传递，不通过 PowerShell 文本管道处理。备份目录、元信息和恢复报告保存在仓库外。
+
+平台备份与 CLI 备份均在只读事务中导出 PostgreSQL 快照，并让元信息查询与 `pg_dump --snapshot` 共享该时点。备份期间仍可提交业务修改；快照建立后的修改不计入此次业务数据归档，避免恢复核验因并发写入而误报不一致。备份失败或完成后会释放导出事务。
 
 ## 平台内置备份（日常）
 

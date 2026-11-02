@@ -338,23 +338,21 @@ onMounted(async () => {
   <div v-else class="ops-page">
     <header class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">WORKSPACE / 团队设置</div>
         <h1>系统管理</h1>
-        <p class="ops-page-description">管理团队访问、账号状态和知识分类，让协作保持有序。</p>
       </div>
       <span class="ops-chip"><AppIcon name="shield" :size="15" />管理员权限</span>
     </header>
 
-    <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-      <div class="ops-panel admin-stat">
+    <div class="admin-overview">
+      <div class="admin-stat">
         <div><p class="admin-stat-label">团队账号</p><p class="admin-stat-value">{{ users.length }}<span>位成员</span></p></div>
         <span class="ops-icon-tile"><AppIcon name="user" :size="21" /></span>
       </div>
-      <div class="ops-panel admin-stat">
+      <div class="admin-stat">
         <div><p class="admin-stat-label">启用账号</p><p class="admin-stat-value">{{ users.filter((u) => u.is_active).length }}<span>可访问工作区</span></p></div>
         <span class="ops-icon-tile"><AppIcon name="check" :size="21" /></span>
       </div>
-      <div class="ops-panel admin-stat">
+      <div class="admin-stat">
         <div><p class="admin-stat-label">知识分类</p><p class="admin-stat-value">{{ categories.length }}<span>个分类</span></p></div>
         <span class="ops-icon-tile is-warm"><AppIcon name="folder" :size="21" /></span>
       </div>
@@ -499,22 +497,25 @@ onMounted(async () => {
 .admin-denied p { margin: 0 0 10px; color: var(--ops-muted); font-size: 13px; line-height: 1.7; }
 .admin-member-avatar { overflow: hidden; }
 .admin-member-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.admin-stat { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
-.admin-stat-label { margin: 0; color: var(--ops-muted); font-size: 11px; }
-.admin-stat-value { margin: 8px 0 0; color: var(--ops-text); font-family: var(--ops-font-mono); font-size: 26px; font-weight: 500; letter-spacing: -1px; line-height: 1.2; }
-.admin-stat-value > span { margin-left: 8px; color: var(--ops-muted); font-family: var(--ops-font-body); font-size: 11px; font-weight: 400; letter-spacing: 0; }
+.admin-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 28px; overflow: hidden; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); background: var(--ops-surface); }
+.admin-stat + .admin-stat { border-left: 1px solid var(--ops-border-light); }
+.admin-stat { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px; }
+.admin-stat-label { margin: 0; color: var(--ops-muted); font-size: 12px; }
+.admin-stat-value { margin: 8px 0 0; color: var(--ops-text); font-family: var(--ops-font-mono); font-size: 36px; font-weight: 500; letter-spacing: -1px; line-height: 1.2; }
+.admin-stat-value > span { margin-left: 8px; color: var(--ops-muted); font-family: var(--ops-font-body); font-size: 12px; font-weight: 400; letter-spacing: 0; }
 .admin-member { display: flex; align-items: center; gap: 12px; padding: 4px 0; min-width: 0; }
 .admin-member-name { color: var(--ops-text); font-weight: 600; }
 .admin-category-name { display: flex; align-items: center; gap: 10px; padding: 4px 0; color: var(--ops-text); font-weight: 550; }
 .admin-category-name > svg { color: var(--ops-brand); }
 .admin-audit-filter, .admin-user-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.admin-audit-filter { margin-bottom: 16px; }
+.admin-audit-filter { padding: 16px 24px; border-bottom: 1px solid var(--ops-border-light); background: var(--ops-surface-muted); }
 .admin-audit-filter > .el-input, .admin-audit-filter > .el-select, .admin-user-tools > .el-input { width: 200px; }
-.admin-audit-pages { display: flex; justify-content: flex-end; margin-top: 16px; }
+.admin-audit-pages { display: flex; gap: 8px; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid var(--ops-border-light); }
 .admin-audit-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
 .admin-backup-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 20px; padding: 16px 20px; border-bottom: 1px solid var(--ops-border-light); background: var(--ops-surface-muted); }
 .admin-backup-summary > div { min-width: 0; }
-.admin-backup-summary span { display: block; margin-bottom: 4px; color: var(--ops-muted); font-size: 11px; }
+.admin-backup-summary span { display: block; margin-bottom: 4px; color: var(--ops-muted); font-size: 12px; }
 .admin-backup-summary strong, .admin-backup-summary code { color: var(--ops-text-soft); font-family: var(--ops-font-mono); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
 .admin-backup-name { color: var(--ops-text); font-family: var(--ops-font-mono); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .admin-overview { grid-template-columns: 1fr; } .admin-stat + .admin-stat { border-left: 0; border-top: 1px solid var(--ops-border-light); } .admin-stat { padding: 20px; } .admin-user-tools { width: 100%; } .admin-user-tools > .el-input { flex: 1; width: 0; min-width: 120px; } .admin-audit-filter { padding: 16px; } .admin-audit-filter > * { min-width: 0; max-width: 100%; } }
 </style>

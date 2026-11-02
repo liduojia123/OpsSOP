@@ -1,6 +1,7 @@
 """第四阶段第三批:备份/恢复工具的失败边界与安全校验(不依赖真实 Docker)。"""
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,22 @@ class FakeStack:
         self.fail_restore = fail_restore
         self.cancel_restore = cancel_restore
         self.copied = None
+        self.snapshot_open = False
+        self.snapshot_queries = []
+        self.dump_snapshot = None
 
-    def psql_json(self, sql, database=None):
+    @contextmanager
+    def export_snapshot(self):
+        self.snapshot_open = True
+        try:
+            yield "00000003-0000001B-1"
+        finally:
+            self.snapshot_open = False
+
+    def psql_json(self, sql, database=None, snapshot_id=None):
+        if snapshot_id:
+            assert self.snapshot_open
+            self.snapshot_queries.append(snapshot_id)
         text = sql.lower()
         if "current_database" in text:
             return {
@@ -56,7 +71,10 @@ class FakeStack:
             "demo_seed_records": 0,
         }
 
-    def pg_dump_to_container(self, path):
+    def pg_dump_to_container(self, path, snapshot_id=None):
+        self.dump_snapshot = snapshot_id
+        if snapshot_id:
+            assert self.snapshot_open
         self.container_path = path
         return path
 
@@ -115,6 +133,9 @@ def test_backup_writes_archive_and_metadata_and_refuses_overwrite(tmp_path):
     archive = tmp_path / "backup.dump"
     metadata = tmp_path / "backup.json"
     assert result["success"] is True
+    assert stack.dump_snapshot == "00000003-0000001B-1"
+    assert stack.snapshot_queries and set(stack.snapshot_queries) == {stack.dump_snapshot}
+    assert stack.snapshot_open is False
     assert archive.exists() and metadata.exists()
     meta = json.loads(metadata.read_text(encoding="utf-8"))
     assert meta["format"] == "pg_dump-Fc"
@@ -149,7 +170,7 @@ def test_backup_with_space_and_chinese_path(tmp_path):
 
 def test_backup_cancellation_does_not_leave_valid_output(tmp_path):
     class CancelStack(FakeStack):
-        def pg_dump_to_container(self, path):
+        def pg_dump_to_container(self, path, snapshot_id=None):
             raise KeyboardInterrupt("synthetic backup cancel")
 
     with pytest.raises(OpsCancelled):

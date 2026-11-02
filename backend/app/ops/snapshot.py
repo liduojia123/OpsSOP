@@ -77,11 +77,15 @@ def _canonical_digest(value) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def take_snapshot(stack: ComposeStack, *, database: str | None = None) -> dict:
+def take_snapshot(stack: ComposeStack, *, database: str | None = None,
+                  snapshot_id: str | None = None) -> dict:
     """采集当前数据库的可核对快照;失败即抛 OpsError,不返回半成品。"""
-    counts = stack.psql_json(_counts_sql(), database=database)
-    statuses = stack.psql_json(_status_sql(), database=database)
-    business = stack.psql_json(_business_sql(), database=database)
+    options = {"database": database}
+    if snapshot_id is not None:
+        options["snapshot_id"] = snapshot_id
+    counts = stack.psql_json(_counts_sql(), **options)
+    statuses = stack.psql_json(_status_sql(), **options)
+    business = stack.psql_json(_business_sql(), **options)
     meta = stack.psql_json(
         """
         SELECT json_build_object(
@@ -91,7 +95,7 @@ def take_snapshot(stack: ComposeStack, *, database: str | None = None) -> dict:
           'vector_version', (SELECT extversion FROM pg_extension WHERE extname='vector')
         )::text
         """,
-        database=database,
+        **options,
     )
     for key in ("database", "alembic_version"):
         if not meta.get(key):

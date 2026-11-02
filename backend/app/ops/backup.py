@@ -80,18 +80,20 @@ def run_backup(
         "error": None,
     }
     try:
-        source_snapshot = take_snapshot(stack)
-        db_info = stack.psql_json(
-            """
-            SELECT json_build_object(
-              'database', current_database(),
-              'server_version', current_setting('server_version'),
-              'alembic_version', (SELECT version_num FROM alembic_version),
-              'vector_version', (SELECT extversion FROM pg_extension WHERE extname='vector')
-            )::text
-            """
-        )
-        stack.pg_dump_to_container(container_path)
+        with stack.export_snapshot() as snapshot_id:
+            source_snapshot = take_snapshot(stack, snapshot_id=snapshot_id)
+            db_info = stack.psql_json(
+                """
+                SELECT json_build_object(
+                  'database', current_database(),
+                  'server_version', current_setting('server_version'),
+                  'alembic_version', (SELECT version_num FROM alembic_version),
+                  'vector_version', (SELECT extversion FROM pg_extension WHERE extname='vector')
+                )::text
+                """,
+                snapshot_id=snapshot_id,
+            )
+            stack.pg_dump_to_container(container_path, snapshot_id=snapshot_id)
         # 归档必须先能被 pg_restore 读取,才允许落盘为正式备份
         stack.pg_restore_list(container_path)
         stack.copy_from_container(container_path, archive_tmp)

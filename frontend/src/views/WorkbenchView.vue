@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
+import EnergyProgress from '../components/EnergyProgress.vue'
 import client, { errMsg } from '../api'
 import { caseStatusMap, faultStatusMap, fmtTime, sopStatusMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
@@ -12,10 +13,10 @@ const loading = ref(true)
 const loadError = ref('')
 
 const metrics = computed(() => [
-  { label: '我的待处理故障', value: wb.value?.my_open_faults.length ?? 0, icon: 'activity', note: '需要继续跟进', tone: 'default' },
-  { label: '待审核案例', value: wb.value?.pending_case_reviews.length ?? 0, icon: 'files', note: '等待知识审核', tone: 'warning' },
-  { label: '待审核 SOP', value: wb.value?.pending_sop_reviews.length ?? 0, icon: 'clock', note: '等待发布确认', tone: 'warning' },
-  { label: '有效 SOP', value: wb.value?.published_sop_count ?? 0, icon: 'book', note: '当前有效版本', tone: 'brand' },
+  { label: '我的待处理故障', value: wb.value?.my_open_faults.length ?? 0, icon: 'activity', path: '/faults', tone: 'default' },
+  { label: '待审核案例', value: wb.value?.pending_case_reviews.length ?? 0, icon: 'files', path: '/cases', tone: 'warning' },
+  { label: '待审核 SOP', value: wb.value?.pending_sop_reviews.length ?? 0, icon: 'clock', path: '/sops', tone: 'warning' },
+  { label: '有效 SOP', value: wb.value?.published_sop_count ?? 0, icon: 'book', path: '/sops', tone: 'brand' },
 ])
 
 const reviewCount = computed(() => (wb.value?.pending_case_reviews.length ?? 0) + (wb.value?.pending_sop_reviews.length ?? 0))
@@ -42,14 +43,7 @@ onMounted(loadWorkbench)
   <div class="ops-page ops-dashboard">
     <div class="ops-page-header">
       <div>
-        <div class="ops-eyebrow">OPSSOP / OPERATIONS MEMORY</div>
-        <h1 aria-label="工作台">故障有解。<br />经验有迹<span class="signal-cursor">_</span></h1>
-        <p class="ops-page-description">记录现场，确认根因，让一次解决成为下一次的起点。</p>
-      </div>
-      <div class="signal-art" aria-hidden="true">
-        <span class="signal-art-label">THE KNOWLEDGE LOOP</span>
-        <svg viewBox="0 0 300 150" fill="none"><ellipse cx="150" cy="75" rx="125" ry="38" transform="rotate(-25 150 75)"/><ellipse cx="150" cy="75" rx="125" ry="38" transform="rotate(25 150 75)"/><path d="M25 75h250M150 15v120" stroke-dasharray="2 7"/><circle cx="150" cy="75" r="23"/><circle cx="40" cy="103" r="5" class="signal-node"/><circle cx="258" cy="46" r="5" class="signal-node"/></svg>
-        <span class="signal-art-caption">OBSERVE / RESOLVE / REMEMBER</span>
+        <h1>工作台</h1>
       </div>
       <router-link v-if="auth.role !== 'reviewer'" to="/faults" class="ops-dashboard-primary">
         <AppIcon name="activity" :size="16" /><span>处理故障</span><AppIcon name="arrow-right" :size="16" />
@@ -59,7 +53,14 @@ onMounted(loadWorkbench)
       </router-link>
     </div>
 
+    <nav class="ops-flow-strip" aria-label="知识工作流程">
+      <router-link v-for="(step, i) in [{ title: '记录现场', note: '故障处理', path: '/faults', icon: 'activity' }, { title: '确认经验', note: '案例归档', path: '/cases', icon: 'files' }, { title: '沉淀标准', note: 'SOP 知识库', path: '/sops', icon: 'book' }, { title: '再次复用', note: '知识搜索', path: '/search', icon: 'search' }]" :key="step.path" :to="step.path">
+        <span class="ops-flow-number">0{{ i + 1 }}</span><AppIcon :name="step.icon" :size="18" /><span><strong>{{ step.title }}</strong><small>{{ step.note }}</small></span><AppIcon name="arrow-right" :size="14" class="ops-flow-arrow" />
+      </router-link>
+    </nav>
+
     <div v-if="loading" class="ops-dashboard-loading" aria-label="正在加载工作台" role="status">
+      <EnergyProgress class="ops-dashboard-energy" label="正在加载工作台" subtitle="正在读取故障与知识更新" />
       <div v-for="item in 4" :key="item" class="ops-metric-skeleton"><span></span><strong></strong><small></small></div>
     </div>
     <div v-else-if="loadError" class="ops-panel">
@@ -69,17 +70,18 @@ onMounted(loadWorkbench)
 
     <template v-else-if="wb">
       <div class="ops-metric-grid">
-        <div
+        <router-link
           v-for="(metric, index) in metrics"
           :key="metric.label"
+          :to="metric.path"
           class="ops-metric-card ops-reveal"
           :class="'is-' + metric.tone"
           :style="{ '--ops-order': index }"
         >
           <div class="ops-metric-top"><span>{{ metric.label }}</span><AppIcon :name="metric.icon" :size="18" /></div>
           <strong>{{ metric.value }}</strong>
-          <div class="ops-metric-note"><span class="ops-metric-dot"></span>{{ metric.note }}</div>
-        </div>
+          <AppIcon name="arrow-up-right" :size="16" class="ops-metric-arrow" />
+        </router-link>
       </div>
 
       <div class="ops-dashboard-grid">
@@ -105,7 +107,6 @@ onMounted(loadWorkbench)
         <section class="ops-panel ops-dashboard-panel is-review ops-reveal" style="--ops-order: 1; --ops-delay: 40ms">
           <div class="ops-section-header">
             <div class="ops-dashboard-section-title"><AppIcon name="shield" :size="18" /><h2>待审核任务</h2><span class="ops-count">{{ reviewCount }}</span></div>
-            <span class="ops-panel-caption">确认后成为团队知识</span>
           </div>
           <div v-if="reviewCount === 0" class="ops-empty">
             <AppIcon name="check-circle" :size="22" />
@@ -183,42 +184,42 @@ onMounted(loadWorkbench)
 </template>
 
 <style scoped>
-.ops-dashboard { max-width: 1600px; margin: 0 auto; }
-.ops-dashboard .ops-page-header { display: block; position: relative; min-height: 245px; padding: 30px 34px; margin-bottom: 0; overflow: hidden; border-radius: var(--ops-radius-panel) var(--ops-radius-panel) 0 0; background: var(--ops-hero); color: #f5f0e3; }
-.ops-dashboard .ops-page-header::after { content: ''; position: absolute; top: 0; right: 0; width: 11px; height: 100%; background: var(--ops-signal-stripe); }
-.ops-dashboard .ops-page-header .ops-eyebrow { color: #b3aba0; font-size: 10px; letter-spacing: 2.4px; }
-.ops-dashboard .ops-page-header h1 { max-width: 620px; margin: 16px 0 12px; color: #fbf7ed; font-size: 44px; font-weight: 700; line-height: 1.17; letter-spacing: -2px; }
-.ops-dashboard .ops-page-header .ops-page-description { max-width: 520px; color: #aaa8a1; font-size: 12px; line-height: 1.8; }
-.signal-cursor { color: var(--ops-brand-mark); }
-.signal-art { position: absolute; top: 25px; right: 44px; width: 270px; pointer-events: none; }
-.signal-art svg { width: 270px; height: 135px; stroke: #686865; stroke-width: 1; }
-.signal-art svg circle:not(.signal-node) { fill: var(--ops-brand-mark); stroke: var(--ops-brand-mark); }
-.signal-art .signal-node { fill: #f4e7c7; stroke: #f4e7c7; animation: ops-node-drift 11s var(--ops-ease-standard) infinite alternate; }
-.signal-art .signal-node:nth-of-type(2) { animation-delay: -4.5s; }
-@keyframes ops-node-drift { from { transform: translate(0, 0); } to { transform: translate(2px, -2px); } }
-.signal-art-label { display: block; color: #d3c5a9; font-family: var(--ops-font-mono); font-size: 9px; letter-spacing: 2.5px; text-align: center; }
-.signal-art-caption { display: block; margin-top: -8px; color: #94938e; font-family: var(--ops-font-mono); font-size: 8px; letter-spacing: 1.2px; text-align: center; }
-.ops-dashboard-primary { position: absolute; right: 44px; bottom: 25px; display: inline-flex; align-items: center; gap: 9px; min-height: 34px; padding: 0 14px; border: 1px solid #f0e9d8; border-radius: 3px; background: #f0e9d8; color: #27282b; font-size: 12px; text-decoration: none; transition: background-color var(--ops-duration-fast) var(--ops-ease-standard), border-color var(--ops-duration-fast) var(--ops-ease-standard), color var(--ops-duration-fast) var(--ops-ease-standard); }
-.ops-dashboard-primary:hover { border-color: #fff9eb; background: #fff9eb; color: var(--ops-brand); }
-.ops-dashboard-primary > svg:last-child { transition: transform var(--ops-duration-base) var(--ops-ease-out); }
-.ops-dashboard-primary:hover > svg:last-child { transform: translateX(3px); }
-
-.ops-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 26px; overflow: hidden; border: 1px solid #d7d2c5; border-top: 0; border-radius: 0 0 var(--ops-radius-panel) var(--ops-radius-panel); }
-.ops-metric-card { padding: 20px 24px 17px; border-right: 1px solid var(--ops-border); background: var(--ops-surface); }
+.ops-dashboard { max-width: 1550px; }
+.ops-dashboard .ops-page-header { align-items: center; padding: 0 0 24px; margin-bottom: 24px; }
+.ops-dashboard .ops-page-header h1 { font-size: var(--ops-text-title); letter-spacing: -1px; margin: 0; }
+.ops-dashboard-primary { display: inline-flex; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 8px; background: var(--ops-brand); color: white; text-decoration: none; font-size: 13px; transition: background .2s, transform .2s; }
+.ops-dashboard-primary:hover { background: var(--ops-brand-hover); transform: translateY(-2px); }
+.ops-flow-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 25px; border: 1px solid var(--ops-border); border-radius: 12px; background: white; overflow: hidden; }
+.ops-flow-strip > a { position: relative; display: flex; align-items: center; gap: 13px; min-width: 0; padding: 19px 22px; color: var(--ops-text-soft); text-decoration: none; border-right: 1px solid var(--ops-border-light); transition: background .2s; }
+.ops-flow-strip > a:last-child { border-right: 0; }
+.ops-flow-strip > a::before { content: ''; position: absolute; bottom: 7px; left: 22px; right: 22px; height: 1px; background: linear-gradient(90deg, transparent 0 35%, var(--ops-brand) 45% 53%, transparent 65%); background-size: 300% 100%; opacity: .4; animation: ops-flow-packet 6s linear infinite; }
+.ops-flow-strip > a:nth-child(2)::before { animation-delay: -4.5s; }
+.ops-flow-strip > a:nth-child(3)::before { animation-delay: -3s; }
+.ops-flow-strip > a:nth-child(4)::before { animation-delay: -1.5s; }
+@keyframes ops-flow-packet { from { background-position: 150% 0; } to { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) { .ops-flow-strip > a::before { animation: none; } }
+.ops-flow-strip > a::after { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: var(--ops-brand); transform: scaleX(0); transform-origin: left; transition: transform .3s; }
+.ops-flow-strip > a:hover { background: var(--ops-surface-muted); }
+.ops-flow-strip > a:hover::after { transform: scaleX(1); }
+.ops-flow-number { align-self: flex-start; font: 10px var(--ops-font-mono); color: var(--ops-faint); }
+.ops-flow-strip strong, .ops-flow-strip small { display: block; }
+.ops-flow-strip strong { font-size: 12px; font-weight: 600; }
+.ops-flow-strip small { margin-top: 5px; font-size: 10px; color: var(--ops-muted); }
+.ops-flow-arrow { margin-left: auto; color: var(--ops-faint); }
+.ops-metric-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; margin-bottom: 24px; overflow: hidden; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); background: var(--ops-surface); }
+.ops-metric-card { position: relative; min-width: 0; padding: 24px; border-right: 1px solid var(--ops-border-light); color: var(--ops-text); text-decoration: none; transition: background var(--ops-duration-fast); }
 .ops-metric-card:last-child { border-right: 0; }
-.ops-metric-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--ops-metric-label); font-size: 11px; }
-.ops-metric-top > svg { color: #8b8578; }
-.ops-metric-card > strong { display: block; margin: 15px 0 8px; color: var(--ops-metric-ink); font-family: var(--ops-font-mono); font-size: 54px; font-weight: 500; line-height: 1; letter-spacing: -4px; font-variant-numeric: tabular-nums; }
-.ops-metric-note { display: flex; align-items: center; gap: 6px; color: var(--ops-metric-note); font-size: 9px; line-height: 1.6; }
-.ops-metric-dot { width: 4px; height: 4px; border-radius: 50%; background: #b3a98f; }
-.ops-metric-card.is-warning .ops-metric-dot { background: #c59a4d; }
-.ops-metric-card.is-brand { background: #ede9df; }
-.ops-metric-card.is-brand > strong { color: var(--ops-brand-ink); }
-.ops-metric-card.is-brand .ops-metric-dot { background: var(--ops-brand-ink); }
-
-.ops-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); grid-template-areas: "sops review" "sops faults" "categories categories"; gap: 22px; }
+.ops-metric-arrow { position: absolute; right: 24px; bottom: 28px; color: var(--ops-faint); transition: color .2s, transform .2s; }
+.ops-metric-card:hover .ops-metric-arrow { color: var(--ops-brand); transform: translate(2px, -2px); }
+.ops-metric-card:hover { background: var(--ops-brand-soft); }
+.ops-metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ops-metric-label); font-size: 12px; }
+.ops-metric-top > svg { color: var(--ops-faint); }
+.ops-metric-card > strong { display: block; margin: 24px 0 0; font: 500 42px/1 var(--ops-font-mono); letter-spacing: -2px; color: var(--ops-text); }
+.ops-metric-card.is-brand { background: var(--ops-brand-soft); }
+.ops-metric-card.is-brand > strong { color: var(--ops-brand); }
+.ops-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); grid-template-areas: "faults review" "sops categories"; gap: 22px; }
 .is-sops { grid-area: sops; }
-.is-sops .ops-section-header { border-bottom-color: #ded7c9; background: var(--ops-paper-band); }
+.is-sops .ops-section-header { border-bottom-color: var(--ops-border); background: var(--ops-paper-band); }
 .is-review { grid-area: review; }
 .is-faults { grid-area: faults; }
 .is-categories { grid-area: categories; }
@@ -234,20 +235,20 @@ onMounted(loadWorkbench)
 
 .ops-sop-list { max-height: 470px; overflow-y: auto; counter-reset: knowledge; }
 .ops-sop-row { display: flex; align-items: center; gap: 14px; min-height: 90px; padding: 15px 22px; border-bottom: 1px solid var(--ops-border-light); color: var(--ops-text); text-decoration: none; }
-.ops-sop-row::before { content: counter(knowledge, decimal-leading-zero); counter-increment: knowledge; flex-shrink: 0; color: #b4a78f; font-family: var(--ops-font-mono); font-size: 12px; }
+.ops-sop-row::before { content: counter(knowledge, decimal-leading-zero); counter-increment: knowledge; flex-shrink: 0; color: var(--ops-faint); font-family: var(--ops-font-mono); font-size: 12px; }
 .ops-sop-row:last-child, .ops-work-row:last-child, .ops-review-row:last-child { border-bottom: 0; }
-.ops-document-icon { display: grid; place-items: center; width: 24px; flex-shrink: 0; color: #a36344; }
+.ops-document-icon { display: grid; place-items: center; width: 24px; flex-shrink: 0; color: var(--ops-brand); }
 .ops-work-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 7px; }
 .ops-work-copy > strong { overflow: hidden; color: var(--ops-text); font-size: 13px; font-weight: 550; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
-.ops-work-copy > span { overflow: hidden; color: #9a9283; font-family: var(--ops-font-mono); font-size: 10px; line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
+.ops-work-copy > span { overflow: hidden; color: var(--ops-muted); font-family: var(--ops-font-mono); font-size: 10px; line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
 .ops-work-copy i { margin: 0 7px; font-style: normal; }
-.ops-version-label { flex-shrink: 0; padding: 3px 6px; border: 1px solid #ded7c9; border-radius: 3px; background: #efebe1; color: #81735d; font-family: var(--ops-font-mono); font-size: 10px; line-height: 1.4; }
+.ops-version-label { flex-shrink: 0; padding: 3px 6px; border: 1px solid var(--ops-border); border-radius: 3px; background: var(--ops-surface-muted); color: var(--ops-muted); font-family: var(--ops-font-mono); font-size: 10px; line-height: 1.4; }
 .ops-row-arrow { flex-shrink: 0; color: var(--ops-faint); }
 
 .ops-review-list { max-height: 330px; overflow-y: auto; }
 .ops-review-row { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 8px 10px; min-height: 76px; padding: 14px 20px; border-bottom: 1px solid var(--ops-border-light); text-decoration: none; }
 .ops-review-row > strong { overflow: hidden; color: var(--ops-text); font-size: 12px; font-weight: 550; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
-.ops-review-kind { display: inline-flex; align-items: center; gap: 5px; width: max-content; color: #99846b; font-size: 10px; }
+.ops-review-kind { display: inline-flex; align-items: center; gap: 5px; width: max-content; color: var(--ops-muted); font-size: 10px; }
 .ops-review-state { display: flex; grid-column: 2; align-items: center; justify-content: space-between; color: var(--ops-warning); font-size: 10px; }
 .ops-review-state > svg { color: var(--ops-faint); }
 
@@ -255,11 +256,11 @@ onMounted(loadWorkbench)
 .ops-work-row { display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 14px 20px; border-bottom: 1px solid var(--ops-border-light); color: var(--ops-text); text-decoration: none; }
 .ops-work-symbol { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--ops-brand-line); border-radius: 5px; background: var(--ops-brand-soft); color: var(--ops-brand); }
 
-.ops-category-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; max-height: 330px; padding: 20px 22px; overflow-y: auto; }
+.ops-category-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; max-height: 330px; padding: 20px 22px; overflow-y: auto; }
 .ops-category-label { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 8px; color: var(--ops-metric-label); font-size: 11px; }
 .ops-category-label > strong { color: var(--ops-metric-label); font-family: var(--ops-font-mono); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.ops-category-track { height: 3px; overflow: hidden; border-radius: 0; background: #e5e0d6; }
-.ops-category-track > span { display: block; height: 100%; background: #c76540; transition: width var(--ops-duration-panel) var(--ops-ease-out); }
+.ops-category-track { height: 3px; overflow: hidden; border-radius: 0; background: var(--ops-border-light); }
+.ops-category-track > span { display: block; height: 100%; background: var(--ops-brand); transition: width var(--ops-duration-panel) var(--ops-ease-out); }
 
 .ops-returned-panel { margin-top: 22px; padding: 0; border-color: var(--ops-warm-line); }
 .ops-returned-panel .ops-dashboard-section-title > svg { color: var(--ops-warning); }
@@ -267,55 +268,17 @@ onMounted(loadWorkbench)
 .ops-returned-row:last-child { border-bottom: 0; }
 .ops-returned-row > div { flex: 1; min-width: 0; }
 .ops-returned-row strong { font-size: 12px; font-weight: 550; }
-.ops-returned-row p { margin: 5px 0 0; color: #968365; font-size: 11px; line-height: 1.6; }
+.ops-returned-row p { margin: 5px 0 0; color: var(--ops-muted); font-size: 11px; line-height: 1.6; }
 
-.ops-dashboard-loading { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.ops-dashboard-loading { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.ops-dashboard-energy { grid-column: 1 / -1; max-width: 560px; margin: 0 auto 8px; }
 .ops-metric-skeleton { display: flex; flex-direction: column; gap: 16px; min-height: 153px; padding: 22px; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); background: var(--ops-surface); }
-.ops-metric-skeleton > span, .ops-metric-skeleton > strong, .ops-metric-skeleton > small { display: block; width: 65%; height: 11px; border-radius: 3px; background: var(--ops-subtle); }
+.ops-metric-skeleton > span, .ops-metric-skeleton > strong, .ops-metric-skeleton > small { display: block; width: 65%; height: 11px; border-radius: 3px; background: var(--ops-surface-warm); }
 .ops-metric-skeleton > strong { width: 35%; height: 30px; }
 .ops-metric-skeleton > small { width: 48%; height: 8px; }
 
-@media (max-width: 1200px) {
-  .ops-dashboard .ops-page-header h1 { font-size: 40px; }
-  .ops-metric-card { padding: 18px; }
-  .ops-metric-card > strong { font-size: 46px; letter-spacing: -3px; }
-  .ops-dashboard-grid { gap: 18px; }
-  .ops-panel-caption { display: none; }
-  .ops-category-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-}
-@media (max-width: 1050px) {
-  .ops-metric-grid, .ops-dashboard-loading { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; overflow: visible; border: 0; }
-  .ops-metric-card { border: 1px solid var(--ops-border); border-radius: var(--ops-radius-panel); }
-  .ops-metric-grid { border: 0; }
-  .ops-metric-skeleton { min-height: 132px; }
-  .ops-dashboard-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "sops" "review" "faults" "categories"; gap: 18px; }
-  .ops-category-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 760px) {
-  .signal-art { display: none; }
-  .ops-dashboard .ops-page-header { min-height: 275px; padding: 25px; }
-  .ops-dashboard .ops-page-header h1 { font-size: 36px; letter-spacing: -1.6px; }
-  .ops-dashboard-primary { right: 25px; bottom: 20px; }
-  .ops-dashboard-panel .ops-section-header { padding: 14px 16px; gap: 10px; }
-  .ops-sop-row, .ops-work-row, .ops-review-row, .ops-returned-row { padding: 13px 16px; }
-  .ops-sop-row { min-height: 82px; gap: 10px; }
-  .ops-sop-row::before { display: none; }
-  .ops-document-icon { display: none; }
-}
-@media (max-width: 560px) {
-  .ops-dashboard .ops-page-header { padding: 22px 20px; }
-  .ops-dashboard .ops-page-header h1 { font-size: 31px; }
-  .ops-metric-card { padding: 16px; }
-  .ops-metric-top { align-items: flex-start; font-size: 11px; }
-  .ops-metric-top > svg { display: none; }
-  .ops-metric-card > strong { font-size: 42px; }
-  .ops-metric-note { font-size: 9px; }
-  .ops-work-symbol, .ops-row-arrow { display: none; }
-  .ops-work-copy > strong { white-space: normal; }
-  .ops-category-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 16px; }
-}
+
+@media (max-width: 1200px) { .ops-flow-strip > a { padding: 16px 13px; gap: 9px; } .ops-flow-number { display: none; } .ops-panel-caption { display: none; } }
+@media (max-width: 1050px) { .ops-metric-grid, .ops-dashboard-loading { grid-template-columns: repeat(2,minmax(0,1fr)); } .ops-dashboard-grid { grid-template-columns: minmax(0,1fr); grid-template-areas: "faults" "review" "sops" "categories"; } }
+@media (max-width: 600px) { .ops-dashboard .ops-page-header { align-items: flex-start; flex-direction: column; gap: 18px; } .ops-dashboard .ops-page-header h1 { font-size: 32px; } .ops-flow-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .ops-flow-strip > a { border-bottom: 1px solid var(--ops-border-light); } .ops-metric-grid { gap: 0; } .ops-metric-card:nth-child(-n+2) { border-bottom: 1px solid var(--ops-border-light); } .ops-metric-card { padding: 18px 14px; } .ops-metric-top { font-size: 11px; } .ops-metric-card > strong { font-size: 32px; } .ops-section-header { flex-wrap: wrap; } .ops-work-row { gap: 8px; padding: 14px; } .ops-work-symbol, .ops-document-icon { display: none; } .ops-sop-row { padding: 14px; gap: 10px; } }
 </style>
-
-
-
-
