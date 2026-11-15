@@ -9,6 +9,7 @@ import ProfileDialog from '../components/ProfileDialog.vue'
 import SignalBackdrop from '../components/SignalBackdrop.vue'
 import FeedbackPreview from '../components/FeedbackPreview.vue'
 import client, { errMsg } from '../api'
+import { currentTheme, themeLabel, toggleTheme } from '../theme'
 import { useAuthStore } from '../stores/auth'
 import { roleMap } from '../labels'
 import type { AiStatus, User } from '../types'
@@ -102,6 +103,7 @@ const userInitial = computed(() => auth.user?.display_name?.trim().slice(0, 1) |
 const accountSubtitle = computed(
   () => auth.user?.signature?.trim() || (auth.user ? roleMap[auth.user.role] : ''),
 )
+const themeToggleTitle = computed(() => `切换界面主题（当前：${themeLabel(currentTheme.value)}）`)
 watch(() => route.fullPath, () => {
   mobileMenuOpen.value = false
   // 内容区独立滚动:切换页面后从顶部开始,避免沿用上一页的滚动位置
@@ -236,6 +238,13 @@ async function logout() {
         </div>
         <div class="ops-topbar-actions">
           <el-button class="ops-preview-button" text @click="feedbackPreview = true"><AppIcon name="workflow" :size="16" /><span>动效预览</span></el-button>
+          <button
+            type="button"
+            class="ops-theme-toggle"
+            :title="themeToggleTitle"
+            :aria-label="themeToggleTitle"
+            @click="toggleTheme"
+          ><AppIcon name="palette" :size="18" /></button>
           <NotificationBell />
         </div>
       </header>
@@ -325,6 +334,9 @@ async function logout() {
 @media (max-width: 560px) { .ops-topbar-location { gap: 8px; } }
 .ops-preview-button :deep(> span) { gap: 7px; }
 .ops-preview-button { color: var(--ops-brand); }
+.ops-theme-toggle { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ops-muted); cursor: pointer; transition: background-color var(--ops-duration-fast) var(--ops-ease-standard), color var(--ops-duration-fast) var(--ops-ease-standard); }
+.ops-theme-toggle:hover { background: var(--ops-surface-warm); color: var(--ops-brand); }
+.ops-theme-toggle:focus-visible { outline: 2px solid var(--ops-brand); outline-offset: 1px; }
 @media (max-width: 560px) { .ops-breadcrumb-parent, .ops-breadcrumb-divider { display: none; } .ops-topbar { gap: 8px; } }
 </style>
 

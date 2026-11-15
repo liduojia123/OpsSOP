@@ -28,6 +28,7 @@ vi.mock('vue-router', () => ({ useRouter: () => mocks.router }))
 vi.mock('element-plus', () => ({ ElMessage: mocks.message }))
 
 import ProfileDialog from '../src/components/ProfileDialog.vue'
+import { DEFAULT_THEME, THEME_STORAGE_KEY, applyTheme } from '../src/theme'
 
 const stubs = {
   'el-dialog': defineComponent({
@@ -82,6 +83,8 @@ function mountDialog() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.localStorage.clear()
+  applyTheme(DEFAULT_THEME)
   mocks.api.patch.mockResolvedValue({ data: { ...mocks.auth.user, signature: '新签名' } })
   mocks.api.post.mockResolvedValue({ data: null })
   mocks.router.replace.mockResolvedValue(undefined)
@@ -125,6 +128,19 @@ describe('ProfileDialog', () => {
     await button!.trigger('click')
     expect(mocks.message.warning).toHaveBeenCalledWith('两次输入的新密码不一致')
     expect(mocks.api.post).not.toHaveBeenCalled()
+  })
+
+  it('切换界面主题会写入 html 标记并保存在当前浏览器', async () => {
+    const wrapper = mountDialog()
+    const classic = wrapper.findAll('.profile-theme-option').find((b) => b.text().includes('经典档案'))
+    expect(classic).toBeTruthy()
+    await classic!.trigger('click')
+    expect(document.documentElement.dataset.theme).toBe('classic')
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('classic')
+
+    const signal = wrapper.findAll('.profile-theme-option').find((b) => b.text().includes('信号光'))
+    await signal!.trigger('click')
+    expect(document.documentElement.dataset.theme).toBe('signal')
   })
 
   it('密码修改成功后退出并跳转登录页', async () => {

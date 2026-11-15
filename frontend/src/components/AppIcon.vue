@@ -32,6 +32,7 @@ const paths: Record<string, string> = {
   folder: 'M3 6h7l2 2h9v12H3z M3 6V4h7l2 2',
   workflow: 'M3 3h6v6H3z M15 15h6v6h-6z M15 3h6v6h-6z M9 6h6 M6 9v9h9',
   bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8 M10.3 21a2 2 0 0 0 3.4 0',
+  palette: 'M12 3a9 9 0 1 0 0 18h1.4a2.2 2.2 0 0 0 1.4-3.9 2.2 2.2 0 0 1 1.4-3.9H19a2 2 0 0 0 2-2A9 9 0 0 0 12 3z M8 9.5h.01 M11 7h.01 M15 7.5h.01 M17.5 11h.01',
 }
 </script>
 

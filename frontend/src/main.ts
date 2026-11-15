@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import { initTheme } from './theme'
 import 'element-plus/dist/index.css'
 import './style.css'
 import '../assets/design-tokens.css'
@@ -9,8 +10,12 @@ import './styles/base.css'
 import './styles/element.css'
 import './styles/components.css'
 import './styles/motion.css'
+import './styles/themes/classic.css'
 import App from './App.vue'
 import router from './router'
+
+// 挂载前恢复上次选择的主题，避免先按默认主题渲染再切换。
+initTheme()
 
 const app = createApp(App)
 app.use(createPinia())

@@ -6,7 +6,7 @@
 
 OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题记录、证据补充、人工确认、案例审核和 SOP 发布连接起来，并提供可选的 AI 排查助手与知识检索。
 
-全站界面已统一为浅色线条风格：覆盖工作台、故障、案例、SOP、搜索、AI 对话、监控和管理，包含背景/面板线条动效、真实请求驱动的能量加载反馈、手机会话栏和侧栏收起；实现与验证范围见[界面说明](docs/ui-redesign.md)。
+全站界面已统一为浅色线条风格：覆盖工作台、故障、案例、SOP、搜索、AI 对话、监控和管理，包含背景/面板线条动效、真实请求驱动的能量加载反馈、手机会话栏和侧栏收起；个人资料与顶栏可切换「信号光 / 经典档案」两套主题，选择保存在当前浏览器。实现与验证范围见[界面说明](docs/ui-redesign.md)。
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [本地开发](DEVELOPING.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [统一检索](docs/search.md) · [AI 对话](docs/chat.md) · [站内通知与时间线](docs/notifications.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 

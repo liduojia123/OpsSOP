@@ -1,0 +1,599 @@
+/* 经典档案主题：archive/frontend-classic 分支（3.6 信号档案）的可选外观。
+ *
+ * 只通过 html[data-theme="classic"] 覆盖变量与外观，不改变页面结构、路由、状态与权限：
+ * - 设计变量回落到 3.6 的石墨导航、暖纸底色、深色标题区与 5–8px 小圆角；
+ * - 补充 3.7 新增组件的经典配色（信号背景、能量加载、顶部请求线、入场动画、侧栏收起），
+ *   避免“浅色界面里嵌一块深色”的割裂；
+ * - 关闭 3.7 专属的循环装饰（面板流光、行首色条、按钮下划线），经典版本更安静；
+ * - 页面正文、语义状态、权限与业务状态仍使用同一套语义色，不因主题改变含义。
+ */
+
+html[data-theme="classic"] {
+  /* 品牌与纸面 */
+  --ops-brand: #c94b25;
+  --ops-brand-hover: #aa381a;
+  --ops-brand-pressed: #933016;
+  --ops-brand-soft: #fbece5;
+  --ops-brand-mark: #f16a3c;
+  --ops-brand-line: #f2dccf;
+  --ops-brand-ink: #bd4824;
+  --ops-ink-on-dark: #f8f5eb;
+  --ops-paper-active: #f1ede1;
+  --ops-paper-band: #eee9dd;
+  --ops-warm-line: #e6dbc4;
+  --ops-warm-line-soft: #f0eadf;
+  --ops-row-hover: #fbf6ec;
+  --ops-code-surface: #24262a;
+  --ops-hero: #24262a;
+  --ops-code-text: #f3ead8;
+  --ops-metric-ink: #2c2b28;
+  --ops-metric-label: #67645d;
+  --ops-metric-note: #938a79;
+  --ops-canvas: #f2f0e9;
+  --ops-surface: #fffefa;
+  --ops-surface-muted: #faf7ef;
+  --ops-surface-warm: #f4f0e6;
+  --ops-surface-warm-strong: #efebe1;
+
+  /* 石墨导航 */
+  --ops-sidebar: #1c1e21;
+  --ops-sidebar-raised: #25262a;
+  --ops-sidebar-line: #37383c;
+  --ops-sidebar-text: #b8babd;
+  --ops-sidebar-muted: #969797;
+
+  /* 正文墨色 */
+  --ops-text: #232326;
+  --ops-text-soft: #45443f;
+  --ops-muted: #77746e;
+  --ops-faint: #938a79;
+
+  /* 结构边线 */
+  --ops-border: #dedbd2;
+  --ops-border-light: #e9e4d9;
+  --ops-border-strong: #c9c4b8;
+
+  /* 字号、形状与节奏 */
+  --ops-font-body: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --ops-text-sm: 13px;
+  --ops-text-title: 28px;
+  --ops-text-hero: 44px;
+  --ops-text-metric: 54px;
+  --ops-radius-control: 5px;
+  --ops-radius-panel: 7px;
+  --ops-radius-dialog: 8px;
+  --ops-header-height: 58px;
+  --ops-control-height: 34px;
+  --ops-table-row-height: 60px;
+  --ops-shadow-panel: 0 1px 2px rgb(28 30 33 / 4%);
+  --ops-overlay: rgb(28 30 33 / 34%);
+  --ops-duration-fast: 140ms;
+  --ops-duration-base: 180ms;
+  --ops-duration-panel: 240ms;
+  --ops-signal-stripe: repeating-linear-gradient(135deg, #e76338 0 7px, #27282b 7px 14px);
+
+  /* Element Plus 的边线与占位色跟随暖纸底色 */
+  --el-text-color-placeholder: #a8a49a;
+  --el-text-color-disabled: #b8b4aa;
+  --el-border-color-extra-light: #f1ece2;
+}
+
+/* ===== 应用外壳：石墨侧栏、暖纸画布、浅暖顶栏 ===== */
+html[data-theme="classic"] body {
+  background: var(--ops-canvas);
+}
+
+html[data-theme="classic"] .ops-signal-backdrop {
+  display: none;
+}
+
+html[data-theme="classic"] .ops-sidebar {
+  border-right: 1px solid var(--ops-sidebar-line);
+}
+
+html[data-theme="classic"] .ops-sidebar .ops-logo,
+html[data-theme="classic"] .ops-login-story .ops-logo {
+  --logo-ink: var(--ops-ink-on-dark);
+  --logo-signal: var(--ops-brand-mark);
+}
+
+html[data-theme="classic"] .ops-brand-link {
+  color: var(--ops-ink-on-dark);
+}
+
+html[data-theme="classic"] .ops-nav-caption {
+  color: #797c80;
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+
+html[data-theme="classic"] .ops-nav-group + .ops-nav-group {
+  margin-top: 34px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+html[data-theme="classic"] .ops-nav-link {
+  min-height: 46px;
+  border-radius: 4px;
+}
+
+/* 3.7 的悬停下划线在经典版本不出现 */
+html[data-theme="classic"] .ops-nav-link::after {
+  display: none;
+}
+
+html[data-theme="classic"] .ops-nav-link:hover {
+  background: #292b2e;
+  color: #fff;
+}
+
+html[data-theme="classic"] .ops-nav-link:hover > svg {
+  color: var(--ops-brand-mark);
+}
+
+html[data-theme="classic"] .ops-nav-link.is-active {
+  background: var(--ops-paper-active);
+  color: #25262a;
+}
+
+html[data-theme="classic"] .ops-nav-link.is-active > svg {
+  color: #25262a;
+}
+
+html[data-theme="classic"] .ops-sidebar-mode {
+  border-radius: 4px;
+}
+
+html[data-theme="classic"] .ops-sidebar-mode.is-demo {
+  color: #d7b493;
+  border-color: #4a4239;
+}
+
+html[data-theme="classic"] .ops-account-main:hover {
+  background: #35363a;
+}
+
+html[data-theme="classic"] .ops-avatar {
+  border-color: #47474b;
+  background: #35363a;
+  color: #eedec4;
+}
+
+html[data-theme="classic"] .ops-account-copy strong {
+  color: #e9e5dc;
+}
+
+html[data-theme="classic"] .ops-logout-button:hover {
+  background: #35363a;
+  color: #fff8ec;
+}
+
+html[data-theme="classic"] .ops-topbar {
+  background: var(--ops-paper-band);
+}
+
+html[data-theme="classic"] .ops-main {
+  background: var(--ops-canvas);
+}
+
+/* ===== 登录：深色品牌区、暖纸表单、深色主按钮 ===== */
+html[data-theme="classic"] .ops-login {
+  background: var(--ops-surface);
+}
+
+html[data-theme="classic"] .ops-login-story {
+  border-right: 1px solid var(--ops-sidebar-line);
+  background-color: #222428;
+  background-image: linear-gradient(#ffffff05 1px, transparent 1px), linear-gradient(90deg, #ffffff05 1px, transparent 1px);
+  background-size: 40px 40px;
+  color: #f6f1e5;
+}
+
+html[data-theme="classic"] .ops-login-story .ops-signal-backdrop {
+  display: none;
+}
+
+html[data-theme="classic"] .ops-login-story::after {
+  content: 'FIELD NOTES / SYSTEM MEMORY';
+  position: absolute;
+  top: 39px;
+  right: 26px;
+  color: #79776f;
+  font-family: var(--ops-font-mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  writing-mode: vertical-rl;
+}
+
+html[data-theme="classic"] .ops-login-story h1 {
+  color: #f2ecdf;
+}
+
+html[data-theme="classic"] .ops-map-node {
+  border-color: #53514b;
+  border-radius: 4px;
+  background: #2a2c30;
+  box-shadow: 8px 8px 0 #17191c;
+}
+
+html[data-theme="classic"] .ops-map-node strong {
+  color: #e7dfcb;
+}
+
+html[data-theme="classic"] .ops-map-review {
+  border-color: #f0e8d6;
+  background: #f0e8d6;
+}
+
+html[data-theme="classic"] .ops-map-review strong {
+  color: #292b2e;
+}
+
+html[data-theme="classic"] .ops-knowledge-connections circle {
+  stroke: #4b4a45;
+}
+
+html[data-theme="classic"] .ops-login-access {
+  background: #f7f3e9;
+}
+
+html[data-theme="classic"] .ops-login-form .el-input__wrapper {
+  background: #fffdf6;
+}
+
+html[data-theme="classic"] .ops-login-submit {
+  border-color: #282a2d;
+  background: #282a2d;
+}
+
+html[data-theme="classic"] .ops-login-submit:hover {
+  border-color: var(--ops-brand);
+  background: var(--ops-brand);
+}
+
+html[data-theme="classic"] .ops-login-progress.is-compact {
+  border-radius: 4px;
+}
+
+/* ===== 工作台：深色标题区与知识循环图形（标题区文案仅在经典档案主题渲染） ===== */
+html[data-theme="classic"] .ops-dashboard .ops-page-header {
+  display: block;
+  position: relative;
+  min-height: 245px;
+  padding: 30px 34px;
+  margin-bottom: 24px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--ops-radius-panel);
+  background: var(--ops-hero);
+  color: #f5f0e3;
+}
+
+/* 右侧斜纹是经典标题区的品牌标记，替代 3.7 的橙色定位线 */
+html[data-theme="classic"] .ops-dashboard .ops-page-header::after {
+  content: '';
+  display: block;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: 11px;
+  height: 100%;
+  background: var(--ops-signal-stripe);
+  pointer-events: none;
+}
+
+html[data-theme="classic"] .ops-dashboard .ops-page-header .ops-eyebrow {
+  color: #b3aba0;
+  font-size: 10px;
+  letter-spacing: 2.4px;
+}
+
+html[data-theme="classic"] .ops-dashboard .ops-page-header h1 {
+  max-width: 620px;
+  margin: 16px 0 12px;
+  color: #fbf7ed;
+  font-size: var(--ops-text-hero);
+  font-weight: var(--ops-weight-bold);
+  line-height: 1.17;
+  letter-spacing: -2px;
+}
+
+html[data-theme="classic"] .signal-cursor {
+  color: var(--ops-brand-mark);
+}
+
+html[data-theme="classic"] .ops-dashboard .ops-page-header .ops-page-description {
+  max-width: 520px;
+  margin: 0;
+  color: #aaa8a1;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+/* 知识循环图形：纯装饰，不随数据变化 */
+html[data-theme="classic"] .signal-art {
+  position: absolute;
+  top: 25px;
+  right: 44px;
+  width: 270px;
+  pointer-events: none;
+}
+
+html[data-theme="classic"] .signal-art svg {
+  width: 270px;
+  height: 135px;
+  stroke: #686865;
+  stroke-width: 1;
+}
+
+html[data-theme="classic"] .signal-art svg circle:not(.signal-node) {
+  fill: var(--ops-brand-mark);
+  stroke: var(--ops-brand-mark);
+}
+
+html[data-theme="classic"] .signal-art .signal-node {
+  fill: #f4e7c7;
+  stroke: #f4e7c7;
+  animation: ops-node-drift 11s var(--ops-ease-standard) infinite alternate;
+}
+
+html[data-theme="classic"] .signal-art .signal-node:nth-of-type(2) {
+  animation-delay: -4.5s;
+}
+
+html[data-theme="classic"] .signal-art-label {
+  display: block;
+  color: #d3c5a9;
+  font-family: var(--ops-font-mono);
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  text-align: center;
+}
+
+html[data-theme="classic"] .signal-art-caption {
+  display: block;
+  margin-top: -8px;
+  color: #94938e;
+  font-family: var(--ops-font-mono);
+  font-size: 8px;
+  letter-spacing: 1.2px;
+  text-align: center;
+}
+
+@keyframes ops-node-drift {
+  from { transform: translate(0, 0); }
+  to { transform: translate(2px, -2px); }
+}
+
+html[data-theme="classic"] .ops-dashboard-primary {
+  position: absolute;
+  right: 44px;
+  bottom: 25px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid #f0e9d8;
+  border-radius: 3px;
+  background: #f0e9d8;
+  color: #27282b;
+  font-size: 12px;
+}
+
+html[data-theme="classic"] .ops-dashboard-primary:hover {
+  border-color: #fff9eb;
+  background: #fff9eb;
+  color: var(--ops-brand);
+  transform: none;
+}
+
+/* 3.7 新增的知识工作流条沿用当前结构，改为经典版本的暖纸卡片与静态轨道 */
+html[data-theme="classic"] .ops-flow-strip {
+  border-radius: var(--ops-radius-panel);
+  background: var(--ops-surface);
+}
+
+html[data-theme="classic"] .ops-flow-strip > a::before {
+  display: none;
+}
+
+html[data-theme="classic"] .ops-flow-strip > a:hover {
+  background: var(--ops-surface-muted);
+}
+
+/* 指标带：5–7px 小圆角、暖纸底色与等宽数字 */
+html[data-theme="classic"] .ops-metric-grid {
+  margin: 0 0 24px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-panel);
+  background: var(--ops-surface);
+}
+
+html[data-theme="classic"] .ops-metric-card {
+  padding: 20px 24px 17px;
+  border-right-color: var(--ops-border);
+}
+
+html[data-theme="classic"] .ops-metric-card:hover {
+  background: var(--ops-surface-muted);
+}
+
+html[data-theme="classic"] .ops-metric-top {
+  color: var(--ops-metric-label);
+  font-size: 11px;
+}
+
+html[data-theme="classic"] .ops-metric-card > strong {
+  margin: 15px 0 0;
+  color: var(--ops-metric-ink);
+  font-size: var(--ops-text-metric);
+  font-weight: var(--ops-weight-medium);
+  letter-spacing: -4px;
+}
+
+html[data-theme="classic"] .ops-metric-arrow {
+  color: #8b8578;
+}
+
+html[data-theme="classic"] .ops-metric-card.is-brand {
+  background: #ede9df;
+}
+
+html[data-theme="classic"] .ops-metric-card.is-brand > strong {
+  color: var(--ops-brand-ink);
+}
+
+html[data-theme="classic"] .ops-dashboard-grid {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-areas: "sops review" "sops faults" "categories categories";
+  gap: 22px;
+}
+
+/* ===== 通用页头与面板：经典版本不使用橙色定位线与流光装饰 ===== */
+html[data-theme="classic"] .ops-page {
+  padding: 30px var(--ops-page-gutter) 40px;
+}
+
+html[data-theme="classic"] .ops-page-header {
+  padding-bottom: 0;
+  margin-bottom: 24px;
+  border-bottom: 0;
+}
+
+html[data-theme="classic"] .ops-page-header::after {
+  display: none;
+}
+
+html[data-theme="classic"] .ops-page-header h1 {
+  margin: 4px 0 6px;
+}
+
+html[data-theme="classic"] .ops-page-description {
+  margin: 0;
+}
+
+html[data-theme="classic"] .ops-section-header {
+  min-height: 54px;
+  padding: 16px 20px;
+}
+
+html[data-theme="classic"] .ops-filter-bar {
+  padding: 16px 20px;
+}
+
+html[data-theme="classic"] .ops-panel::after,
+html[data-theme="classic"] .page-card::after,
+html[data-theme="classic"] .ops-panel::before,
+html[data-theme="classic"] .page-card::before {
+  display: none;
+}
+
+/* 3.7 的按钮/输入下划线反馈在经典版本关闭，保留聚焦环与按下反馈 */
+html[data-theme="classic"] .el-button:not(.is-loading)::after,
+html[data-theme="classic"] .el-input__wrapper::after,
+html[data-theme="classic"] .el-textarea::after {
+  display: none;
+}
+
+/* ===== 表格与表单细节沿用 3.6 的密度 ===== */
+html[data-theme="classic"] .el-table {
+  --el-table-row-hover-bg-color: #fbf5ea;
+}
+
+html[data-theme="classic"] .el-table th.el-table__cell {
+  height: 42px;
+  font-size: 11px;
+}
+
+html[data-theme="classic"] .el-table td.el-table__cell {
+  padding: 13px 0;
+}
+
+html[data-theme="classic"] .el-table__body tr:hover > td:first-child {
+  box-shadow: none;
+}
+
+html[data-theme="classic"] .el-tag {
+  font-size: 11px;
+}
+
+/* ===== 3.7 新增的加载与入场组件：补上经典配色与更小的圆角 ===== */
+html[data-theme="classic"] .ops-energy {
+  border-color: var(--ops-border);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+html[data-theme="classic"] .ops-request-caption {
+  border-radius: 6px;
+}
+
+html[data-theme="classic"] .ops-page-loading .ops-loading-lines i {
+  border-radius: 2px;
+}
+
+html[data-theme="classic"] .ops-entrance-half {
+  background-color: var(--ops-surface);
+  background-image: radial-gradient(#c94b2514 0.6px, transparent 0.6px);
+}
+
+/* ===== 窄屏：保持经典版本的紧凑标题区与单列面板 ===== */
+@media (max-width: 1200px) {
+  html[data-theme="classic"] .ops-dashboard .ops-page-header h1 {
+    font-size: 40px;
+  }
+}
+
+@media (max-width: 1050px) {
+  html[data-theme="classic"] .ops-metric-grid {
+    margin-bottom: 22px;
+    border: 0;
+    border-radius: 0;
+  }
+
+  html[data-theme="classic"] .ops-metric-card {
+    border: 1px solid var(--ops-border);
+    border-radius: var(--ops-radius-panel);
+  }
+
+  html[data-theme="classic"] .ops-dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "sops" "review" "faults" "categories";
+    gap: 18px;
+  }
+}
+
+@media (max-width: 760px) {
+  html[data-theme="classic"] .signal-art {
+    display: none;
+  }
+
+  html[data-theme="classic"] .ops-dashboard .ops-page-header {
+    min-height: 275px;
+    padding: 25px;
+  }
+
+  html[data-theme="classic"] .ops-dashboard .ops-page-header h1 {
+    font-size: 36px;
+    letter-spacing: -1.6px;
+  }
+
+  html[data-theme="classic"] .ops-dashboard-primary {
+    right: 25px;
+    bottom: 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  html[data-theme="classic"] .ops-dashboard .ops-page-header {
+    padding: 22px 20px;
+  }
+
+  html[data-theme="classic"] .ops-dashboard .ops-page-header h1 {
+    font-size: 31px;
+  }
+}

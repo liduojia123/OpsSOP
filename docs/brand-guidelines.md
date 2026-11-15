@@ -15,6 +15,15 @@
 
 成功、警告、危险继续使用各自语义色，不能把品牌橙当作系统健康信号。工具栏和助手使用同一组语义色：成功 `#0B6B55`、警告 `#9B6713`、危险 `#B94742`、信息 `#436A9C`，各自配套浅底与边线。
 
+## 主题
+
+全站两套可选外观共用同一组语义色与状态色，只在「个人资料 → 界面主题」或顶栏调色板按钮切换：
+
+- **信号光（默认）**：浅色线条、白色侧栏、冷灰画布；变量为 `frontend/assets/design-tokens.css` 中的 `--ops-*`。
+- **经典档案（可选）**：石墨导航、暖纸底色、深色标题区与更小圆角（3.6 信号档案）；变量与覆盖在 `frontend/src/styles/themes/classic.css`，通过 `html[data-theme="classic"]` 生效。
+
+新增组件或页面必须同时检查两套主题：经典档案主题要补上对应配色、圆角与深色标题区细节。主题只覆盖展示层，演示标识、失败提示、用量未知与权限说明在两套主题下都必须保留，也不能用主题切换改变接口、权限或状态。
+
 ## 构图与文字
 
 品牌标志采用 OS 融合图形与 OpsSOP 字标，源图为 `frontend/assets/opssop-logo-v3.png`。登录页与导航统一通过 `AppLogo.vue` 使用该图形，保留原稿轮廓和字形；浅色背景使用信号橙与墨色，深色背景使用亮橙与暖白以保证可读性。组件仅在布局中裁去透明留白，不拉伸标志，不再使用通用工作流图标代替 Logo。
@@ -38,6 +47,7 @@
 |`frontend/src/styles/element.css`|Element Plus 主题变量映射与组件结构样式|
 |`frontend/src/styles/components.css`|页面骨架、面板、筛选条、空状态、加载失败等通用组件|
 |`frontend/src/styles/motion.css`|路由切换、错峰入场、结果淡入、行悬停与 `prefers-reduced-motion`|
+|`frontend/src/styles/themes/classic.css`|经典档案主题：`html[data-theme="classic"]` 下的变量与外观覆盖，含 3.7 新增组件的补充样式|
 
 页面构图与响应式规则保留在各视图的 scoped 样式中，只引用上表变量。上一版 `signal.css` 覆盖层已删除；如新增外观，应扩展变量或通用组件，而不是再用 `#app` 前缀叠加选择器。
 

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import EnergyProgress from '../components/EnergyProgress.vue'
 import client, { errMsg } from '../api'
+import { currentTheme } from '../theme'
 import { caseStatusMap, faultStatusMap, fmtTime, sopStatusMap } from '../labels'
 import { useAuthStore } from '../stores/auth'
 import type { Workbench } from '../types'
@@ -11,6 +12,8 @@ const auth = useAuthStore()
 const wb = ref<Workbench | null>(null)
 const loading = ref(true)
 const loadError = ref('')
+// 经典档案主题沿用 3.6 的深色标题区文案；其余主题保持当前简洁页头。
+const isClassic = computed(() => currentTheme.value === 'classic')
 
 const metrics = computed(() => [
   { label: '我的待处理故障', value: wb.value?.my_open_faults.length ?? 0, icon: 'activity', path: '/faults', tone: 'default' },
@@ -42,8 +45,18 @@ onMounted(loadWorkbench)
 <template>
   <div class="ops-page ops-dashboard">
     <div class="ops-page-header">
-      <div>
+      <div v-if="isClassic">
+        <div class="ops-eyebrow">OPSSOP / OPERATIONS MEMORY</div>
+        <h1 aria-label="工作台">故障有解。<br />经验有迹<span class="signal-cursor">_</span></h1>
+        <p class="ops-page-description">记录现场，确认根因，让一次解决成为下一次的起点。</p>
+      </div>
+      <div v-else>
         <h1>工作台</h1>
+      </div>
+      <div v-if="isClassic" class="signal-art" aria-hidden="true">
+        <span class="signal-art-label">THE KNOWLEDGE LOOP</span>
+        <svg viewBox="0 0 300 150" fill="none"><ellipse cx="150" cy="75" rx="125" ry="38" transform="rotate(-25 150 75)"/><ellipse cx="150" cy="75" rx="125" ry="38" transform="rotate(25 150 75)"/><path d="M25 75h250M150 15v120" stroke-dasharray="2 7"/><circle cx="150" cy="75" r="23"/><circle cx="40" cy="103" r="5" class="signal-node"/><circle cx="258" cy="46" r="5" class="signal-node"/></svg>
+        <span class="signal-art-caption">OBSERVE / RESOLVE / REMEMBER</span>
       </div>
       <router-link v-if="auth.role !== 'reviewer'" to="/faults" class="ops-dashboard-primary">
         <AppIcon name="activity" :size="16" /><span>处理故障</span><AppIcon name="arrow-right" :size="16" />

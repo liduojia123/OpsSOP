@@ -12,6 +12,7 @@ import { ElMessage } from 'element-plus'
 import client, { errMsg } from '../api'
 import AppIcon from './AppIcon.vue'
 import { fmtTime, roleMap } from '../labels'
+import { currentTheme, setTheme, THEME_OPTIONS } from '../theme'
 import { useAuthStore } from '../stores/auth'
 import type { User } from '../types'
 
@@ -20,6 +21,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 
 const auth = useAuthStore()
 const router = useRouter()
+const theme = currentTheme
 const form = reactive({ signature: '', avatar: '' })
 const avatarInput = ref<HTMLInputElement | null>(null)
 const saving = ref(false)
@@ -231,6 +233,37 @@ async function changePassword() {
 
     <div class="profile-divider"></div>
 
+    <section class="profile-theme">
+      <div class="profile-section-title">
+        <span class="profile-section-icon"><AppIcon name="palette" :size="16" /></span>
+        <div>
+          <strong>界面主题</strong>
+          <p>只改变外观，立即生效，不影响数据、权限与业务流程；选择保存在当前浏览器。</p>
+        </div>
+      </div>
+      <div class="profile-theme-grid" role="radiogroup" aria-label="界面主题">
+        <button
+          v-for="option in THEME_OPTIONS"
+          :key="option.value"
+          type="button"
+          class="profile-theme-option"
+          :class="{ 'is-selected': theme === option.value }"
+          role="radio"
+          :aria-checked="theme === option.value"
+          @click="setTheme(option.value)"
+        >
+          <span class="profile-theme-preview" :class="'is-' + option.value" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="profile-theme-copy">
+            <strong>{{ option.label }}</strong>
+            <small>{{ option.note }}</small>
+          </span>
+          <AppIcon v-if="theme === option.value" name="check" :size="14" class="profile-theme-check" />
+        </button>
+      </div>
+    </section>
+
+    <div class="profile-divider"></div>
+
     <section class="profile-password">
       <div class="profile-section-title">
         <span class="profile-section-icon"><AppIcon name="lock" :size="16" /></span>
@@ -287,11 +320,28 @@ async function changePassword() {
 .profile-section-title p { margin: 3px 0 0; color: var(--ops-muted); font-size: 11px; line-height: 1.6; }
 .profile-password-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 14px; }
 .profile-password :deep(.el-form-item) { margin-bottom: 12px; }
+.profile-theme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.profile-theme-option { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 12px; border: 1px solid var(--ops-border); border-radius: var(--ops-radius-control); background: var(--ops-surface); color: var(--ops-text); text-align: left; cursor: pointer; transition: border-color var(--ops-duration-fast) var(--ops-ease-standard), background-color var(--ops-duration-fast) var(--ops-ease-standard); }
+.profile-theme-option:hover { border-color: var(--ops-border-strong); background: var(--ops-surface-muted); }
+.profile-theme-option.is-selected { border-color: var(--ops-brand); background: var(--ops-brand-soft); }
+.profile-theme-preview { display: flex; flex-direction: column; justify-content: space-between; flex-shrink: 0; width: 46px; height: 34px; padding: 4px; border: 1px solid var(--ops-border); border-radius: 3px; overflow: hidden; }
+.profile-theme-preview i { display: block; height: 3px; border-radius: 1px; }
+.profile-theme-preview.is-signal { background: #ffffff; }
+.profile-theme-preview.is-signal i { background: #d9e0e8; }
+.profile-theme-preview.is-signal i:first-child { width: 70%; background: #c94b25; }
+.profile-theme-preview.is-classic { background: #f2f0e9; }
+.profile-theme-preview.is-classic i { background: #dedbd2; }
+.profile-theme-preview.is-classic i:first-child { width: 70%; background: #1c1e21; }
+.profile-theme-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.profile-theme-copy strong { color: var(--ops-text); font-size: 13px; font-weight: 600; }
+.profile-theme-copy small { color: var(--ops-muted); font-size: 10px; line-height: 1.5; }
+.profile-theme-check { flex-shrink: 0; margin-left: auto; color: var(--ops-brand); }
 @media (max-width: 640px) {
   .profile-layout { grid-template-columns: minmax(0, 1fr); }
   .profile-avatar-block { align-items: flex-start; }
   .profile-avatar-actions { justify-content: flex-start; }
   .profile-password-grid { grid-template-columns: minmax(0, 1fr); }
+  .profile-theme-grid { grid-template-columns: minmax(0, 1fr); }
   .profile-hint { text-align: left; }
 }
 </style>
