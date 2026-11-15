@@ -24,7 +24,7 @@ Requires Docker Engine and Docker Compose 2.24.4+.
 ```bash
 git clone https://github.com/liduojia123/OpsSOP.git
 cd OpsSOP
-git checkout v3.7.1
+git checkout v3.7.2
 cp .env.example .env        # set POSTGRES_PASSWORD, SECRET_KEY, OPSSOP_ADMIN_PASSWORD
 docker compose up -d --build
 ```

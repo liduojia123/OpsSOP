@@ -10,7 +10,7 @@ OpsSOP 是面向运维团队的故障知识库与 SOP 管理系统，将问题�
 
 [产品使用](docs/product-guide.md) · [部署指南](docs/deployment.md) · [本地开发](DEVELOPING.md) · [生产上线检查清单](docs/production-checklist.md) · [模型配置](docs/ai-configuration.md) · [统一检索](docs/search.md) · [AI 对话](docs/chat.md) · [站内通知与时间线](docs/notifications.md) · [监控与只读诊断](docs/monitoring.md) · [运维手册](docs/operations.md) · [版本记录](CHANGELOG.md)
 
-当前版本 **3.7.1**：全站切换为浅色信号光界面，登录图形分割入场、能量加载反馈与侧栏收起同步落地。此前版本的功能变化见[版本记录](CHANGELOG.md)。
+当前版本 **3.7.2**：新增可选「经典档案」主题（石墨导航、暖纸底色与深色标题区），默认仍为 3.7 的浅色信号光界面；登录图形分割入场、能量加载反馈与侧栏收起保持不变。此前版本的功能变化见[版本记录](CHANGELOG.md)。
 
 ## 产品能力
 

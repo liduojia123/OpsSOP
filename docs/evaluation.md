@@ -1,6 +1,6 @@
 # OpsSOP 评测指南
 
-适用版本：3.7.1。评测结果只代表对应日期的代码与环境；本地测试与 `.env.eval` 示例见[本地开发](../DEVELOPING.md)和[`.env.eval.example`](../.env.eval.example)。
+适用版本：3.7.2。评测结果只代表对应日期的代码与环境；本地测试与 `.env.eval` 示例见[本地开发](../DEVELOPING.md)和[`.env.eval.example`](../.env.eval.example)。
 
 评测工具用于检查检索、AI 分析及异常处理机制，并输出可追踪的指标。合成适配器检查系统行为，真实 API 运行观察指定模型在指定数据集上的表现，两类结果分别解释。
 

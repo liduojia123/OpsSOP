@@ -1,13 +1,18 @@
 # 版本记录
 
-## 未发布
+## 3.7.2 — 2026-11-15
 
 ### 经典档案可选主题
 
 - 新增「界面主题」：个人资料弹窗与顶栏调色板按钮可在「信号光（默认）」与「经典档案」之间切换，选择即时生效并保存在当前浏览器，不写后端，也不改变接口、权限、路由与状态流转。
 - 经典档案主题恢复 3.6 信号档案外观：石墨侧栏、暖纸画布、深色登录品牌区、深色工作台标题区、5–8px 小圆角、深色代码面与更紧凑的表格密度；工作台标题区补充 3.6 的标题、说明与知识循环图形（仅经典档案主题渲染）。
 - 为 3.7 新增组件补充经典外观：隐藏信号背景拓扑图，能量加载、顶部请求线、页面等待、登录入场与侧栏收起改用暖纸底色和小圆角；3.7 专属的面板流光、行首色条与按钮下划线在经典档案主题下关闭。
-- 主题逻辑集中在 `frontend/src/theme.ts`，经典外观覆盖在 `frontend/src/styles/themes/classic.css`，通过 `html[data-theme]` 生效；未新增依赖。
+- 主题逻辑集中在 `frontend/src/theme.ts`，经典外观覆盖在 `frontend/src/styles/themes/classic.css`，通过 `html[data-theme]` 生效；`frontend/public/theme-boot.js` 在首屏样式前恢复主题，避免刷新闪烁；未新增依赖。
+
+### 版本与文档
+
+- 产品版本更新为 3.7.2：`VERSION`、`frontend/package.json`、后端版本元数据、Dockerfile OCI 标签、Compose 镜像标签与本机演练默认镜像同步更新；文档中的示例发行标签改为 `v3.7.2`。
+- `README.md`、`README.en.md`、`docs/ui-redesign.md` 与 `docs/brand-guidelines.md` 补充主题切换方式、经典档案维护约定与验证范围。
 
 ### 验证范围
 
